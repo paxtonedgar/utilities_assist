@@ -49,24 +49,27 @@ def _local() -> Settings:
 
 
 def _jpmc() -> Settings:
-    """JPMC production profile using Azure OpenAI with AAD"""
+    """JPMC production profile using Azure OpenAI with AAD and enterprise endpoints"""
     return Settings(
         profile="jpmc_azure", 
         chat=ChatCfg(
             provider="azure", 
-            model=os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o"),
-            api_base=os.getenv("AZURE_OPENAI_ENDPOINT", "https://your-resource.openai.azure.com"), 
-            api_version="2024-06-01"
+            model=os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o-2024-08-06"),
+            api_base=os.getenv("AZURE_OPENAI_ENDPOINT", "https://llm-multitenancy-exp.jpmchase.net/ver2/"), 
+            api_version=os.getenv("AZURE_API_VERSION", "2024-10-21")
         ),
         embed=EmbedCfg(
             provider="azure", 
-            model=os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small"), 
+            model=os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small-1"), 
             dims=1536
         ),
         search=SearchCfg(
-            host=os.getenv("OS_HOST", "https://your-opensearch-host:9200"), 
-            username=os.getenv("OS_USER"), 
-            password=os.getenv("OS_PASS")
+            host=os.getenv("OPENSEARCH_ENDPOINT", "https://utilitiesassist.dev.aws.jpmchase.net"), 
+            index_alias=os.getenv("OPENSEARCH_INDEX", "khub-opensearch-index"),
+            # No username/password - uses AWS4Auth
+            username=None, 
+            password=None,
+            timeout_s=float(os.getenv("OPENSEARCH_TIMEOUT", "2.5"))
         )
     )
 

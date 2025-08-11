@@ -3,16 +3,21 @@
 
 No singletons - provides request-scoped clients with efficient LRU caching.
 Supports both OpenAI and Azure providers with flexible token management.
+Includes JPMC proxy configuration and AWS authentication support.
 """
 
 from functools import lru_cache
 from typing import Callable, Any
 import hashlib
 import requests
+import os
+import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .config import ChatCfg, EmbedCfg, SearchCfg
+
+logger = logging.getLogger(__name__)
 
 
 def _token_fingerprint(token_provider: Callable[[], str] | None) -> str:
@@ -26,6 +31,19 @@ def _token_fingerprint(token_provider: Callable[[], str] | None) -> str:
     return hashlib.md5(func_id.encode()).hexdigest()[:8]
 
 
+def _setup_jpmc_proxy():
+    """Configure JPMC proxy settings if in JPMC environment."""
+    profile = os.getenv("CLOUD_PROFILE", "local").lower()
+    if profile == "jpmc_azure":
+        os.environ["http_proxy"] = "proxy.jpmchase.net:10443"
+        os.environ["https_proxy"] = "proxy.jpmchase.net:10443"
+        if 'no_proxy' in os.environ:
+            os.environ['no_proxy'] = os.environ['no_proxy'] + ",jpmchase.net,openai.azure.com"
+        else:
+            os.environ['no_proxy'] = 'localhost,127.0.0.1,jpmchase.net,openai.azure.com'
+        logger.info("JPMC proxy configuration applied")
+
+
 @lru_cache(maxsize=8)
 def _cached_chat_client(
     provider: str, 
@@ -35,8 +53,10 @@ def _cached_chat_client(
     token_fingerprint: str
 ) -> Any:
     """Internal cached chat client creation."""
+    # Apply JPMC proxy if needed
+    _setup_jpmc_proxy()
+    
     if provider == "openai":
-        import os
         from openai import OpenAI
         
         return OpenAI(
@@ -45,7 +65,6 @@ def _cached_chat_client(
         )
     
     elif provider == "azure":
-        import os
         from openai import AzureOpenAI
         
         # For Azure, we'll handle token in the wrapper
@@ -68,8 +87,10 @@ def _cached_embed_client(
     token_fingerprint: str
 ) -> Any:
     """Internal cached embedding client creation."""
+    # Apply JPMC proxy if needed
+    _setup_jpmc_proxy()
+    
     if provider == "openai":
-        import os
         from openai import OpenAI
         
         return OpenAI(
@@ -78,7 +99,6 @@ def _cached_embed_client(
         )
     
     elif provider == "azure":
-        import os
         from openai import AzureOpenAI
         
         return AzureOpenAI(
@@ -92,15 +112,45 @@ def _cached_embed_client(
         raise ValueError(f"Unsupported embed provider: {provider}")
 
 
+def _get_aws_auth():
+    """Get AWS4Auth for OpenSearch authentication in JPMC environment."""
+    try:
+        import boto3
+        from requests_aws4auth import AWS4Auth
+        
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        region = 'us-east-1'
+        
+        logger.info("AWS credentials configured for OpenSearch authentication")
+        return AWS4Auth(
+            credentials.access_key, 
+            credentials.secret_key, 
+            region, 
+            'es', 
+            session_token=credentials.token
+        )
+    except ImportError:
+        logger.warning("AWS4Auth not available - install requests-aws4auth for JPMC OpenSearch")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to configure AWS authentication: {e}")
+        return None
+
+
 @lru_cache(maxsize=8)
 def _cached_search_session(
     host: str,
     index_alias: str,
     username: str | None,
     password: str | None, 
-    timeout_s: float
+    timeout_s: float,
+    use_aws_auth: bool = False
 ) -> requests.Session:
     """Internal cached search session creation."""
+    # Apply JPMC proxy if needed
+    _setup_jpmc_proxy()
+    
     session = requests.Session()
     
     # Configure retries with exponential backoff
@@ -124,8 +174,15 @@ def _cached_search_session(
     # Configure timeouts
     session.timeout = (2.0, timeout_s)  # (connect, read)
     
-    # Configure auth if provided
-    if username and password:
+    # Configure authentication
+    if use_aws_auth:
+        # Use AWS4Auth for JPMC OpenSearch
+        aws_auth = _get_aws_auth()
+        if aws_auth:
+            session.auth = aws_auth
+            logger.info("AWS4Auth configured for OpenSearch")
+    elif username and password:
+        # Use basic auth
         session.auth = (username, password)
     
     # Keep-alive headers
@@ -158,14 +215,16 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable[[], str] | None = No
         _token_fingerprint(token_provider)
     )
     
-    # Add token to headers if Azure and token provider available
+    # Add enterprise headers for Azure JPMC deployment
     if cfg.provider == "azure" and token_provider:
         token = token_provider()
-        # Create a new client with token headers for Azure
-        if not hasattr(client, '_token_headers_set'):
+        if not hasattr(client, '_enterprise_headers_set'):
             client.default_headers = client.default_headers or {}
-            client.default_headers["Authorization"] = f"Bearer {token}"
-            client._token_headers_set = True
+            client.default_headers.update({
+                "Authorization": f"Bearer {token}",
+                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+            })
+            client._enterprise_headers_set = True
     
     return client
 
@@ -189,13 +248,16 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         _token_fingerprint(token_provider)
     )
     
-    # Add token to headers if Azure and token provider available
+    # Add enterprise headers for Azure JPMC deployment
     if cfg.provider == "azure" and token_provider:
         token = token_provider()
-        if not hasattr(client, '_token_headers_set'):
+        if not hasattr(client, '_enterprise_headers_set'):
             client.default_headers = client.default_headers or {}
-            client.default_headers["Authorization"] = f"Bearer {token}"
-            client._token_headers_set = True
+            client.default_headers.update({
+                "Authorization": f"Bearer {token}",
+                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+            })
+            client._enterprise_headers_set = True
     
     return client
 
@@ -213,14 +275,19 @@ def make_search_session(cfg: SearchCfg) -> requests.Session:
     - HTTP retries: 2 total, backoff 0.2-0.5s
     - Read timeout: configurable, Connect timeout: 2.0s
     - Keep-alive enabled
-    - Basic auth if credentials provided
+    - Basic auth or AWS4Auth for JPMC environment
     """
+    # Use AWS auth for JPMC environment
+    profile = os.getenv("CLOUD_PROFILE", "local").lower()
+    use_aws_auth = profile == "jpmc_azure"
+    
     return _cached_search_session(
         cfg.host,
         cfg.index_alias,
         cfg.username,
         cfg.password,
-        cfg.timeout_s
+        cfg.timeout_s,
+        use_aws_auth
     )
 
 

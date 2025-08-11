@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from ..infra.config import Settings
 from ..infra.clients import make_chat_client, make_embed_client, make_search_session
+from ..infra.azure_auth import azure_token_provider
 from ..services.models import TurnResult, IntentResult
 from ..services.normalize import normalize_query
 from ..services.intent import determine_intent
@@ -27,7 +28,7 @@ async def handle_turn(
         user_input: Raw user input
         settings: Application settings
         chat_history: Recent conversation history
-        token_provider: Optional token provider for Azure
+        token_provider: Optional token provider for Azure (auto-detected for JPMC)
         
     Yields:
         Dict with turn progress updates and final result
@@ -36,6 +37,11 @@ async def handle_turn(
     turn_id = f"turn_{int(start_time)}"
     
     try:
+        # Auto-detect Azure token provider for JPMC profile
+        if settings.profile == "jpmc_azure" and token_provider is None:
+            token_provider = azure_token_provider
+            logger.info("Using Azure certificate authentication for JPMC profile")
+        
         # Initialize clients
         chat_client = make_chat_client(settings.chat, token_provider)
         embed_client = make_embed_client(settings.embed, token_provider)
