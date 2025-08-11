@@ -1,0 +1,25 @@
+{
+  "_id": "doc-004",
+  "page_url": "https://docs.example.com/content-management/api-documentation",
+  "api_name": "Content Management - Admin API",
+  "utility_name": "Content Management",
+  "sections": [
+    {
+      "heading": "API Documentation",
+      "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+    },
+    {
+      "heading": "Kubernetes Pods - Container Management",
+      "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "documentation",
+    "content management",
+    "documentation"
+  ],
+  "version": "1.0"
+}

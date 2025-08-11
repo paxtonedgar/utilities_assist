@@ -1,0 +1,25 @@
+{
+  "_id": "doc-024",
+  "page_url": "https://docs.example.com/user-management/database-backup-and-recovery",
+  "api_name": "User Management - Authentication API",
+  "utility_name": "User Management",
+  "sections": [
+    {
+      "heading": "Database Backup and Recovery",
+      "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+    },
+    {
+      "heading": "Database Transactions - Data Management",
+      "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "operations",
+    "user management",
+    "documentation"
+  ],
+  "version": "1.0"
+}

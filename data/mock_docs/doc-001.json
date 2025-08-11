@@ -1,0 +1,25 @@
+{
+  "_id": "doc-001",
+  "page_url": "https://docs.example.com/api-gateway/api-rate-limiting",
+  "api_name": "API Gateway - Data API",
+  "utility_name": "API Gateway",
+  "sections": [
+    {
+      "heading": "API Rate Limiting",
+      "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+    },
+    {
+      "heading": "API Versioning - Design",
+      "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "security",
+    "api gateway",
+    "documentation"
+  ],
+  "version": "1.0"
+}

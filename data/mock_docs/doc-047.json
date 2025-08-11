@@ -1,0 +1,29 @@
+{
+  "_id": "doc-047",
+  "page_url": "https://docs.example.com/file-storage/streamlit-deployment",
+  "api_name": "File Storage - Search API",
+  "utility_name": "File Storage",
+  "sections": [
+    {
+      "heading": "Streamlit Deployment",
+      "content": "Deploy Streamlit apps using Streamlit Community Cloud, Heroku, Docker, or cloud platforms. Set up secrets management, configure requirements.txt, and use streamlit run app.py to launch your application."
+    },
+    {
+      "heading": "Getting Started with Streamlit - User Interface",
+      "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+    },
+    {
+      "heading": "OAuth 2.0 Implementation - Authentication",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "deployment",
+    "file storage",
+    "documentation"
+  ],
+  "version": "1.0"
+}

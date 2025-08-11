@@ -1,0 +1,25 @@
+{
+  "_id": "doc-020",
+  "page_url": "https://docs.example.com/authentication-service/encryption-best-practices",
+  "api_name": "Authentication Service - Search API",
+  "utility_name": "Authentication Service",
+  "sections": [
+    {
+      "heading": "Encryption Best Practices",
+      "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+    },
+    {
+      "heading": "Streamlit Session State - State Management",
+      "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "security",
+    "authentication service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

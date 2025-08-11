@@ -1,0 +1,29 @@
+{
+  "_id": "doc-021",
+  "page_url": "https://docs.example.com/file-storage/database-transactions",
+  "api_name": "File Storage - Search API",
+  "utility_name": "File Storage",
+  "sections": [
+    {
+      "heading": "Database Transactions",
+      "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+    },
+    {
+      "heading": "Kubernetes Deployments - Application Management",
+      "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+    },
+    {
+      "heading": "Kubernetes Services - Networking",
+      "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "data management",
+    "file storage",
+    "documentation"
+  ],
+  "version": "1.0"
+}

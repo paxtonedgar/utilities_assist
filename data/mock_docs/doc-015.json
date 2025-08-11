@@ -1,0 +1,29 @@
+{
+  "_id": "doc-015",
+  "page_url": "https://docs.example.com/user-management/rest-api-authentication",
+  "api_name": "User Management - Admin API",
+  "utility_name": "User Management",
+  "sections": [
+    {
+      "heading": "REST API Authentication",
+      "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+    },
+    {
+      "heading": "OAuth 2.0 Implementation - Authentication",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    },
+    {
+      "heading": "Kubernetes Secrets - Security",
+      "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "authentication",
+    "user management",
+    "documentation"
+  ],
+  "version": "1.0"
+}

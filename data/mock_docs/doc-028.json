@@ -1,0 +1,25 @@
+{
+  "_id": "doc-028",
+  "page_url": "https://docs.example.com/content-management/kubernetes-secrets",
+  "api_name": "Content Management - Admin API",
+  "utility_name": "Content Management",
+  "sections": [
+    {
+      "heading": "Kubernetes Secrets",
+      "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+    },
+    {
+      "heading": "Database Backup and Recovery - Operations",
+      "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "security",
+    "content management",
+    "documentation"
+  ],
+  "version": "1.0"
+}

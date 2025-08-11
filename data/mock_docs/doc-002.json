@@ -1,0 +1,33 @@
+{
+  "_id": "doc-002",
+  "page_url": "https://docs.example.com/monitoring-dashboard/rest-api-authentication",
+  "api_name": "Monitoring Dashboard - WebSocket API",
+  "utility_name": "Monitoring Dashboard",
+  "sections": [
+    {
+      "heading": "REST API Authentication",
+      "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+    },
+    {
+      "heading": "Kubernetes Services - Networking",
+      "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+    },
+    {
+      "heading": "Streamlit Session State - State Management",
+      "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+    },
+    {
+      "heading": "Kubernetes ConfigMaps - Configuration",
+      "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "authentication",
+    "monitoring dashboard",
+    "documentation"
+  ],
+  "version": "1.0"
+}

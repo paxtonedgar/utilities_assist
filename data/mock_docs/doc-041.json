@@ -1,0 +1,33 @@
+{
+  "_id": "doc-041",
+  "page_url": "https://docs.example.com/api-gateway/database-backup-and-recovery",
+  "api_name": "API Gateway - Public API",
+  "utility_name": "API Gateway",
+  "sections": [
+    {
+      "heading": "Database Backup and Recovery",
+      "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+    },
+    {
+      "heading": "API Rate Limiting - Security",
+      "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+    },
+    {
+      "heading": "Input Validation - Security",
+      "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+    },
+    {
+      "heading": "Kubernetes Pods - Container Management",
+      "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "operations",
+    "api gateway",
+    "documentation"
+  ],
+  "version": "1.0"
+}

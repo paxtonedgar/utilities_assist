@@ -1,0 +1,116 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 1,
+    "refresh_interval": "15s",
+    "analysis": {
+      "analyzer": {
+        "english_text": {
+          "type": "standard",
+          "stopwords": "_english_"
+        },
+        "keyword_analyzer": {
+          "type": "keyword",
+          "normalizer": "lowercase_normalizer"
+        }
+      },
+      "normalizer": {
+        "lowercase_normalizer": {
+          "type": "custom",
+          "char_filter": [],
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    },
+    "index": {
+      "knn": true,
+      "knn.algo_param.ef_search": 100
+    }
+  },
+  "mappings": {
+    "properties": {
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 1536,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "english_text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "raw": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "section": {
+        "type": "keyword",
+        "normalizer": "lowercase_normalizer",
+        "fields": {
+          "text": {
+            "type": "text",
+            "analyzer": "english_text"
+          }
+        }
+      },
+      "body": {
+        "type": "text",
+        "analyzer": "english_text",
+        "fields": {
+          "raw": {
+            "type": "text",
+            "analyzer": "standard"
+          }
+        }
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "page_id": {
+        "type": "keyword",
+        "index": true
+      },
+      "section_anchor": {
+        "type": "keyword",
+        "normalizer": "lowercase_normalizer"
+      },
+      "canonical_id": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": true
+      },
+      "acl_hash": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": false
+      },
+      "content_type": {
+        "type": "keyword"
+      },
+      "source": {
+        "type": "keyword"
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "author": {"type": "keyword"},
+          "space_key": {"type": "keyword"}, 
+          "version": {"type": "integer"},
+          "labels": {"type": "keyword"}
+        }
+      }
+    }
+  }
+}

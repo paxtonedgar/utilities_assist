@@ -1,0 +1,33 @@
+{
+  "_id": "doc-045",
+  "page_url": "https://docs.example.com/analytics-platform/database-transactions",
+  "api_name": "Analytics Platform - Admin API",
+  "utility_name": "Analytics Platform",
+  "sections": [
+    {
+      "heading": "Database Transactions",
+      "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+    },
+    {
+      "heading": "Kubernetes Deployments - Application Management",
+      "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+    },
+    {
+      "heading": "Streamlit Caching - Performance",
+      "content": "Use @st.cache_data to cache expensive computations and @st.cache_resource to cache global resources like database connections. This prevents re-computation on every app rerun and improves performance significantly."
+    },
+    {
+      "heading": "OAuth 2.0 Implementation - Authentication",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "data management",
+    "analytics platform",
+    "documentation"
+  ],
+  "version": "1.0"
+}

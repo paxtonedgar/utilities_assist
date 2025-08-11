@@ -1,0 +1,29 @@
+{
+  "_id": "doc-034",
+  "page_url": "https://docs.example.com/deployment-pipeline/oauth-2.0-implementation",
+  "api_name": "Deployment Pipeline - Authentication API",
+  "utility_name": "Deployment Pipeline",
+  "sections": [
+    {
+      "heading": "OAuth 2.0 Implementation",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    },
+    {
+      "heading": "Getting Started with Streamlit - User Interface",
+      "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+    },
+    {
+      "heading": "API Error Handling - Error Handling",
+      "content": "Return consistent error responses with HTTP status codes, error messages, and error codes. Use standard formats like RFC 7807 Problem Details or custom JSON structures with timestamp and request ID."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "authentication",
+    "deployment pipeline",
+    "documentation"
+  ],
+  "version": "1.0"
+}

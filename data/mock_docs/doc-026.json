@@ -1,0 +1,25 @@
+{
+  "_id": "doc-026",
+  "page_url": "https://docs.example.com/authentication-service/kubernetes-services",
+  "api_name": "Authentication Service - Search API",
+  "utility_name": "Authentication Service",
+  "sections": [
+    {
+      "heading": "Kubernetes Services",
+      "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+    },
+    {
+      "heading": "API Rate Limiting - Security",
+      "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "networking",
+    "authentication service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

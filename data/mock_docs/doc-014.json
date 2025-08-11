@@ -1,0 +1,25 @@
+{
+  "_id": "doc-014",
+  "page_url": "https://docs.example.com/analytics-platform/database-indexing",
+  "api_name": "Analytics Platform - REST API",
+  "utility_name": "Analytics Platform",
+  "sections": [
+    {
+      "heading": "Database Indexing",
+      "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+    },
+    {
+      "heading": "Database Transactions - Data Management",
+      "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "performance",
+    "analytics platform",
+    "documentation"
+  ],
+  "version": "1.0"
+}

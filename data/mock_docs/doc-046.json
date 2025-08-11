@@ -1,0 +1,29 @@
+{
+  "_id": "doc-046",
+  "page_url": "https://docs.example.com/authentication-service/database-indexing",
+  "api_name": "Authentication Service - Data API",
+  "utility_name": "Authentication Service",
+  "sections": [
+    {
+      "heading": "Database Indexing",
+      "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+    },
+    {
+      "heading": "API Versioning - Design",
+      "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+    },
+    {
+      "heading": "Encryption Best Practices - Security",
+      "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "performance",
+    "authentication service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

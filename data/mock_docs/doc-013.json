@@ -1,0 +1,25 @@
+{
+  "_id": "doc-013",
+  "page_url": "https://docs.example.com/authentication-service/api-versioning",
+  "api_name": "Authentication Service - Search API",
+  "utility_name": "Authentication Service",
+  "sections": [
+    {
+      "heading": "API Versioning",
+      "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+    },
+    {
+      "heading": "OAuth 2.0 Implementation - Authentication",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "design",
+    "authentication service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

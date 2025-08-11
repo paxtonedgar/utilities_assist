@@ -1,0 +1,25 @@
+{
+  "_id": "doc-043",
+  "page_url": "https://docs.example.com/notification-service/api-documentation",
+  "api_name": "Notification Service - Public API",
+  "utility_name": "Notification Service",
+  "sections": [
+    {
+      "heading": "API Documentation",
+      "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+    },
+    {
+      "heading": "Encryption Best Practices - Security",
+      "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "documentation",
+    "notification service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

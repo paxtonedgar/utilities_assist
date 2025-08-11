@@ -1,0 +1,33 @@
+{
+  "_id": "doc-023",
+  "page_url": "https://docs.example.com/notification-service/api-rate-limiting",
+  "api_name": "Notification Service - Internal API",
+  "utility_name": "Notification Service",
+  "sections": [
+    {
+      "heading": "API Rate Limiting",
+      "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+    },
+    {
+      "heading": "Database Indexing - Performance",
+      "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+    },
+    {
+      "heading": "Kubernetes Ingress - Networking",
+      "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+    },
+    {
+      "heading": "OAuth 2.0 Implementation - Authentication",
+      "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "security",
+    "notification service",
+    "documentation"
+  ],
+  "version": "1.0"
+}

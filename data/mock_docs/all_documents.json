@@ -1,0 +1,1472 @@
+[
+  {
+    "_id": "doc-001",
+    "page_url": "https://docs.example.com/api-gateway/api-rate-limiting",
+    "api_name": "API Gateway - Data API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "API Rate Limiting",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-002",
+    "page_url": "https://docs.example.com/monitoring-dashboard/rest-api-authentication",
+    "api_name": "Monitoring Dashboard - WebSocket API",
+    "utility_name": "Monitoring Dashboard",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Kubernetes Services - Networking",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "Streamlit Session State - State Management",
+        "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+      },
+      {
+        "heading": "Kubernetes ConfigMaps - Configuration",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "monitoring dashboard",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-003",
+    "page_url": "https://docs.example.com/deployment-pipeline/kubernetes-services",
+    "api_name": "Deployment Pipeline - Data API",
+    "utility_name": "Deployment Pipeline",
+    "sections": [
+      {
+        "heading": "Kubernetes Services",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      },
+      {
+        "heading": "Database Backup and Recovery - Operations",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "networking",
+      "deployment pipeline",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-004",
+    "page_url": "https://docs.example.com/content-management/api-documentation",
+    "api_name": "Content Management - Admin API",
+    "utility_name": "Content Management",
+    "sections": [
+      {
+        "heading": "API Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "documentation",
+      "content management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-005",
+    "page_url": "https://docs.example.com/user-management/streamlit-widgets",
+    "api_name": "User Management - REST API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "Streamlit Widgets",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "Kubernetes Services - Networking",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-006",
+    "page_url": "https://docs.example.com/analytics-platform/getting-started-with-streamlit",
+    "api_name": "Analytics Platform - Internal API",
+    "utility_name": "Analytics Platform",
+    "sections": [
+      {
+        "heading": "Getting Started with Streamlit",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "Streamlit Widgets - User Interface",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "REST API Authentication - Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Database Transactions - Data Management",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "analytics platform",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-007",
+    "page_url": "https://docs.example.com/monitoring-dashboard/kubernetes-ingress",
+    "api_name": "Monitoring Dashboard - Authentication API",
+    "utility_name": "Monitoring Dashboard",
+    "sections": [
+      {
+        "heading": "Kubernetes Ingress",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      },
+      {
+        "heading": "Streamlit Deployment - Deployment",
+        "content": "Deploy Streamlit apps using Streamlit Community Cloud, Heroku, Docker, or cloud platforms. Set up secrets management, configure requirements.txt, and use streamlit run app.py to launch your application."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "networking",
+      "monitoring dashboard",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-008",
+    "page_url": "https://docs.example.com/authentication-service/streamlit-deployment",
+    "api_name": "Authentication Service - Authentication API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "Streamlit Deployment",
+        "content": "Deploy Streamlit apps using Streamlit Community Cloud, Heroku, Docker, or cloud platforms. Set up secrets management, configure requirements.txt, and use streamlit run app.py to launch your application."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Streamlit Widgets - User Interface",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "Database Backup and Recovery - Operations",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "deployment",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-009",
+    "page_url": "https://docs.example.com/content-management/database-indexing",
+    "api_name": "Content Management - GraphQL API",
+    "utility_name": "Content Management",
+    "sections": [
+      {
+        "heading": "Database Indexing",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "content management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-010",
+    "page_url": "https://docs.example.com/analytics-platform/streamlit-caching",
+    "api_name": "Analytics Platform - Authentication API",
+    "utility_name": "Analytics Platform",
+    "sections": [
+      {
+        "heading": "Streamlit Caching",
+        "content": "Use @st.cache_data to cache expensive computations and @st.cache_resource to cache global resources like database connections. This prevents re-computation on every app rerun and improves performance significantly."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "analytics platform",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-011",
+    "page_url": "https://docs.example.com/user-management/rest-api-authentication",
+    "api_name": "User Management - Webhook API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Kubernetes Ingress - Networking",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-012",
+    "page_url": "https://docs.example.com/authentication-service/getting-started-with-streamlit",
+    "api_name": "Authentication Service - WebSocket API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "Getting Started with Streamlit",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "REST API Authentication - Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-013",
+    "page_url": "https://docs.example.com/authentication-service/api-versioning",
+    "api_name": "Authentication Service - Search API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "API Versioning",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "design",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-014",
+    "page_url": "https://docs.example.com/analytics-platform/database-indexing",
+    "api_name": "Analytics Platform - REST API",
+    "utility_name": "Analytics Platform",
+    "sections": [
+      {
+        "heading": "Database Indexing",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Database Transactions - Data Management",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "analytics platform",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-015",
+    "page_url": "https://docs.example.com/user-management/rest-api-authentication",
+    "api_name": "User Management - Admin API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      },
+      {
+        "heading": "Kubernetes Secrets - Security",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-016",
+    "page_url": "https://docs.example.com/monitoring-dashboard/encryption-best-practices",
+    "api_name": "Monitoring Dashboard - REST API",
+    "utility_name": "Monitoring Dashboard",
+    "sections": [
+      {
+        "heading": "Encryption Best Practices",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "monitoring dashboard",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-017",
+    "page_url": "https://docs.example.com/api-gateway/api-rate-limiting",
+    "api_name": "API Gateway - GraphQL API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "API Rate Limiting",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Kubernetes ConfigMaps - Configuration",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      },
+      {
+        "heading": "Input Validation - Security",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      },
+      {
+        "heading": "API Error Handling - Error Handling",
+        "content": "Return consistent error responses with HTTP status codes, error messages, and error codes. Use standard formats like RFC 7807 Problem Details or custom JSON structures with timestamp and request ID."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-018",
+    "page_url": "https://docs.example.com/authentication-service/api-versioning",
+    "api_name": "Authentication Service - GraphQL API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "API Versioning",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "Streamlit Widgets - User Interface",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "Input Validation - Security",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "design",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-019",
+    "page_url": "https://docs.example.com/api-gateway/kubernetes-secrets",
+    "api_name": "API Gateway - Data API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "Kubernetes Secrets",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      },
+      {
+        "heading": "Kubernetes Ingress - Networking",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-020",
+    "page_url": "https://docs.example.com/authentication-service/encryption-best-practices",
+    "api_name": "Authentication Service - Search API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "Encryption Best Practices",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      },
+      {
+        "heading": "Streamlit Session State - State Management",
+        "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-021",
+    "page_url": "https://docs.example.com/file-storage/database-transactions",
+    "api_name": "File Storage - Search API",
+    "utility_name": "File Storage",
+    "sections": [
+      {
+        "heading": "Database Transactions",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      },
+      {
+        "heading": "Kubernetes Services - Networking",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "data management",
+      "file storage",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-022",
+    "page_url": "https://docs.example.com/authentication-service/rest-api-authentication",
+    "api_name": "Authentication Service - Admin API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Database Indexing - Performance",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      },
+      {
+        "heading": "API Error Handling - Error Handling",
+        "content": "Return consistent error responses with HTTP status codes, error messages, and error codes. Use standard formats like RFC 7807 Problem Details or custom JSON structures with timestamp and request ID."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-023",
+    "page_url": "https://docs.example.com/notification-service/api-rate-limiting",
+    "api_name": "Notification Service - Internal API",
+    "utility_name": "Notification Service",
+    "sections": [
+      {
+        "heading": "API Rate Limiting",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Database Indexing - Performance",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Kubernetes Ingress - Networking",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "notification service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-024",
+    "page_url": "https://docs.example.com/user-management/database-backup-and-recovery",
+    "api_name": "User Management - Authentication API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "Database Backup and Recovery",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      },
+      {
+        "heading": "Database Transactions - Data Management",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "operations",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-025",
+    "page_url": "https://docs.example.com/monitoring-dashboard/streamlit-widgets",
+    "api_name": "Monitoring Dashboard - Search API",
+    "utility_name": "Monitoring Dashboard",
+    "sections": [
+      {
+        "heading": "Streamlit Widgets",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "monitoring dashboard",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-026",
+    "page_url": "https://docs.example.com/authentication-service/kubernetes-services",
+    "api_name": "Authentication Service - Search API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "Kubernetes Services",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "networking",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-027",
+    "page_url": "https://docs.example.com/api-gateway/streamlit-caching",
+    "api_name": "API Gateway - Data API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "Streamlit Caching",
+        "content": "Use @st.cache_data to cache expensive computations and @st.cache_resource to cache global resources like database connections. This prevents re-computation on every app rerun and improves performance significantly."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      },
+      {
+        "heading": "Kubernetes Secrets - Security",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-028",
+    "page_url": "https://docs.example.com/content-management/kubernetes-secrets",
+    "api_name": "Content Management - Admin API",
+    "utility_name": "Content Management",
+    "sections": [
+      {
+        "heading": "Kubernetes Secrets",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      },
+      {
+        "heading": "Database Backup and Recovery - Operations",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "content management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-029",
+    "page_url": "https://docs.example.com/deployment-pipeline/kubernetes-configmaps",
+    "api_name": "Deployment Pipeline - Data API",
+    "utility_name": "Deployment Pipeline",
+    "sections": [
+      {
+        "heading": "Kubernetes ConfigMaps",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      },
+      {
+        "heading": "Kubernetes Services - Networking",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "Streamlit Session State - State Management",
+        "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "configuration",
+      "deployment pipeline",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-030",
+    "page_url": "https://docs.example.com/content-management/kubernetes-services",
+    "api_name": "Content Management - WebSocket API",
+    "utility_name": "Content Management",
+    "sections": [
+      {
+        "heading": "Kubernetes Services",
+        "content": "Services provide stable network endpoints for Pods. Types include ClusterIP (internal access), NodePort (external access via node), LoadBalancer (cloud load balancer), and ExternalName (DNS alias)."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      },
+      {
+        "heading": "Database Backup and Recovery - Operations",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "networking",
+      "content management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-031",
+    "page_url": "https://docs.example.com/content-management/getting-started-with-streamlit",
+    "api_name": "Content Management - Webhook API",
+    "utility_name": "Content Management",
+    "sections": [
+      {
+        "heading": "Getting Started with Streamlit",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Kubernetes ConfigMaps - Configuration",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "content management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-032",
+    "page_url": "https://docs.example.com/monitoring-dashboard/streamlit-widgets",
+    "api_name": "Monitoring Dashboard - Authentication API",
+    "utility_name": "Monitoring Dashboard",
+    "sections": [
+      {
+        "heading": "Streamlit Widgets",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "monitoring dashboard",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-033",
+    "page_url": "https://docs.example.com/search-engine/database-indexing",
+    "api_name": "Search Engine - Webhook API",
+    "utility_name": "Search Engine",
+    "sections": [
+      {
+        "heading": "Database Indexing",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Kubernetes ConfigMaps - Configuration",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      },
+      {
+        "heading": "Database Transactions - Data Management",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "search engine",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-034",
+    "page_url": "https://docs.example.com/deployment-pipeline/oauth-2.0-implementation",
+    "api_name": "Deployment Pipeline - Authentication API",
+    "utility_name": "Deployment Pipeline",
+    "sections": [
+      {
+        "heading": "OAuth 2.0 Implementation",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      },
+      {
+        "heading": "Getting Started with Streamlit - User Interface",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "API Error Handling - Error Handling",
+        "content": "Return consistent error responses with HTTP status codes, error messages, and error codes. Use standard formats like RFC 7807 Problem Details or custom JSON structures with timestamp and request ID."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "deployment pipeline",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-035",
+    "page_url": "https://docs.example.com/notification-service/rest-api-authentication",
+    "api_name": "Notification Service - GraphQL API",
+    "utility_name": "Notification Service",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Database Indexing - Performance",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Streamlit Widgets - User Interface",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "notification service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-036",
+    "page_url": "https://docs.example.com/data-pipeline/rest-api-authentication",
+    "api_name": "Data Pipeline - Admin API",
+    "utility_name": "Data Pipeline",
+    "sections": [
+      {
+        "heading": "REST API Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "Getting Started with Streamlit - User Interface",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "authentication",
+      "data pipeline",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-037",
+    "page_url": "https://docs.example.com/notification-service/streamlit-widgets",
+    "api_name": "Notification Service - Admin API",
+    "utility_name": "Notification Service",
+    "sections": [
+      {
+        "heading": "Streamlit Widgets",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      },
+      {
+        "heading": "REST API Authentication - Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "user interface",
+      "notification service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-038",
+    "page_url": "https://docs.example.com/search-engine/api-rate-limiting",
+    "api_name": "Search Engine - Webhook API",
+    "utility_name": "Search Engine",
+    "sections": [
+      {
+        "heading": "API Rate Limiting",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Database Backup and Recovery - Operations",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      },
+      {
+        "heading": "Streamlit Session State - State Management",
+        "content": "Session State allows you to share variables between reruns of your Streamlit app. Use st.session_state to store data that persists across user interactions. Initialize with st.session_state.key = value and access with st.session_state.key."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "search engine",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-039",
+    "page_url": "https://docs.example.com/user-management/database-indexing",
+    "api_name": "User Management - Public API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "Database Indexing",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "REST API Authentication - Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-040",
+    "page_url": "https://docs.example.com/api-gateway/input-validation",
+    "api_name": "API Gateway - Data API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "Input Validation",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      },
+      {
+        "heading": "Kubernetes Secrets - Security",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-041",
+    "page_url": "https://docs.example.com/api-gateway/database-backup-and-recovery",
+    "api_name": "API Gateway - Public API",
+    "utility_name": "API Gateway",
+    "sections": [
+      {
+        "heading": "Database Backup and Recovery",
+        "content": "Implement automated backup strategies including full, incremental, and differential backups. Test recovery procedures regularly. Maintain backup retention policies and secure off-site storage."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "Input Validation - Security",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      },
+      {
+        "heading": "Kubernetes Pods - Container Management",
+        "content": "A Pod is the smallest deployable unit in Kubernetes. It represents a single instance of a running process and can contain one or more containers. Pods share storage and network resources within the same node."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "operations",
+      "api gateway",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-042",
+    "page_url": "https://docs.example.com/data-pipeline/kubernetes-secrets",
+    "api_name": "Data Pipeline - GraphQL API",
+    "utility_name": "Data Pipeline",
+    "sections": [
+      {
+        "heading": "Kubernetes Secrets",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      },
+      {
+        "heading": "API Rate Limiting - Security",
+        "content": "Implement rate limiting to prevent abuse and ensure fair usage. Common strategies include token bucket, sliding window, and fixed window algorithms. Return 429 Too Many Requests with Retry-After header."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "Kubernetes Ingress - Networking",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "security",
+      "data pipeline",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-043",
+    "page_url": "https://docs.example.com/notification-service/api-documentation",
+    "api_name": "Notification Service - Public API",
+    "utility_name": "Notification Service",
+    "sections": [
+      {
+        "heading": "API Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "documentation",
+      "notification service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-044",
+    "page_url": "https://docs.example.com/configuration-service/streamlit-caching",
+    "api_name": "Configuration Service - WebSocket API",
+    "utility_name": "Configuration Service",
+    "sections": [
+      {
+        "heading": "Streamlit Caching",
+        "content": "Use @st.cache_data to cache expensive computations and @st.cache_resource to cache global resources like database connections. This prevents re-computation on every app rerun and improves performance significantly."
+      },
+      {
+        "heading": "Input Validation - Security",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      },
+      {
+        "heading": "Database Transactions - Data Management",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      },
+      {
+        "heading": "Kubernetes Ingress - Networking",
+        "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "configuration service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-045",
+    "page_url": "https://docs.example.com/analytics-platform/database-transactions",
+    "api_name": "Analytics Platform - Admin API",
+    "utility_name": "Analytics Platform",
+    "sections": [
+      {
+        "heading": "Database Transactions",
+        "content": "Use ACID transactions to ensure data consistency. Implement proper isolation levels (READ COMMITTED, SERIALIZABLE) based on use case. Handle deadlocks and implement retry logic for transient failures."
+      },
+      {
+        "heading": "Kubernetes Deployments - Application Management",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      },
+      {
+        "heading": "Streamlit Caching - Performance",
+        "content": "Use @st.cache_data to cache expensive computations and @st.cache_resource to cache global resources like database connections. This prevents re-computation on every app rerun and improves performance significantly."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "data management",
+      "analytics platform",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-046",
+    "page_url": "https://docs.example.com/authentication-service/database-indexing",
+    "api_name": "Authentication Service - Data API",
+    "utility_name": "Authentication Service",
+    "sections": [
+      {
+        "heading": "Database Indexing",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "performance",
+      "authentication service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-047",
+    "page_url": "https://docs.example.com/file-storage/streamlit-deployment",
+    "api_name": "File Storage - Search API",
+    "utility_name": "File Storage",
+    "sections": [
+      {
+        "heading": "Streamlit Deployment",
+        "content": "Deploy Streamlit apps using Streamlit Community Cloud, Heroku, Docker, or cloud platforms. Set up secrets management, configure requirements.txt, and use streamlit run app.py to launch your application."
+      },
+      {
+        "heading": "Getting Started with Streamlit - User Interface",
+        "content": "Streamlit is an open-source Python library that makes it easy to create and share beautiful, custom web apps for machine learning and data science. Install with pip install streamlit, then create your first app with st.write('Hello World')."
+      },
+      {
+        "heading": "OAuth 2.0 Implementation - Authentication",
+        "content": "Implement OAuth 2.0 authorization flow with proper scope management, token validation, and refresh token handling. Use PKCE for public clients and validate redirect URIs to prevent attacks."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "deployment",
+      "file storage",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-048",
+    "page_url": "https://docs.example.com/notification-service/kubernetes-configmaps",
+    "api_name": "Notification Service - Admin API",
+    "utility_name": "Notification Service",
+    "sections": [
+      {
+        "heading": "Kubernetes ConfigMaps",
+        "content": "ConfigMaps store non-confidential configuration data as key-value pairs. They can be consumed by Pods as environment variables, command-line arguments, or configuration files in volumes."
+      },
+      {
+        "heading": "Input Validation - Security",
+        "content": "Validate all user inputs on both client and server sides. Use allowlists, sanitize data, and implement proper encoding. Protect against SQL injection, XSS, and other injection attacks."
+      },
+      {
+        "heading": "Streamlit Deployment - Deployment",
+        "content": "Deploy Streamlit apps using Streamlit Community Cloud, Heroku, Docker, or cloud platforms. Set up secrets management, configure requirements.txt, and use streamlit run app.py to launch your application."
+      },
+      {
+        "heading": "API Documentation - Documentation",
+        "content": "Document APIs using OpenAPI/Swagger specifications. Include endpoint descriptions, request/response schemas, authentication requirements, and example payloads. Keep documentation synchronized with implementation."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "configuration",
+      "notification service",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-049",
+    "page_url": "https://docs.example.com/user-management/kubernetes-deployments",
+    "api_name": "User Management - Data API",
+    "utility_name": "User Management",
+    "sections": [
+      {
+        "heading": "Kubernetes Deployments",
+        "content": "Deployments manage ReplicaSets and provide declarative updates to Pods. They ensure desired number of replicas are running and handle rolling updates, rollbacks, and scaling operations seamlessly."
+      },
+      {
+        "heading": "REST API Authentication - Authentication",
+        "content": "Implement authentication using JWT tokens, API keys, or OAuth 2.0. Include Authorization header with Bearer token. Handle 401 Unauthorized and 403 Forbidden responses appropriately in client applications."
+      },
+      {
+        "heading": "API Versioning - Design",
+        "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+      },
+      {
+        "heading": "Streamlit Widgets - User Interface",
+        "content": "Interactive widgets include st.button(), st.slider(), st.selectbox(), st.text_input(), and st.file_uploader(). Each widget returns the current value and triggers a rerun when the user interacts with it."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "application management",
+      "user management",
+      "documentation"
+    ],
+    "version": "1.0"
+  },
+  {
+    "_id": "doc-050",
+    "page_url": "https://docs.example.com/configuration-service/api-error-handling",
+    "api_name": "Configuration Service - Search API",
+    "utility_name": "Configuration Service",
+    "sections": [
+      {
+        "heading": "API Error Handling",
+        "content": "Return consistent error responses with HTTP status codes, error messages, and error codes. Use standard formats like RFC 7807 Problem Details or custom JSON structures with timestamp and request ID."
+      },
+      {
+        "heading": "Database Indexing - Performance",
+        "content": "Create indexes on frequently queried columns to improve performance. Consider composite indexes for multi-column queries. Monitor index usage and remove unused indexes to reduce storage overhead."
+      },
+      {
+        "heading": "Encryption Best Practices - Security",
+        "content": "Use AES-256 for symmetric encryption and RSA-2048 or ECDSA for asymmetric encryption. Implement proper key management, rotation policies, and secure storage of encryption keys."
+      },
+      {
+        "heading": "Kubernetes Secrets - Security",
+        "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+      }
+    ],
+    "created_date": "2024-01-01",
+    "last_updated": "2024-01-15",
+    "doc_type": "api_documentation",
+    "tags": [
+      "error handling",
+      "configuration service",
+      "documentation"
+    ],
+    "version": "1.0"
+  }
+]

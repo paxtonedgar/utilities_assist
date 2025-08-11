@@ -1,0 +1,29 @@
+{
+  "_id": "doc-019",
+  "page_url": "https://docs.example.com/api-gateway/kubernetes-secrets",
+  "api_name": "API Gateway - Data API",
+  "utility_name": "API Gateway",
+  "sections": [
+    {
+      "heading": "Kubernetes Secrets",
+      "content": "Secrets store sensitive information like passwords, OAuth tokens, and SSH keys. They are similar to ConfigMaps but designed for confidential data with additional security measures and base64 encoding."
+    },
+    {
+      "heading": "Kubernetes Ingress - Networking",
+      "content": "Ingress manages external access to services in a cluster. It provides HTTP and HTTPS routing, SSL termination, and name-based virtual hosting. Requires an Ingress Controller to function."
+    },
+    {
+      "heading": "API Versioning - Design",
+      "content": "Version APIs using URL path (/v1/users), query parameters (?version=1), or headers (Accept: application/vnd.api+json;version=1). Maintain backward compatibility and provide clear migration guides."
+    }
+  ],
+  "created_date": "2024-01-01",
+  "last_updated": "2024-01-15",
+  "doc_type": "api_documentation",
+  "tags": [
+    "security",
+    "api gateway",
+    "documentation"
+  ],
+  "version": "1.0"
+}
