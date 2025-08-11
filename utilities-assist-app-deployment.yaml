@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utilities-assist-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utilities-assist
+  template:
+    metadata:
+      labels:
+        app: utilities-assist
+    spec:
+      containers:
+      - name: utilities-assist
+        image: utilities-assist:latest
+        ports:
+        - containerPort: 8080

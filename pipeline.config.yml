@@ -1,0 +1,6 @@
+pipeline:
+  name: utilities-assist
+  stages:
+    - build
+    - test
+    - deploy

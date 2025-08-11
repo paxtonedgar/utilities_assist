@@ -1,0 +1,110 @@
+{
+  "Product List": {
+    "Utilities": [
+      {
+        "APG_Name": "Account Utility",
+        "API-Names-List": [
+          "AU Merchant Services - Account Summary Experience API",
+          "AU Switch State Services API",
+          "AU Card Account Promo Balance Services",
+          "AU Credit Account Statement Information Service",
+          "Account Utility Card Rewards API",
+          "AU Card Account Balance Summary Digital Channel",
+          "AU Card Statement Recon API",
+          "AU Auto Lease Details v2",
+          "AU Auto Loan Details V2",
+          "AU Card AutoPay Messaging API",
+          "AU Merchant Account Services API",
+          "AU Merchant Service AllTransaction",
+          "AU Merchant Services - Card Summary & Card Types",
+          "AU Merchant Service Card Type API",
+          "AU Merchant Account Card Summary-Disputes Summary-API",
+          "AU Merchant Service DDA",
+          "AU Merchant Service Deposits",
+          "AU Card Lookup SVC API"
+        ],
+        "Acronyms": "AU"
+      },
+      {
+        "APG_Name": "Customer Interaction Utility",
+        "API-Names-List": [
+          "CIU Short Term History"
+        ],
+        "Acronyms": "CIU"
+      },
+      {
+        "APG_Name": "Customer Summary Utility",
+        "API-Names-List": [
+          "CSU Inquiry Service V2"
+        ],
+        "Acronyms": "CSU"
+      },
+      {
+        "APG_Name": "Digital Events",
+        "API-Names-List": [
+          "DIGEV Nucleus SLOT API",
+          "DIGEV Trace API",
+          "DIGEV SLOT WEB API"
+        ],
+        "Acronyms": "DE"
+      },
+      {
+        "APG_Name": "Enhanced Transaction Utility",
+        "API-Names-List": [
+          "ETU Card Update Activity Service API",
+          "ETU Credit Card Transaction Reference Look Up API",
+          "ETU Merchant Reference API",
+          "ETU DDA Update Activity",
+          "Card Account Expense Summary Offline Report",
+          "Card Account Expense Summary",
+          "ETU DDA Fee Refund Update",
+          "ETU Cross Product Transaction Aggregation",
+          "Nucleus Etu Bulk Access Activity",
+          "ETU Credit Card Enhanced Transaction Detail API"
+        ],
+        "Acronyms": "ETU"
+      },
+      {
+        "APG_Name": "Product Catalog Utility",
+        "API-Names-List": [
+          "PCU Product Catalog Utility API"
+        ],
+        "Acronyms": "PCU"
+      }
+    ],
+    "Communications": [
+      {
+        "APG_Name": "Vader",
+        "API-Names-List": [
+          "Subscription Device Management API"
+        ]
+      },
+      {
+        "APG_Name": "Vader",
+        "API-Names-List": [
+          "Aggregation Update Activity API"
+        ]
+      }
+    ],
+    "P&I": [
+      {
+        "APG_Name": "Customer Eligibility Engine",
+        "API-Names-List": [
+          "Customer Eligibility Engine"
+        ]
+      },
+      {
+        "APG_Name": "Personalization & Insights Data Hub",
+        "API-Names-List": [
+          "PI Data Feature API"
+        ]
+      },
+      {
+        "APG_Name": "Personalization & Insights Recommendation Engine",
+        "API-Names-List": [
+          "PI Recommendations Engine API"
+        ]
+      }
+    ]
+  }
+}

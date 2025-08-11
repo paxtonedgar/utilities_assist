@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: utilities-assist-model
+data:
+  model.config: |
+    name: utilities-assist-model
+    version: 1.0.0

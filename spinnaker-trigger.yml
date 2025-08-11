@@ -1,0 +1,3 @@
+trigger:
+  type: webhook
+  application: utilities-assist
