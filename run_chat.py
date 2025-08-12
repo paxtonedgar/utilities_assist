@@ -17,7 +17,7 @@ logging.basicConfig(
 if __name__ == "__main__":
     try:
         # Import and run the chat interface
-        from src.app.chat_interface import main
+        from app.chat_interface import main
         main()
     except ImportError as e:
         print(f"❌ Import error: {e}")

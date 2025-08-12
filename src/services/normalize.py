@@ -9,7 +9,8 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
+# Optional synonym caching - can be disabled if synonyms change frequently  
+@lru_cache(maxsize=1)  # Single synonym dict only
 def _load_synonyms() -> Dict[str, str]:
     """Load and cache synonym mappings."""
     try:

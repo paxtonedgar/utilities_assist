@@ -15,7 +15,7 @@ import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .config import ChatCfg, EmbedCfg, SearchCfg
+from src.infra.config import ChatCfg, EmbedCfg, SearchCfg
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,8 @@ def _setup_jpmc_proxy():
         logger.info("JPMC proxy configuration applied")
 
 
-@lru_cache(maxsize=8)
+# Optional minimal LRU cache for HTTP connection pooling only
+@lru_cache(maxsize=2)  # Keep minimal - just current and previous client
 def _cached_chat_client(
     provider: str, 
     model: str, 
@@ -79,7 +80,8 @@ def _cached_chat_client(
         raise ValueError(f"Unsupported chat provider: {provider}")
 
 
-@lru_cache(maxsize=8)
+# Optional minimal LRU cache for HTTP connection pooling only  
+@lru_cache(maxsize=2)  # Keep minimal - just current and previous client
 def _cached_embed_client(
     provider: str,
     model: str, 
@@ -138,7 +140,8 @@ def _get_aws_auth():
         return None
 
 
-@lru_cache(maxsize=8)
+# Essential LRU cache for HTTP connection pooling to OpenSearch/ElasticSearch
+@lru_cache(maxsize=2)  # Keep minimal - just current and previous session
 def _cached_search_session(
     host: str,
     index_alias: str,

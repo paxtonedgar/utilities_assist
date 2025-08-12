@@ -1,13 +1,16 @@
-"""Retrieval services for BM25, KNN, and RRF fusion."""
+"""Retrieval services for BM25, KNN, and RRF fusion with MMR diversification."""
 
 import logging
 import time
 import json
-from typing import List, Dict, Any, Optional
+import math
+import re
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from collections import Counter
 
-from .models import SearchResult, RetrievalResult
-from ..infra.opensearch_client import OpenSearchClient, SearchFilters
+from services.models import SearchResult, RetrievalResult
+from infra.opensearch_client import OpenSearchClient, SearchFilters
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,7 @@ async def bm25_search(
     index_name: str = "confluence_current",
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    time_decay_days: int = 120
+    time_decay_days: int = 75
 ) -> RetrievalResult:
     """Perform BM25 text search with enterprise filters and time decay.
     
@@ -165,7 +168,7 @@ async def rrf_fuse(
     """
     try:
         # Convert service results back to client format for fusion
-        from ..infra.opensearch_client import SearchResponse, SearchResult as ClientResult
+        from infra.opensearch_client import SearchResponse, SearchResult as ClientResult
         
         bm25_response = SearchResponse(
             results=[
@@ -260,3 +263,303 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
             logger.warning(f"Failed to parse datetime: {value}")
             return None
     return None
+
+
+def rrf_fuse_results(
+    bm25_hits: List[Tuple[str, float]], 
+    knn_hits: List[Tuple[str, float]], 
+    k_final: int = 10, 
+    rrf_k: int = 60
+) -> List[Tuple[str, float]]:
+    """Enhanced RRF fusion for combining BM25 and KNN results.
+    
+    Args:
+        bm25_hits: List of (doc_id, score) from BM25 search
+        knn_hits: List of (doc_id, score) from KNN search
+        k_final: Number of final results to return
+        rrf_k: RRF constant (typically 60)
+        
+    Returns:
+        List of (doc_id, rrf_score) sorted by RRF score
+    """
+    ranks = {}
+    
+    # Process BM25 results
+    for rank, (doc_id, _) in enumerate(bm25_hits):
+        if doc_id not in ranks:
+            ranks[doc_id] = 0.0
+        ranks[doc_id] += 1.0 / (rrf_k + rank + 1.0)
+    
+    # Process KNN results
+    for rank, (doc_id, _) in enumerate(knn_hits):
+        if doc_id not in ranks:
+            ranks[doc_id] = 0.0
+        ranks[doc_id] += 1.0 / (rrf_k + rank + 1.0)
+    
+    # Sort by RRF score and return top k
+    fused = sorted(ranks.items(), key=lambda x: x[1], reverse=True)
+    return fused[:k_final]
+
+
+def lexical_similarity(text1: str, text2: str) -> float:
+    """Calculate lexical similarity between two texts using TF-IDF-like approach."""
+    if not text1 or not text2:
+        return 0.0
+    
+    # Simple tokenization and normalization
+    def tokenize(text):
+        return re.findall(r'\b\w+\b', text.lower())
+    
+    tokens1 = tokenize(text1)
+    tokens2 = tokenize(text2)
+    
+    if not tokens1 or not tokens2:
+        return 0.0
+    
+    # Calculate term frequencies
+    tf1 = Counter(tokens1)
+    tf2 = Counter(tokens2)
+    
+    # Get all unique terms
+    all_terms = set(tf1.keys()) | set(tf2.keys())
+    
+    # Calculate cosine similarity
+    dot_product = sum(tf1[term] * tf2[term] for term in all_terms)
+    norm1 = math.sqrt(sum(tf1[term] ** 2 for term in tf1))
+    norm2 = math.sqrt(sum(tf2[term] ** 2 for term in tf2))
+    
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    
+    return dot_product / (norm1 * norm2)
+
+
+def lexical_relevance(query: str, text: str) -> float:
+    """Calculate lexical relevance between query and document text."""
+    if not query or not text:
+        return 0.0
+    
+    def tokenize(text):
+        return re.findall(r'\b\w+\b', text.lower())
+    
+    query_tokens = set(tokenize(query))
+    text_tokens = tokenize(text)
+    
+    if not query_tokens or not text_tokens:
+        return 0.0
+    
+    # Simple BM25-like scoring
+    text_tf = Counter(text_tokens)
+    score = 0.0
+    
+    for term in query_tokens:
+        if term in text_tf:
+            # TF component
+            tf = text_tf[term]
+            tf_score = tf / (tf + 1.2)  # BM25 k1 parameter
+            score += tf_score
+    
+    # Normalize by query length
+    return score / len(query_tokens)
+
+
+def mmr_diversify(
+    candidates: List[str], 
+    doc_text_lookup: Dict[str, str], 
+    query: str, 
+    k: int = 8, 
+    lambda_param: float = 0.75
+) -> Tuple[List[str], Dict[str, Any]]:
+    """MMR diversification to reduce redundant results.
+    
+    Args:
+        candidates: List of doc_ids sorted by fused score
+        doc_text_lookup: Mapping from doc_id to text content
+        query: Original search query
+        k: Number of results to select
+        lambda_param: Trade-off between relevance and diversity (0.0-1.0)
+        
+    Returns:
+        Tuple of (selected_doc_ids, diagnostics)
+    """
+    selected = []
+    remaining = candidates.copy()
+    diagnostics = {
+        "removed_docs": [],
+        "similarity_scores": {},
+        "relevance_scores": {}
+    }
+    
+    while remaining and len(selected) < k:
+        best_doc = None
+        best_score = -float('inf')
+        best_rel = 0.0
+        best_div = 0.0
+        
+        for doc_id in remaining:
+            # Get document text, fallback to doc_id if not found
+            doc_text = doc_text_lookup.get(doc_id, doc_id)
+            
+            # Calculate relevance to query
+            relevance = lexical_relevance(query, doc_text)
+            
+            # Calculate maximum similarity to already selected documents
+            max_similarity = 0.0
+            if selected:
+                similarities = []
+                for selected_doc in selected:
+                    selected_text = doc_text_lookup.get(selected_doc, selected_doc)
+                    sim = lexical_similarity(doc_text, selected_text)
+                    similarities.append(sim)
+                max_similarity = max(similarities)
+            
+            # MMR score: λ * relevance - (1-λ) * max_similarity
+            mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
+            
+            if mmr_score > best_score:
+                best_doc = doc_id
+                best_score = mmr_score
+                best_rel = relevance
+                best_div = max_similarity
+        
+        if best_doc:
+            selected.append(best_doc)
+            remaining.remove(best_doc)
+            
+            diagnostics["relevance_scores"][best_doc] = best_rel
+            diagnostics["similarity_scores"][best_doc] = best_div
+    
+    # Track removed documents
+    diagnostics["removed_docs"] = [doc for doc in candidates if doc not in selected]
+    
+    logger.info(f"MMR diversification: {len(candidates)} candidates → {len(selected)} selected, {len(diagnostics['removed_docs'])} removed")
+    
+    return selected, diagnostics
+
+
+async def enhanced_rrf_search(
+    query: str,
+    query_embedding: List[float],
+    search_client: OpenSearchClient,
+    index_name: str = "confluence_current",
+    filters: Optional[Dict[str, Any]] = None,
+    top_k: int = 8,
+    rrf_k: int = 60,
+    use_mmr: bool = True,
+    lambda_param: float = 0.75
+) -> Tuple[RetrievalResult, Dict[str, Any]]:
+    """Enhanced search with RRF fusion and MMR diversification.
+    
+    Args:
+        query: Search query text
+        query_embedding: Query vector embedding
+        search_client: OpenSearch client
+        index_name: Index name or alias
+        filters: Search filters
+        top_k: Final number of results
+        rrf_k: RRF fusion parameter
+        use_mmr: Whether to apply MMR diversification
+        lambda_param: MMR trade-off parameter
+        
+    Returns:
+        Tuple of (RetrievalResult, diagnostics)
+    """
+    diagnostics = {
+        "bm25_count": 0,
+        "knn_count": 0,
+        "rrf_count": 0,
+        "mmr_applied": use_mmr,
+        "generic_penalties": 0,
+        "min_should_match": "70%",
+        "decay_scale": "120d"
+    }
+    
+    try:
+        # Run BM25 and KNN searches in parallel
+        bm25_result = await bm25_search(
+            query=query,
+            search_client=search_client,
+            index_name=index_name,
+            filters=filters,
+            top_k=50,  # Get more candidates for better fusion
+            time_decay_days=120
+        )
+        
+        knn_result = await knn_search(
+            query_embedding=query_embedding,
+            search_client=search_client,
+            index_name=index_name,
+            filters=filters,
+            top_k=50,  # Get more candidates for better fusion
+            ef_search=256
+        )
+        
+        diagnostics["bm25_count"] = len(bm25_result.results)
+        diagnostics["knn_count"] = len(knn_result.results)
+        
+        # Convert to (doc_id, score) tuples for RRF
+        bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
+        knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
+        
+        # Apply RRF fusion
+        fused_hits = rrf_fuse_results(bm25_hits, knn_hits, k_final=top_k*2, rrf_k=rrf_k)
+        diagnostics["rrf_count"] = len(fused_hits)
+        
+        # Create document lookup for MMR
+        doc_lookup = {}
+        all_results = {r.doc_id: r for r in bm25_result.results + knn_result.results}
+        
+        for doc_id, _ in fused_hits:
+            if doc_id in all_results:
+                result = all_results[doc_id]
+                # Combine title and body for MMR text analysis
+                doc_text = f"{result.metadata.get('title', '')} {result.content}"
+                doc_lookup[doc_id] = doc_text
+        
+        # Apply MMR diversification if enabled
+        final_doc_ids = [doc_id for doc_id, _ in fused_hits]
+        mmr_diagnostics = {}
+        
+        if use_mmr and len(final_doc_ids) > top_k:
+            final_doc_ids, mmr_diagnostics = mmr_diversify(
+                candidates=final_doc_ids,
+                doc_text_lookup=doc_lookup,
+                query=query,
+                k=top_k,
+                lambda_param=lambda_param
+            )
+            diagnostics.update(mmr_diagnostics)
+        else:
+            final_doc_ids = final_doc_ids[:top_k]
+        
+        # Build final results
+        final_results = []
+        for doc_id in final_doc_ids:
+            if doc_id in all_results:
+                final_results.append(all_results[doc_id])
+        
+        # Count generic penalties (documents with negative function scores)
+        for result in final_results:
+            section = result.metadata.get("section", "").lower()
+            title = result.metadata.get("title", "").lower()
+            if any(generic in section for generic in ["global", "overview", "platform"]) or \
+               any(generic in title for generic in ["overview", "introduction", "welcome"]):
+                diagnostics["generic_penalties"] += 1
+        
+        final_result = RetrievalResult(
+            results=final_results,
+            total_found=len(final_results),
+            retrieval_time_ms=bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms,
+            method="enhanced_rrf"
+        )
+        
+        return final_result, diagnostics
+        
+    except Exception as e:
+        logger.error(f"Enhanced RRF search failed: {e}")
+        return RetrievalResult(
+            results=[],
+            total_found=0,
+            retrieval_time_ms=0,
+            method="enhanced_rrf"
+        ), diagnostics

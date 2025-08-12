@@ -16,6 +16,7 @@ Features:
 import json
 import logging
 import math
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
@@ -23,8 +24,8 @@ from dataclasses import dataclass
 
 import requests
 
-from .config import SearchCfg
-from .clients import make_search_session
+from src.infra.config import SearchCfg
+from src.infra.clients import make_search_session
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +120,11 @@ class OpenSearchClient:
         filters: Optional[SearchFilters] = None,
         index: str = "confluence_current", 
         k: int = 50,
-        ef_search: int = 256
+        ef_search: int = 256,
+        time_decay_half_life_days: int = 120
     ) -> SearchResponse:
         """
-        kNN vector similarity search with ACL filters.
+        kNN vector similarity search with ACL filters and time decay.
         
         Args:
             query_vector: Query embedding vector (1536 dims)
@@ -130,14 +132,15 @@ class OpenSearchClient:
             index: Index name or alias to search
             k: Number of results to return
             ef_search: ef_search parameter for HNSW (trade-off: accuracy vs speed)
+            time_decay_half_life_days: Half-life for time decay in days (uniform with BM25)
             
         Returns:
             SearchResponse with kNN results
         """
         start_time = time.time()
         
-        # Build kNN query with filters
-        search_body = self._build_knn_query(query_vector, filters, k, ef_search)
+        # Build kNN query with filters and time decay
+        search_body = self._build_knn_query(query_vector, filters, k, ef_search, time_decay_half_life_days)
         
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -236,6 +239,21 @@ class OpenSearchClient:
             method="rrf"
         )
     
+    def _extract_key_terms(self, query_text: str) -> str:
+        """Extract key terms from natural language queries."""
+        import re
+        # Remove question words and common stopwords
+        stopwords = {'what', 'how', 'do', 'i', 'is', 'are', 'the', 'to', 'for', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'by', 'with', 'from', 'me', 'through', 'of'}
+        
+        # Remove punctuation and convert to lowercase
+        cleaned = re.sub(r'[^\w\s]', '', query_text.lower())
+        
+        # Split into words and filter stopwords
+        words = [word for word in cleaned.split() if word not in stopwords and len(word) > 2]
+        
+        # Return key terms as space-separated string
+        return ' '.join(words)
+
     def _build_bm25_query(
         self,
         query: str,
@@ -243,100 +261,240 @@ class OpenSearchClient:
         k: int,
         time_decay_half_life_days: int
     ) -> Dict[str, Any]:
-        """Build BM25 query with filters and time decay."""
+        """Build tuned BM25 query with multi_match, dynamic minimum_should_match, and phrase boosting."""
         
-        # Base multi-match query
+        # Extract key terms from natural language query
+        key_terms = self._extract_key_terms(query)
+        
+        # Extract key phrases for proximity boosting (from original query)
+        key_phrases = self._extract_key_phrases(query)
+        
+        # Use extracted key terms for main query with moderate boosts
+        # Build multi_match query with reduced field boosts for better recall  
+        must_clauses = [
+            {
+                "multi_match": {
+                    "query": key_terms,  # Use extracted key terms instead of full query
+                    "type": "best_fields",
+                    "fields": ["title^5", "section^2", "body^1"],  # Reduced boosts: 10→5, 4→2
+                    "tie_breaker": 0.3
+                }
+            }
+        ]
+        
+        # Add gentle proximity boosts without strict phrase requirements
+        should_clauses = []
+        
+        # Gentle title proximity matching (not strict phrase)
+        should_clauses.append({
+            "match": {
+                "title": {
+                    "query": key_terms,
+                    "boost": 2  # Reduced from 6 to 2
+                }
+            }
+        })
+        
+        # Key term proximity boosting in body (not strict phrases)
+        should_clauses.append({
+            "match": {
+                "body": {
+                    "query": key_terms,
+                    "boost": 1.5  # Gentle boost for body matches
+                }
+            }
+        })
+        
+        # Build base query structure
         base_query = {
-            "multi_match": {
-                "query": query,
-                "fields": ["title^2.0", "body^1.0"],
-                "type": "best_fields",
-                "fuzziness": "AUTO",
-                "prefix_length": 2,
-                "max_expansions": 50
+            "bool": {
+                "must": must_clauses,
+                "should": should_clauses,
+                "minimum_should_match": 1  # At least one must clause required
             }
         }
         
         # Apply filters to query
+        filter_clauses = []
         if filters:
             filter_clauses = self._build_filter_clauses(filters)
-            if filter_clauses:
-                base_query = {
-                    "bool": {
-                        "must": [base_query],
-                        "filter": filter_clauses
-                    }
-                }
         
-        # Apply time decay via function_score
-        if time_decay_half_life_days > 0:
-            decay_query = {
-                "function_score": {
-                    "query": base_query,
-                    "functions": [
-                        {
-                            "exp": {
-                                "updated_at": {
-                                    "scale": f"{time_decay_half_life_days}d",
-                                    "offset": "0d",
-                                    "decay": 0.5
-                                }
-                            },
-                            "weight": 0.3  # 30% weight for recency
-                        }
-                    ],
-                    "score_mode": "multiply",
-                    "boost_mode": "multiply"
+        # Wrap in bool query for filters
+        if filter_clauses:
+            bool_query = {
+                "bool": {
+                    "must": [base_query],
+                    "filter": filter_clauses
                 }
             }
-            final_query = decay_query
         else:
-            final_query = base_query
+            bool_query = {
+                "bool": {
+                    "must": [base_query]
+                }
+            }
+        
+        # Apply function_score with time decay and generic doc penalties
+        functions = []
+        
+        # Gentle time decay function - capped to avoid suppressing authoritative older docs
+        if time_decay_half_life_days > 0:
+            # Use longer half-life and gentler decay to preserve older authoritative content
+            functions.append({
+                "exp": {
+                    "updated_at": {
+                        "scale": "90d",  # Longer half-life: 75d → 90d  
+                        "decay": 0.6     # Gentler decay: 0.4 → 0.6
+                    }
+                },
+                "weight": 1.1  # Reduced recency weight: 1.2 → 1.1
+            })
+        
+        # Generic document penalty - use positive weights < 1.0 for penalties
+        functions.append({
+            "filter": {
+                "terms": {
+                    "section": ["global", "overview", "platform", "general", "introduction", "welcome"]
+                }
+            },
+            "weight": 0.3  # Penalty via low positive weight (instead of negative)
+        })
+        
+        # Enhanced generic title penalty with more patterns
+        functions.append({
+            "filter": {
+                "regexp": {
+                    "title": ".*(Overview|Introduction|Welcome|Platform|Global|General).*"
+                }
+            },
+            "weight": 0.5  # Penalty via low positive weight (instead of negative)
+        })
+        
+        final_query = {
+            "function_score": {
+                "query": bool_query,
+                "boost_mode": "multiply",  # Changed from "sum" to "multiply" for penalty weights
+                "functions": functions
+            }
+        }
         
         return {
             "query": final_query,
             "size": k,
             "sort": [{"_score": {"order": "desc"}}],
-            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id"]
+            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id", "section"],
+            "track_scores": True
         }
+    
+    def _extract_key_phrases(self, query: str, max_phrases: int = 3) -> List[str]:
+        """Extract key phrases from query for proximity boosting."""
+        # Simple stopword list
+        stopwords = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+            'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+            'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+            'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you',
+            'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'
+        }
+        
+        # Tokenize and clean query
+        words = re.findall(r'\b\w+\b', query.lower())
+        words = [w for w in words if w not in stopwords and len(w) > 2]
+        
+        # Generate bigrams as key phrases
+        key_phrases = []
+        for i in range(len(words) - 1):
+            bigram = f"{words[i]} {words[i+1]}"
+            key_phrases.append(bigram)
+        
+        # Also include important single terms
+        for word in words:
+            if len(word) > 4:  # Longer words are likely more important
+                key_phrases.append(word)
+        
+        # Return top phrases (prioritize bigrams)
+        return key_phrases[:max_phrases]
     
     def _build_knn_query(
         self,
         query_vector: List[float],
         filters: Optional[SearchFilters],
         k: int,
-        ef_search: int
+        ef_search: int,
+        time_decay_half_life_days: int = 120
     ) -> Dict[str, Any]:
-        """Build kNN query with filters."""
+        """Build kNN query with ACL filtering, time decay, and optimized parameters."""
         
-        # Base kNN query
-        knn_query = {
-            "knn": {
-                "embedding": {
-                    "vector": query_vector,
-                    "k": k,
-                    "ef_search": ef_search
-                }
-            }
-        }
-        
-        # Apply filters to query
+        # Build filter clauses
+        filter_clauses = []
         if filters:
             filter_clauses = self._build_filter_clauses(filters)
-            if filter_clauses:
-                knn_query = {
-                    "bool": {
-                        "must": [knn_query],
-                        "filter": filter_clauses
-                    }
-                }
         
-        return {
-            "query": knn_query,
+        # Base kNN query structure
+        base_query = {
             "size": k,
-            "sort": [{"_score": {"order": "desc"}}],
-            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id"]
+            "knn": {
+                "field": "embedding",
+                "query_vector": query_vector,
+                "k": k,
+                "num_candidates": max(200, k * 4)  # Ensure good candidate pool
+            },
+            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id", "section"],
+            "track_scores": True
         }
+        
+        # Apply filters if present
+        if filter_clauses:
+            base_query["query"] = {
+                "bool": {
+                    "filter": filter_clauses
+                }
+            }
+        else:
+            base_query["query"] = {"match_all": {}}
+        
+        # Apply time decay function score (uniform with BM25)
+        if time_decay_half_life_days > 0:
+            # Wrap the query in function_score for time decay
+            functions = [{
+                "exp": {
+                    "updated_at": {
+                        "scale": "75d",  # Same as BM25 tuned mode
+                        "decay": 0.4     # Same decay factor as BM25
+                    }
+                },
+                "weight": 1.2  # Same weight as BM25
+            }]
+            
+            # Generic document penalty (same as BM25) - use positive weights < 1.0
+            functions.extend([
+                {
+                    "filter": {
+                        "terms": {
+                            "section": ["global", "overview", "platform", "general", "introduction", "welcome"]
+                        }
+                    },
+                    "weight": 0.3  # Penalty via low positive weight (consistent with BM25)
+                },
+                {
+                    "filter": {
+                        "regexp": {
+                            "title": ".*(Overview|Introduction|Welcome|Platform|Global|General).*"
+                        }
+                    },
+                    "weight": 0.5  # Penalty via low positive weight (consistent with BM25)
+                }
+            ])
+            
+            base_query["query"] = {
+                "function_score": {
+                    "query": base_query["query"],
+                    "boost_mode": "multiply",  # Changed from "sum" to "multiply" for penalty weights
+                    "functions": functions
+                }
+            }
+        
+        return base_query
     
     def _build_filter_clauses(self, filters: SearchFilters) -> List[Dict[str, Any]]:
         """Build filter clauses from SearchFilters."""
@@ -360,15 +518,15 @@ class OpenSearchClient:
                 "term": {"content_type": filters.content_type}
             })
         
-        # Time range filters
+        # Time range filters - use consistent YYYY-MM-DD format
         if filters.updated_after or filters.updated_before:
             range_filter = {"range": {"updated_at": {}}}
             
             if filters.updated_after:
-                range_filter["range"]["updated_at"]["gte"] = filters.updated_after.isoformat()
+                range_filter["range"]["updated_at"]["gte"] = filters.updated_after.strftime('%Y-%m-%d')
             
             if filters.updated_before:
-                range_filter["range"]["updated_at"]["lte"] = filters.updated_before.isoformat()
+                range_filter["range"]["updated_at"]["lte"] = filters.updated_before.strftime('%Y-%m-%d')
             
             clauses.append(range_filter)
         

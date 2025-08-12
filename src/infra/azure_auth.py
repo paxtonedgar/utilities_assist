@@ -117,8 +117,8 @@ def _load_certificate_from_s3(bucket_name: str, file_name: str) -> bytes:
         raise
 
 
-# Singleton token manager instance
-@lru_cache(maxsize=1)
+# Optional singleton token manager - can be disabled if tokens change frequently
+@lru_cache(maxsize=1)  # Single manager instance only
 def get_azure_token_manager() -> AzureTokenManager:
     """Get singleton Azure token manager."""
     manager = AzureTokenManager()

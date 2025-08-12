@@ -1,4 +1,4 @@
-.PHONY: install test run clean run-local test-local index-local embed-local start-opensearch stop-opensearch
+.PHONY: install test run clean run-local test-local index-local embed-local start-opensearch stop-opensearch eval eval-no-embed test-eval clean-eval
 
 install:
 	pip install -r requirements.txt
@@ -39,6 +39,10 @@ test-vector:
 run-mock:
 	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true streamlit run src/main.py
 
+# Run demo UI (standalone, no backend dependencies)
+run-demo:
+	streamlit run demo_ui.py
+
 # Complete local setup workflow
 setup-local: install start-opensearch
 	@echo "⏳ Waiting for OpenSearch to be ready..."
@@ -65,6 +69,28 @@ clean-local:
 		echo "❌ Cancelled"; \
 	fi
 
+# Evaluation targets
+eval:
+	@echo "🚀 Running full evaluation with embeddings..."
+	python eval/run_eval.py --corpus eval/mock_corpus/utilities_docs.jsonl --golden-set eval/golden_set.yaml --output eval/latest.json
+
+eval-no-embed:
+	@echo "🚀 Running BM25-only evaluation..."
+	python eval/run_eval.py --corpus eval/mock_corpus/utilities_docs.jsonl --golden-set eval/golden_set.yaml --output eval/latest_bm25.json --no-embeddings
+
+test-eval:
+	@echo "🧪 Running test evaluation..."
+	python eval/run_eval.py --corpus eval/mock_corpus/utilities_docs.jsonl --golden-set eval/golden_set.yaml --output eval/test.json --verbose
+
+clean-eval:
+	@echo "🧹 Cleaning evaluation artifacts..."
+	rm -f eval/latest.json eval/latest_bm25.json eval/test.json
+	@echo "✅ Cleaned evaluation files"
+
+check-opensearch:
+	@echo "🔍 Checking OpenSearch connection..."
+	@curl -s http://localhost:9200 > /dev/null && echo "✅ OpenSearch is running" || echo "❌ OpenSearch is not running - please start it first"
+
 # Show help
 help:
 	@echo "🚀 Utilities Assist - Development Commands"
@@ -76,6 +102,7 @@ help:
 	@echo "  make run              Run production version"
 	@echo "  make run-local        Run with local mocks + Azure"
 	@echo "  make run-mock         Run with mocks only (no Azure needed)"
+	@echo "  make run-demo         Run demo UI (no backend dependencies)"
 	@echo ""
 	@echo "🧪 Testing:"
 	@echo "  make test             Run production tests"
@@ -92,6 +119,13 @@ help:
 	@echo ""
 	@echo "⚡ Quick Setup:"
 	@echo "  make setup-local      Complete OpenSearch setup"
+	@echo ""
+	@echo "📊 Evaluation:"
+	@echo "  make eval             Run full evaluation with embeddings"
+	@echo "  make eval-no-embed    Run BM25-only evaluation"
+	@echo "  make test-eval        Quick evaluation test"
+	@echo "  make clean-eval       Clean evaluation files"
+	@echo "  make check-opensearch Check if OpenSearch is running"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  make clean            Clean Python cache files"

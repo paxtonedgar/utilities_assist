@@ -84,7 +84,8 @@ def _tests() -> Settings:
     )
 
 
-@lru_cache(1)
+# Optional minimal config caching - can be disabled if config changes frequently
+@lru_cache(1)  # Single config instance only
 def load_settings() -> Settings:
     """Load settings based on CLOUD_PROFILE environment variable.
     

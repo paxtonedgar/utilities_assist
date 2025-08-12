@@ -3,12 +3,12 @@
 import logging
 import re
 from typing import List, Any
-from .models import IntentResult
+from services.models import IntentResult
 
 logger = logging.getLogger(__name__)
 
 
-async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None) -> IntentResult:
+async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None, model: str = "gpt-4o-mini") -> IntentResult:
     """Determine user intent from query text.
     
     Args:
@@ -125,7 +125,7 @@ Reasoning: [brief explanation]
         
         # Get LLM response
         response = await chat_client.chat.completions.create(
-            model=chat_client.model or "gpt-3.5-turbo",
+            model=model,
             messages=messages,
             max_tokens=100,
             temperature=0.1

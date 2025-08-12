@@ -1,0 +1,1112 @@
+{
+  "timestamp": "2025-08-11T23:21:37.743160",
+  "config": {
+    "mode": "simple",
+    "golden_set_file": "golden_set.yaml",
+    "total_queries": 30,
+    "index_alias": "confluence_current"
+  },
+  "overall_metrics": {
+    "successful_queries": 30,
+    "failed_queries": 0,
+    "success_rate": 1.0,
+    "avg_precision@5": 0.35277777777777775,
+    "avg_recall@10": 0.3722222222222222,
+    "avg_ndcg@10": 0.38579603442455995
+  },
+  "threshold_evaluation": {
+    "thresholds": {
+      "precision@5": 0.6,
+      "recall@10": 0.8,
+      "ndcg@10": 0.7
+    },
+    "results": {
+      "meets_precision": false,
+      "meets_recall": false,
+      "meets_ndcg": false,
+      "overall_pass": false
+    }
+  },
+  "category_breakdown": {
+    "version_conflict": {
+      "count": 2,
+      "avg_precision@5": 0.375,
+      "avg_recall@10": 0.41666666666666663,
+      "avg_ndcg@10": 0.5412129593941074
+    },
+    "stale_but_true": {
+      "count": 5,
+      "avg_precision@5": 0.5666666666666667,
+      "avg_recall@10": 0.5333333333333333,
+      "avg_ndcg@10": 0.5245169552181992
+    },
+    "workflow": {
+      "count": 6,
+      "avg_precision@5": 0.4166666666666667,
+      "avg_recall@10": 0.5,
+      "avg_ndcg@10": 0.47953588588967494
+    },
+    "api": {
+      "count": 5,
+      "avg_precision@5": 0.0,
+      "avg_recall@10": 0.0,
+      "avg_ndcg@10": 0.0
+    },
+    "platform": {
+      "count": 2,
+      "avg_precision@5": 0.0,
+      "avg_recall@10": 0.0,
+      "avg_ndcg@10": 0.0
+    },
+    "emergency": {
+      "count": 2,
+      "avg_precision@5": 1.0,
+      "avg_recall@10": 0.75,
+      "avg_ndcg@10": 0.8065735963827292
+    },
+    "safety": {
+      "count": 1,
+      "avg_precision@5": 0.0,
+      "avg_recall@10": 0.0,
+      "avg_ndcg@10": 0.0
+    },
+    "regulatory": {
+      "count": 2,
+      "avg_precision@5": 0.75,
+      "avg_recall@10": 0.5833333333333333,
+      "avg_ndcg@10": 0.5761067221115816
+    },
+    "training": {
+      "count": 2,
+      "avg_precision@5": 0.0,
+      "avg_recall@10": 0.0,
+      "avg_ndcg@10": 0.0
+    },
+    "acl_boundary": {
+      "count": 2,
+      "avg_precision@5": 0.25,
+      "avg_recall@10": 0.75,
+      "avg_ndcg@10": 0.8065735963827292
+    },
+    "comprehensive": {
+      "count": 1,
+      "avg_precision@5": 0.5,
+      "avg_recall@10": 0.5,
+      "avg_ndcg@10": 0.6131471927654584
+    }
+  },
+  "query_results": [
+    {
+      "query_id": "Q001",
+      "query_text": "How do I start new utility service?",
+      "expected_ids": [
+        "UTILS:CUST:START_SERVICE:v4#overview",
+        "UTILS:CUST:START_SERVICE:v4#eligibility",
+        "UTILS:CUST:START_SERVICE:v1#eligibility"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "version_conflict",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v4#overview",
+        "UTILS:CUST:STOP_SERVICE:v3#overview",
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+      ],
+      "retrieved_scores": [
+        21.963728,
+        15.244324,
+        0.823337,
+        0.79344577
+      ],
+      "metrics": {
+        "precision@5": 0.25,
+        "recall@10": 0.3333333333333333,
+        "ndcg@10": 0.46927872602275644
+      },
+      "retrieval_time_ms": 12.331008911132812,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:START_SERVICE:v4#overview"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:START_SERVICE:v4#eligibility",
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:STOP_SERVICE:v3#overview",
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+          "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+        ]
+      }
+    },
+    {
+      "query_id": "Q002",
+      "query_text": "What credit score is needed to start service?",
+      "expected_ids": [
+        "UTILS:CUST:START_SERVICE:v4#eligibility",
+        "UTILS:CUST:START_SERVICE:v1#eligibility"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "version_conflict",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v4#eligibility",
+        "UTILS:CUST:RECONNECT:v2#process"
+      ],
+      "retrieved_scores": [
+        5.5669413,
+        5.5669413
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 5.563020706176758,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:START_SERVICE:v4#eligibility"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:RECONNECT:v2#process"
+        ]
+      }
+    },
+    {
+      "query_id": "Q003",
+      "query_text": "Do corporate accounts need to pay deposits for new service?",
+      "expected_ids": [
+        "UTILS:CUST:START_SERVICE:v1#eligibility",
+        "UTILS:CUST:START_SERVICE:v4#eligibility"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "stale_but_true",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v1#eligibility",
+        "UTILS:CUST:START_SERVICE:v1#deposits",
+        "UTILS:CUST:RECONNECT:v1#fees"
+      ],
+      "retrieved_scores": [
+        6.082536,
+        2.8704748,
+        0.75246835
+      ],
+      "metrics": {
+        "precision@5": 0.3333333333333333,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 4.5108795166015625,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:START_SERVICE:v4#eligibility"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v1#deposits",
+          "UTILS:CUST:RECONNECT:v1#fees"
+        ]
+      }
+    },
+    {
+      "query_id": "Q004",
+      "query_text": "How are utility deposits calculated exactly?",
+      "expected_ids": [
+        "UTILS:CUST:START_SERVICE:v1#deposits"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "stale_but_true",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v1#eligibility",
+        "UTILS:CUST:START_SERVICE:v1#deposits"
+      ],
+      "retrieved_scores": [
+        3.164291,
+        2.2353776
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 1.0,
+        "ndcg@10": 0.6309297535714575
+      },
+      "retrieval_time_ms": 5.18488883972168,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:START_SERVICE:v1#deposits"
+        ],
+        "missed_expected": [],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q005",
+      "query_text": "What are the specific reconnection fees and surcharges?",
+      "expected_ids": [
+        "UTILS:CUST:RECONNECT:v1#fees",
+        "UTILS:CUST:RECONNECT:v2#process"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "stale_but_true",
+      "retrieved_ids": [
+        "UTILS:CUST:RECONNECT:v1#fees"
+      ],
+      "retrieved_scores": [
+        19.520016
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 4.100799560546875,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:RECONNECT:v1#fees"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:RECONNECT:v2#process"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q006",
+      "query_text": "Are there special payment plan benefits for medical emergencies?",
+      "expected_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v1#hardship",
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility",
+        "UTILS:BILLING:PAYMENT_PLAN:v2#overview"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "stale_but_true",
+      "retrieved_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility",
+        "UTILS:BILLING:PAYMENT_PLAN:v1#hardship"
+      ],
+      "retrieved_scores": [
+        17.600643,
+        9.786101
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 0.6666666666666666,
+        "ndcg@10": 0.7653606369886217
+      },
+      "retrieval_time_ms": 13.921022415161133,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility",
+          "UTILS:BILLING:PAYMENT_PLAN:v1#hardship"
+        ],
+        "missed_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#overview"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q007",
+      "query_text": "What safety equipment specifications are required for field work?",
+      "expected_ids": [
+        "UTILS:FIELD:SAFETY:v1#equipment",
+        "UTILS:FIELD:SAFETY:v2#procedures"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "stale_but_true",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v1#eligibility"
+      ],
+      "retrieved_scores": [
+        1.2178459
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 15.988826751708984,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:FIELD:SAFETY:v1#equipment",
+          "UTILS:FIELD:SAFETY:v2#procedures"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q008",
+      "query_text": "Walk me through stopping utility service",
+      "expected_ids": [
+        "UTILS:CUST:STOP_SERVICE:v3#overview",
+        "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [
+        "UTILS:CUST:STOP_SERVICE:v3#overview",
+        "UTILS:CUST:START_SERVICE:v4#overview",
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+      ],
+      "retrieved_scores": [
+        27.584778,
+        12.137932,
+        0.823337,
+        0.79344577
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 1.0,
+        "ndcg@10": 0.8772153153380493
+      },
+      "retrieval_time_ms": 11.890172958374023,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:STOP_SERVICE:v3#overview",
+          "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+        ],
+        "missed_expected": [],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v4#overview",
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q009",
+      "query_text": "How do I set up a payment plan for past due bills?",
+      "expected_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#overview",
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility",
+        "UTILS:BILLING:PAYMENT_PLAN:v1#hardship"
+      ],
+      "retrieved_scores": [
+        17.600643,
+        7.9232616
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 4.682064056396484,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility"
+        ],
+        "missed_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#overview"
+        ],
+        "unexpected_results": [
+          "UTILS:BILLING:PAYMENT_PLAN:v1#hardship"
+        ]
+      }
+    },
+    {
+      "query_id": "Q010",
+      "query_text": "What's the process for correcting a wrong meter reading?",
+      "expected_ids": [
+        "UTILS:METER:READ_CORRECTION:v2#process",
+        "UTILS:METER:READ_CORRECTION:v2#thresholds"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.5151500701904297,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:METER:READ_CORRECTION:v2#process",
+          "UTILS:METER:READ_CORRECTION:v2#thresholds"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q011",
+      "query_text": "How do I switch to time-of-use rates?",
+      "expected_ids": [
+        "UTILS:RATE:TOU_SWITCH:v3#overview",
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:RATE:TOU_SWITCH:v3#overview"
+      ],
+      "retrieved_scores": [
+        4.589369,
+        2.3455582
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "retrieval_time_ms": 1.6639232635498047,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+          "UTILS:RATE:TOU_SWITCH:v3#overview"
+        ],
+        "missed_expected": [],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q012",
+      "query_text": "How do I reconnect service after disconnection?",
+      "expected_ids": [
+        "UTILS:CUST:RECONNECT:v2#process",
+        "UTILS:CUST:RECONNECT:v1#fees"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v4#eligibility",
+        "UTILS:CUST:RECONNECT:v2#process"
+      ],
+      "retrieved_scores": [
+        5.5669413,
+        5.5669413
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.38685280723454163
+      },
+      "retrieval_time_ms": 1.7979145050048828,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:RECONNECT:v2#process"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:RECONNECT:v1#fees"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v4#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q013",
+      "query_text": "What's the bill dispute process?",
+      "expected_ids": [
+        "UTILS:BILLING:DISPUTE:v3#overview",
+        "UTILS:BILLING:DISPUTE:v2#investigation"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "workflow",
+      "retrieved_ids": [
+        "UTILS:CUST:RECONNECT:v2#process"
+      ],
+      "retrieved_scores": [
+        12.340455
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.5597343444824219,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:BILLING:DISPUTE:v3#overview",
+          "UTILS:BILLING:DISPUTE:v2#investigation"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:RECONNECT:v2#process"
+        ]
+      }
+    },
+    {
+      "query_id": "Q014",
+      "query_text": "Show me the Customer Summary API",
+      "expected_ids": [
+        "UTILS:API:CUSTOMER_SUMMARY:v2",
+        "UTILS:API:ACCOUNT_UTILITY:v3"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "api",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.2280941009521484,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:CUSTOMER_SUMMARY:v2",
+          "UTILS:API:ACCOUNT_UTILITY:v3"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q015",
+      "query_text": "How do I search transaction history via API?",
+      "expected_ids": [
+        "UTILS:API:ENHANCED_TRANSACTION:v1",
+        "UTILS:API:CUSTOMER_SUMMARY:v2",
+        "UTILS:API:ACCOUNT_UTILITY:v3"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "api",
+      "retrieved_ids": [
+        "UTILS:CUST:START_SERVICE:v1#deposits"
+      ],
+      "retrieved_scores": [
+        1.7529829
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.4510154724121094,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:ENHANCED_TRANSACTION:v1",
+          "UTILS:API:CUSTOMER_SUMMARY:v2",
+          "UTILS:API:ACCOUNT_UTILITY:v3"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v1#deposits"
+        ]
+      }
+    },
+    {
+      "query_id": "Q016",
+      "query_text": "What APIs are available for account information?",
+      "expected_ids": [
+        "UTILS:API:ACCOUNT_UTILITY:v3",
+        "UTILS:API:CUSTOMER_SUMMARY:v2",
+        "UTILS:API:ENHANCED_TRANSACTION:v1"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "api",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.2230873107910156,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:ACCOUNT_UTILITY:v3",
+          "UTILS:API:CUSTOMER_SUMMARY:v2",
+          "UTILS:API:ENHANCED_TRANSACTION:v1"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q017",
+      "query_text": "How do I log customer interactions via API?",
+      "expected_ids": [
+        "UTILS:API:CUSTOMER_INTERACTION:v2"
+      ],
+      "acl": "grp_care",
+      "mode": "simple",
+      "category": "api",
+      "retrieved_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility"
+      ],
+      "retrieved_scores": [
+        1.6832201
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.3151168823242188,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:CUSTOMER_INTERACTION:v2"
+        ],
+        "unexpected_results": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q018",
+      "query_text": "What digital events can I track?",
+      "expected_ids": [
+        "UTILS:API:DIGITAL_EVENTS:v1"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "api",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 0.9980201721191406,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:DIGITAL_EVENTS:v1"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q019",
+      "query_text": "Tell me about the Global Customer Platform",
+      "expected_ids": [
+        "UTILS:GLOBAL:PLATFORM:v2"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "platform",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.068115234375,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:GLOBAL:PLATFORM:v2"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q020",
+      "query_text": "What products are in the utility catalog?",
+      "expected_ids": [
+        "UTILS:API:PRODUCT_CATALOG:v1"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "platform",
+      "retrieved_ids": [
+        "UTILS:CUST:STOP_SERVICE:v3#overview",
+        "UTILS:CUST:START_SERVICE:v4#overview"
+      ],
+      "retrieved_scores": [
+        9.677382,
+        7.705387
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.3110637664794922,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:API:PRODUCT_CATALOG:v1"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:STOP_SERVICE:v3#overview",
+          "UTILS:CUST:START_SERVICE:v4#overview"
+        ]
+      }
+    },
+    {
+      "query_id": "Q021",
+      "query_text": "How do I report a power outage?",
+      "expected_ids": [
+        "UTILS:EMERGENCY:OUTAGE:v1#reporting",
+        "UTILS:EMERGENCY:OUTAGE:v1#restoration"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "emergency",
+      "retrieved_ids": [
+        "UTILS:EMERGENCY:OUTAGE:v1#reporting"
+      ],
+      "retrieved_scores": [
+        22.017838
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 1.3422966003417969,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:EMERGENCY:OUTAGE:v1#reporting"
+        ],
+        "missed_expected": [
+          "UTILS:EMERGENCY:OUTAGE:v1#restoration"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q022",
+      "query_text": "What's the priority order for power restoration?",
+      "expected_ids": [
+        "UTILS:EMERGENCY:OUTAGE:v1#restoration"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "emergency",
+      "retrieved_ids": [
+        "UTILS:EMERGENCY:OUTAGE:v1#restoration"
+      ],
+      "retrieved_scores": [
+        34.35829
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "retrieval_time_ms": 1.7719268798828125,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:EMERGENCY:OUTAGE:v1#restoration"
+        ],
+        "missed_expected": [],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q023",
+      "query_text": "What are the field safety requirements?",
+      "expected_ids": [
+        "UTILS:FIELD:SAFETY:v2#procedures",
+        "UTILS:FIELD:SAFETY:v1#equipment"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "safety",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.9440650939941406,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:FIELD:SAFETY:v2#procedures",
+          "UTILS:FIELD:SAFETY:v1#equipment"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q024",
+      "query_text": "What are the current residential electricity rates?",
+      "expected_ids": [
+        "UTILS:REGULATORY:TARIFF:v4#residential",
+        "UTILS:RATE:TOU_SWITCH:v3#overview",
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "regulatory",
+      "retrieved_ids": [
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:RATE:TOU_SWITCH:v3#overview"
+      ],
+      "retrieved_scores": [
+        4.0342817,
+        2.3455582
+      ],
+      "metrics": {
+        "precision@5": 1.0,
+        "recall@10": 0.6666666666666666,
+        "ndcg@10": 0.7653606369886217
+      },
+      "retrieval_time_ms": 2.0530223846435547,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+          "UTILS:RATE:TOU_SWITCH:v3#overview"
+        ],
+        "missed_expected": [
+          "UTILS:REGULATORY:TARIFF:v4#residential"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q025",
+      "query_text": "Show me commercial rate structure",
+      "expected_ids": [
+        "UTILS:REGULATORY:TARIFF:v3#commercial",
+        "UTILS:RATE:TOU_SWITCH:v3#overview"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "regulatory",
+      "retrieved_ids": [
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:RATE:TOU_SWITCH:v3#overview"
+      ],
+      "retrieved_scores": [
+        9.677382,
+        7.705387
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.38685280723454163
+      },
+      "retrieval_time_ms": 1.953125,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:RATE:TOU_SWITCH:v3#overview"
+        ],
+        "missed_expected": [
+          "UTILS:REGULATORY:TARIFF:v3#commercial"
+        ],
+        "unexpected_results": [
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q026",
+      "query_text": "What's the new employee onboarding process?",
+      "expected_ids": [
+        "UTILS:TRAINING:ONBOARD:v2#overview"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "training",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.5027523040771484,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:TRAINING:ONBOARD:v2#overview"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q027",
+      "query_text": "What certifications do field technicians need?",
+      "expected_ids": [
+        "UTILS:TRAINING:CERT:v1#requirements"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "training",
+      "retrieved_ids": [],
+      "retrieved_scores": [],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "retrieval_time_ms": 1.2769699096679688,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [
+          "UTILS:TRAINING:CERT:v1#requirements"
+        ],
+        "unexpected_results": []
+      }
+    },
+    {
+      "query_id": "Q028",
+      "query_text": "payment plan eligibility requirements",
+      "expected_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility",
+        "UTILS:BILLING:PAYMENT_PLAN:v2#overview"
+      ],
+      "acl": "public",
+      "mode": "simple",
+      "category": "acl_boundary",
+      "retrieved_ids": [
+        "UTILS:BILLING:PAYMENT_PLAN:v2#overview",
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+      ],
+      "retrieved_scores": [
+        17.600643,
+        6.613092
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 1.6469955444335938,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#overview"
+        ],
+        "missed_expected": [
+          "UTILS:BILLING:PAYMENT_PLAN:v2#eligibility"
+        ],
+        "unexpected_results": [
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility"
+        ]
+      }
+    },
+    {
+      "query_id": "Q029",
+      "query_text": "start service eligibility with credit requirements",
+      "expected_ids": [],
+      "acl": "public",
+      "mode": "simple",
+      "category": "acl_boundary",
+      "retrieved_ids": [
+        "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+        "UTILS:CUST:STOP_SERVICE:v3#overview",
+        "UTILS:CUST:START_SERVICE:v4#overview",
+        "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+      ],
+      "retrieved_scores": [
+        6.613092,
+        5.5669413,
+        4.4591246,
+        0.79344577
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "retrieval_time_ms": 1.8100738525390625,
+      "success": true,
+      "analysis": {
+        "found_expected": [],
+        "missed_expected": [],
+        "unexpected_results": [
+          "UTILS:RATE:TOU_SWITCH:v3#eligibility",
+          "UTILS:CUST:STOP_SERVICE:v3#overview",
+          "UTILS:CUST:START_SERVICE:v4#overview",
+          "UTILS:CUST:STOP_SERVICE:v3#final_bill"
+        ]
+      }
+    },
+    {
+      "query_id": "Q030",
+      "query_text": "service reconnection process including all fees and requirements",
+      "expected_ids": [
+        "UTILS:CUST:RECONNECT:v2#process",
+        "UTILS:CUST:RECONNECT:v1#fees"
+      ],
+      "acl": "grp_ops",
+      "mode": "simple",
+      "category": "comprehensive",
+      "retrieved_ids": [
+        "UTILS:CUST:RECONNECT:v1#fees",
+        "UTILS:CUST:START_SERVICE:v1#eligibility"
+      ],
+      "retrieved_scores": [
+        19.520016,
+        5.5669413
+      ],
+      "metrics": {
+        "precision@5": 0.5,
+        "recall@10": 0.5,
+        "ndcg@10": 0.6131471927654584
+      },
+      "retrieval_time_ms": 1.5399456024169922,
+      "success": true,
+      "analysis": {
+        "found_expected": [
+          "UTILS:CUST:RECONNECT:v1#fees"
+        ],
+        "missed_expected": [
+          "UTILS:CUST:RECONNECT:v2#process"
+        ],
+        "unexpected_results": [
+          "UTILS:CUST:START_SERVICE:v1#eligibility"
+        ]
+      }
+    }
+  ]
+}
