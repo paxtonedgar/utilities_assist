@@ -109,18 +109,38 @@ class BlueGreenReindexer:
         if "embedding" in source:
             # Already at root level
             embedding = source["embedding"]
+        elif "sections" in source and isinstance(source["sections"], list):
+            # Extract from sections structure (take first non-empty embedding)
+            for section in source["sections"]:
+                if section.get("embedding"):
+                    embedding = section["embedding"]
+                    break
         elif "nested_content" in source and isinstance(source["nested_content"], list):
-            # Extract from nested structure (take first non-empty embedding)
+            # Extract from nested_content structure (take first non-empty embedding)
             for nested in source["nested_content"]:
                 if nested.get("embedding"):
                     embedding = nested["embedding"]
                     break
         
+        # Extract body content from various possible structures
+        body_content = ""
+        if "content" in source:
+            body_content = source["content"]
+        elif "body" in source:
+            body_content = source["body"]  
+        elif "sections" in source and isinstance(source["sections"], list):
+            # Combine all section content
+            section_contents = []
+            for section in source["sections"]:
+                if section.get("content"):
+                    section_contents.append(section["content"])
+            body_content = "\n\n".join(section_contents)
+        
         # Build new document structure
         new_doc = {
             "title": source.get("title", ""),
             "section": source.get("section", "main"),
-            "body": source.get("content", source.get("body", "")),
+            "body": body_content,
             "updated_at": source.get("updated_at", source.get("timestamp", datetime.now(timezone.utc).isoformat())),
             "page_id": source.get("page_id", source.get("id", "")),
             "section_anchor": source.get("section_anchor", ""),
