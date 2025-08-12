@@ -103,10 +103,20 @@ def _cached_embed_client(
     elif provider == "azure":
         from openai import AzureOpenAI
         
+        # Get the endpoint from environment or use fallback
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        if not azure_endpoint:
+            try:
+                from src.infra.config import get_settings
+                settings = get_settings()
+                azure_endpoint = settings.chat.api_base
+            except:
+                azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
+        
         return AzureOpenAI(
             api_key=os.getenv("AZURE_CLIENT_SECRET", "dummy"),
             api_version="2024-06-01",
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            azure_endpoint=azure_endpoint,
             timeout=5.0
         )
     
