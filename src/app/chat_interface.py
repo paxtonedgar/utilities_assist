@@ -109,7 +109,7 @@ def initialize_session():
         logger.info(f"Initialized with {st.session_state.settings.profile} profile")
     
     if "use_mock_corpus" not in st.session_state:
-        st.session_state.use_mock_corpus = True
+        st.session_state.use_mock_corpus = False  # Default to production data for JPMC
 
 def render_header():
     """Simple, clean header."""
