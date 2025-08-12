@@ -225,17 +225,34 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable[[], str] | None = No
     if cfg.provider == "azure" and token_provider:
         from openai import AzureOpenAI
         
-        token = token_provider()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-        }
+        # Try to get token, but fall back to config API key if token provider fails
+        try:
+            token = token_provider()
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+            }
+            api_key = token
+        except Exception as e:
+            logger.warning(f"Token provider failed ({e}), trying direct API key from config")
+            # Fall back to direct API key from config
+            try:
+                from utils import load_config
+                config = load_config()
+                api_key = config.get('azure_openai', 'api_key', fallback=None)
+                if not api_key:
+                    raise ValueError("No API key found in config")
+                headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
+                logger.info("Using direct API key from config.ini")
+            except Exception as config_error:
+                logger.error(f"Failed to get API key from config: {config_error}")
+                raise ValueError("Could not get Azure API key from token provider or config")
         
         # Apply JPMC proxy if needed
         _setup_jpmc_proxy()
         
         return AzureOpenAI(
-            api_key=token,  # Use the actual token as API key
+            api_key=api_key,
             api_version=cfg.api_version,
             azure_endpoint=cfg.api_base,
             timeout=5.0,
@@ -269,11 +286,28 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
     if cfg.provider == "azure" and token_provider:
         from openai import AzureOpenAI
         
-        token = token_provider()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-        }
+        # Try to get token, but fall back to config API key if token provider fails
+        try:
+            token = token_provider()
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+            }
+            api_key = token
+        except Exception as e:
+            logger.warning(f"Token provider failed ({e}), trying direct API key from config")
+            # Fall back to direct API key from config
+            try:
+                from utils import load_config
+                config = load_config()
+                api_key = config.get('azure_openai', 'api_key', fallback=None)
+                if not api_key:
+                    raise ValueError("No API key found in config")
+                headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
+                logger.info("Using direct API key from config.ini")
+            except Exception as config_error:
+                logger.error(f"Failed to get API key from config: {config_error}")
+                raise ValueError("Could not get Azure API key from token provider or config")
         
         # Apply JPMC proxy if needed
         _setup_jpmc_proxy()
@@ -290,7 +324,7 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
                 azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
         
         return AzureOpenAI(
-            api_key=token,  # Use the actual token as API key
+            api_key=api_key,
             api_version="2024-06-01",
             azure_endpoint=azure_endpoint,
             timeout=5.0,
