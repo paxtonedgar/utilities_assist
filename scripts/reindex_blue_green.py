@@ -26,6 +26,7 @@ from opensearchpy.exceptions import NotFoundError, RequestError
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.infra.config import get_settings
+from src.infra.clients import make_search_session
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ class BlueGreenReindexer:
 
 
 def create_opensearch_client(settings) -> OpenSearch:
-    """Create OpenSearch client from settings."""
+    """Create OpenSearch client from settings with proper JPMC authentication."""
     # Parse host URL properly
     host_url = settings.search.host
     
@@ -395,9 +396,30 @@ def create_opensearch_client(settings) -> OpenSearch:
             port = 9200
         use_ssl = False
     
+    # For JPMC environment, we need to use the proper authentication
+    if settings.profile == "jpmc_azure":
+        # Import here to avoid circular imports
+        import os
+        from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+        
+        # Setup proxy for JPMC environment
+        _setup_jpmc_proxy()
+        
+        # Get AWS authentication for OpenSearch
+        aws_auth = _get_aws_auth()
+        if aws_auth:
+            logger.info("Using AWS4Auth for OpenSearch in JPMC environment")
+            http_auth = aws_auth
+        else:
+            logger.warning("AWS4Auth not available, falling back to no auth")
+            http_auth = None
+    else:
+        # Local environment - use basic auth if provided
+        http_auth = (settings.search.username, settings.search.password) if settings.search.username else None
+    
     return OpenSearch(
         hosts=[{"host": host, "port": port}],
-        http_auth=(settings.search.username, settings.search.password) if settings.search.username else None,
+        http_auth=http_auth,
         use_ssl=use_ssl,
         verify_certs=False,  # Often false for local dev
         timeout=int(settings.search.timeout_s),
