@@ -8,7 +8,7 @@ from services.models import IntentResult
 logger = logging.getLogger(__name__)
 
 
-async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None, model: str = "gpt-4o-mini") -> IntentResult:
+async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None, model_name: str = "gpt-4o-mini") -> IntentResult:
     """Determine user intent from query text.
     
     Args:
@@ -49,7 +49,7 @@ async def determine_intent(text: str, chat_client: Any, utilities_list: List[str
     
     # Use LLM for ambiguous cases
     try:
-        return await _classify_with_llm(text, chat_client, utilities_list or [])
+        return await _classify_with_llm(text, chat_client, utilities_list or [], model_name)
     except Exception as e:
         logger.error(f"LLM intent classification failed: {e}")
         # Fallback to confluence for general queries
@@ -95,7 +95,7 @@ def _is_swagger_intent(text: str) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in swagger_patterns)
 
 
-async def _classify_with_llm(text: str, chat_client: Any, utilities_list: List[str]) -> IntentResult:
+async def _classify_with_llm(text: str, chat_client: Any, utilities_list: List[str], model_name: str = "gpt-4o-mini") -> IntentResult:
     """Use LLM to classify complex intents."""
     
     utilities_str = ", ".join(utilities_list[:10])  # Limit for prompt size
@@ -125,7 +125,7 @@ Reasoning: [brief explanation]
         
         # Get LLM response
         response = await chat_client.chat.completions.create(
-            model=model,
+            model=model_name,
             messages=messages,
             max_tokens=100,
             temperature=0.1
