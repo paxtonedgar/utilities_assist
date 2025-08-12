@@ -50,22 +50,46 @@ def _local() -> Settings:
 
 def _jpmc() -> Settings:
     """JPMC production profile using Azure OpenAI with AAD and enterprise endpoints"""
+    # Try to load from config.ini if available
+    config = None
+    try:
+        from utils import load_config
+        config = load_config()
+    except:
+        pass
+    
+    # Get values from environment or config.ini
+    if config:
+        chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT") or config.get('azure_openai', 'deployment_name', fallback="gpt-4o-2024-08-06")
+        embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT") or config.get('azure_openai', 'azure_openai_embedding_model', fallback="text-embedding-3-small-1")
+        api_base = os.getenv("AZURE_OPENAI_ENDPOINT") or config.get('azure_openai', 'azure_openai_endpoint', fallback="https://llm-multitenancy-exp.jpmchase.net/ver2/")
+        api_version = os.getenv("AZURE_API_VERSION") or config.get('azure_openai', 'api_version', fallback="2024-10-21")
+        opensearch_host = os.getenv("OPENSEARCH_ENDPOINT") or config.get('aws_info', 'opensearch_endpoint', fallback="https://utilitiesassist.dev.aws.jpmchase.net")
+        opensearch_index = os.getenv("OPENSEARCH_INDEX") or config.get('aws_info', 'index_name', fallback="khub-opensearch-index")
+    else:
+        chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o-2024-08-06")
+        embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small-1")
+        api_base = os.getenv("AZURE_OPENAI_ENDPOINT", "https://llm-multitenancy-exp.jpmchase.net/ver2/")
+        api_version = os.getenv("AZURE_API_VERSION", "2024-10-21")
+        opensearch_host = os.getenv("OPENSEARCH_ENDPOINT", "https://utilitiesassist.dev.aws.jpmchase.net")
+        opensearch_index = os.getenv("OPENSEARCH_INDEX", "khub-opensearch-index")
+        
     return Settings(
         profile="jpmc_azure", 
         chat=ChatCfg(
             provider="azure", 
-            model=os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o-2024-08-06"),
-            api_base=os.getenv("AZURE_OPENAI_ENDPOINT", "https://llm-multitenancy-exp.jpmchase.net/ver2/"), 
-            api_version=os.getenv("AZURE_API_VERSION", "2024-10-21")
+            model=chat_deployment,
+            api_base=api_base, 
+            api_version=api_version
         ),
         embed=EmbedCfg(
             provider="azure", 
-            model=os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small-1"), 
+            model=embed_deployment, 
             dims=1536
         ),
         search=SearchCfg(
-            host=os.getenv("OPENSEARCH_ENDPOINT", "https://utilitiesassist.dev.aws.jpmchase.net"), 
-            index_alias=os.getenv("OPENSEARCH_INDEX", "khub-opensearch-index"),
+            host=opensearch_host, 
+            index_alias=opensearch_index,
             # No username/password - uses AWS4Auth
             username=None, 
             password=None,
