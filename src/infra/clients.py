@@ -268,10 +268,21 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         # Apply JPMC proxy if needed
         _setup_jpmc_proxy()
         
+        # Get the endpoint from environment or use the one from chat config if available
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        if not azure_endpoint:
+            # Try to get settings and use chat endpoint as fallback
+            try:
+                from src.infra.config import get_settings
+                settings = get_settings()
+                azure_endpoint = settings.chat.api_base
+            except:
+                azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
+        
         return AzureOpenAI(
             api_key=token,  # Use the actual token as API key
             api_version="2024-06-01",
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            azure_endpoint=azure_endpoint,
             timeout=5.0,
             default_headers=headers
         )
