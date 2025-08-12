@@ -210,26 +210,36 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable[[], str] | None = No
         
     Cache key: (provider, model, api_base, api_version, token_fingerprint)
     """
-    client = _cached_chat_client(
+    # For Azure with token provider, we need to create a fresh client with headers
+    # instead of using the cached version
+    if cfg.provider == "azure" and token_provider:
+        from openai import AzureOpenAI
+        
+        token = token_provider()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+        }
+        
+        # Apply JPMC proxy if needed
+        _setup_jpmc_proxy()
+        
+        return AzureOpenAI(
+            api_key=token,  # Use the actual token as API key
+            api_version=cfg.api_version,
+            azure_endpoint=cfg.api_base,
+            timeout=5.0,
+            default_headers=headers
+        )
+    
+    # For other cases, use cached client
+    return _cached_chat_client(
         cfg.provider,
         cfg.model,
         cfg.api_base,
         cfg.api_version,
         _token_fingerprint(token_provider)
     )
-    
-    # Add enterprise headers for Azure JPMC deployment
-    if cfg.provider == "azure" and token_provider:
-        token = token_provider()
-        if not hasattr(client, '_enterprise_headers_set'):
-            client.default_headers = client.default_headers or {}
-            client.default_headers.update({
-                "Authorization": f"Bearer {token}",
-                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-            })
-            client._enterprise_headers_set = True
-    
-    return client
 
 
 def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = None) -> Any:
@@ -244,25 +254,35 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         
     Cache key: (provider, model, dims, token_fingerprint)
     """
-    client = _cached_embed_client(
+    # For Azure with token provider, we need to create a fresh client with headers
+    # instead of using the cached version
+    if cfg.provider == "azure" and token_provider:
+        from openai import AzureOpenAI
+        
+        token = token_provider()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
+        }
+        
+        # Apply JPMC proxy if needed
+        _setup_jpmc_proxy()
+        
+        return AzureOpenAI(
+            api_key=token,  # Use the actual token as API key
+            api_version="2024-06-01",
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            timeout=5.0,
+            default_headers=headers
+        )
+    
+    # For other cases, use cached client
+    return _cached_embed_client(
         cfg.provider,
         cfg.model,
         cfg.dims,
         _token_fingerprint(token_provider)
     )
-    
-    # Add enterprise headers for Azure JPMC deployment
-    if cfg.provider == "azure" and token_provider:
-        token = token_provider()
-        if not hasattr(client, '_enterprise_headers_set'):
-            client.default_headers = client.default_headers or {}
-            client.default_headers.update({
-                "Authorization": f"Bearer {token}",
-                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-            })
-            client._enterprise_headers_set = True
-    
-    return client
 
 
 def make_search_session(cfg: SearchCfg) -> requests.Session:
