@@ -97,7 +97,18 @@ class OpenSearchClient:
         
         try:
             url = f"{self.base_url}/{index}/_search"
-            response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+            
+            # Use direct requests with auth (like main branch) instead of session
+            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+            _setup_jpmc_proxy()  # Ensure proxy is configured
+            aws_auth = _get_aws_auth()
+            if aws_auth:
+                logger.info("Using direct AWS4Auth for BM25 OpenSearch request")
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=self.config.timeout_s)
+            else:
+                logger.warning("No AWS auth available, using session without auth for BM25")
+                response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+            
             response.raise_for_status()
             
             data = response.json()
@@ -144,7 +155,18 @@ class OpenSearchClient:
         
         try:
             url = f"{self.base_url}/{index}/_search"
-            response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+            
+            # Use direct requests with auth (like main branch) instead of session
+            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+            _setup_jpmc_proxy()  # Ensure proxy is configured
+            aws_auth = _get_aws_auth()
+            if aws_auth:
+                logger.info("Using direct AWS4Auth for kNN OpenSearch request")
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=self.config.timeout_s)
+            else:
+                logger.warning("No AWS auth available, using session without auth for kNN")
+                response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+            
             response.raise_for_status()
             
             data = response.json()
