@@ -130,23 +130,46 @@ def _get_aws_auth():
         import boto3
         from requests_aws4auth import AWS4Auth
         
+        logger.info("Creating boto3 session for AWS authentication...")
         session = boto3.Session()
+        logger.info(f"Boto3 session created: {session}")
+        
+        logger.info("Getting credentials from boto3 session...")
         credentials = session.get_credentials()
+        logger.info(f"Boto3 credentials object: {credentials}")
+        
+        if not credentials:
+            logger.error("No credentials returned from boto3 session")
+            return None
+            
+        if not credentials.access_key or not credentials.secret_key:
+            logger.error(f"Invalid credentials: access_key={bool(credentials.access_key)}, secret_key={bool(credentials.secret_key)}, token={bool(credentials.token)}")
+            return None
+            
         region = 'us-east-1'
         
-        logger.info("AWS credentials configured for OpenSearch authentication")
-        return AWS4Auth(
+        logger.info(f"Creating AWS4Auth with region={region}, service=es")
+        logger.info(f"AWS credentials: access_key={'*'*8 + credentials.access_key[-4:] if credentials.access_key else 'None'}")
+        logger.info(f"AWS credentials: secret_key={'*'*8 + credentials.secret_key[-4:] if credentials.secret_key else 'None'}")
+        logger.info(f"AWS credentials: session_token={'*'*8 + credentials.token[-4:] if credentials.token else 'None'}")
+        
+        aws_auth = AWS4Auth(
             credentials.access_key, 
             credentials.secret_key, 
             region, 
             'es', 
             session_token=credentials.token
         )
+        
+        logger.info("AWS4Auth created successfully for OpenSearch authentication")
+        return aws_auth
+        
     except ImportError:
         logger.warning("AWS4Auth not available - install requests-aws4auth for JPMC OpenSearch")
         return None
     except Exception as e:
-        logger.warning(f"Failed to configure AWS authentication: {e}")
+        logger.error(f"Failed to configure AWS authentication: {e}")
+        logger.exception("Full AWS authentication error:")
         return None
 
 
