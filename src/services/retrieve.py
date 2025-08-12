@@ -4,73 +4,66 @@ import logging
 import time
 import json
 from typing import List, Dict, Any, Optional
-import requests
+from datetime import datetime
+
 from .models import SearchResult, RetrievalResult
+from ..infra.opensearch_client import OpenSearchClient, SearchFilters
 
 logger = logging.getLogger(__name__)
 
 
 async def bm25_search(
     query: str,
-    session: requests.Session,
-    index_name: str,
+    search_client: OpenSearchClient,
+    index_name: str = "confluence_current",
+    filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    filters: Optional[Dict[str, Any]] = None
+    time_decay_days: int = 120
 ) -> RetrievalResult:
-    """Perform BM25 text search using OpenSearch.
+    """Perform BM25 text search with enterprise filters and time decay.
     
     Args:
         query: Search query text
-        session: HTTP session for OpenSearch
-        index_name: OpenSearch index name
+        search_client: OpenSearch client with authentication
+        index_name: OpenSearch index name or alias
+        filters: ACL, space, and time filters
         top_k: Number of results to return
-        filters: Additional filters to apply
+        time_decay_days: Half-life for time decay in days
         
     Returns:
         RetrievalResult with BM25 search results
     """
-    start_time = time.time()
-    
     try:
-        # Build OpenSearch query
-        search_body = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["content^2", "title^3", "summary"],
-                                "type": "best_fields",
-                                "fuzziness": "AUTO"
-                            }
-                        }
-                    ]
+        # Convert filters dict to SearchFilters
+        search_filters = _build_search_filters(filters) if filters else None
+        
+        # Perform search
+        response = search_client.bm25_search(
+            query=query,
+            filters=search_filters,
+            index=index_name,
+            k=top_k,
+            time_decay_half_life_days=time_decay_days
+        )
+        
+        # Convert to service format
+        results = []
+        for result in response.results:
+            service_result = SearchResult(
+                doc_id=result.doc_id,
+                content=result.body,
+                score=result.score,
+                metadata={
+                    "title": result.title,
+                    **result.metadata
                 }
-            },
-            "size": top_k,
-            "sort": ["_score"],
-            "_source": ["content", "title", "doc_id", "metadata"]
-        }
-        
-        # Apply filters if provided
-        if filters:
-            search_body["query"]["bool"]["filter"] = _build_filters(filters)
-        
-        # Execute search
-        search_url = f"/{index_name}/_search"
-        response = session.post(search_url, json=search_body)
-        response.raise_for_status()
-        
-        results = response.json()
-        search_results = _parse_opensearch_results(results, "bm25")
-        
-        retrieval_time = (time.time() - start_time) * 1000
+            )
+            results.append(service_result)
         
         return RetrievalResult(
-            results=search_results,
-            total_found=results.get("hits", {}).get("total", {}).get("value", 0),
-            retrieval_time_ms=retrieval_time,
+            results=results,
+            total_found=response.total_hits,
+            retrieval_time_ms=response.took_ms,
             method="bm25"
         )
         
@@ -79,71 +72,63 @@ async def bm25_search(
         return RetrievalResult(
             results=[],
             total_found=0,
-            retrieval_time_ms=(time.time() - start_time) * 1000,
+            retrieval_time_ms=0,
             method="bm25"
         )
 
 
 async def knn_search(
     query_embedding: List[float],
-    session: requests.Session,
-    index_name: str,
+    search_client: OpenSearchClient,
+    index_name: str = "confluence_current",
+    filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    filters: Optional[Dict[str, Any]] = None
+    ef_search: int = 256
 ) -> RetrievalResult:
-    """Perform KNN vector search using OpenSearch.
+    """Perform KNN vector search with enterprise filters and HNSW optimization.
     
     Args:
-        query_embedding: Query vector embedding
-        session: HTTP session for OpenSearch
-        index_name: OpenSearch index name
+        query_embedding: Query vector embedding (1536 dims)
+        search_client: OpenSearch client with authentication
+        index_name: OpenSearch index name or alias
+        filters: ACL, space, and time filters
         top_k: Number of results to return
-        filters: Additional filters to apply
+        ef_search: HNSW ef_search parameter (accuracy vs speed trade-off)
         
     Returns:
         RetrievalResult with KNN search results
     """
-    start_time = time.time()
-    
     try:
-        # Build KNN query
-        search_body = {
-            "query": {
-                "knn": {
-                    "embedding": {
-                        "vector": query_embedding,
-                        "k": top_k
-                    }
+        # Convert filters dict to SearchFilters
+        search_filters = _build_search_filters(filters) if filters else None
+        
+        # Perform search
+        response = search_client.knn_search(
+            query_vector=query_embedding,
+            filters=search_filters,
+            index=index_name,
+            k=top_k,
+            ef_search=ef_search
+        )
+        
+        # Convert to service format
+        results = []
+        for result in response.results:
+            service_result = SearchResult(
+                doc_id=result.doc_id,
+                content=result.body,
+                score=result.score,
+                metadata={
+                    "title": result.title,
+                    **result.metadata
                 }
-            },
-            "size": top_k,
-            "_source": ["content", "title", "doc_id", "metadata"]
-        }
-        
-        # Apply filters if provided
-        if filters:
-            # For KNN, filters are applied differently
-            search_body["query"] = {
-                "bool": {
-                    "must": [search_body["query"]],
-                    "filter": _build_filters(filters)
-                }
-            }
-        
-        # Execute search
-        search_url = f"/{index_name}/_search"
-        response = session.post(search_url, json=search_body)
-        response.raise_for_status()
-        
-        results = response.json()
-        search_results = _parse_opensearch_results(results, "knn")
-        
-        retrieval_time = (time.time() - start_time) * 1000
+            )
+            results.append(service_result)
         
         return RetrievalResult(
-            results=search_results,
-            total_found=len(search_results),
-            retrieval_time_ms=retrieval_time,
+            results=results,
+            total_found=response.total_hits,
+            retrieval_time_ms=response.took_ms,
             method="knn"
         )
         
@@ -152,7 +137,7 @@ async def knn_search(
         return RetrievalResult(
             results=[],
             total_found=0,
-            retrieval_time_ms=(time.time() - start_time) * 1000,
+            retrieval_time_ms=0,
             method="knn"
         )
 
@@ -160,62 +145,84 @@ async def knn_search(
 async def rrf_fuse(
     bm25_result: RetrievalResult,
     knn_result: RetrievalResult,
-    rrf_constant: int = 60,
-    top_k: int = 10
+    search_client: OpenSearchClient,
+    top_k: int = 8,
+    rrf_k: int = 60
 ) -> RetrievalResult:
     """Fuse BM25 and KNN results using Reciprocal Rank Fusion.
+    
+    Uses enterprise-grade RRF implementation from OpenSearchClient.
     
     Args:
         bm25_result: Results from BM25 search
         knn_result: Results from KNN search
-        rrf_constant: RRF constant (typically 60)
+        search_client: OpenSearch client for RRF fusion
         top_k: Number of final results to return
+        rrf_k: RRF constant (typically 60)
         
     Returns:
         RetrievalResult with fused and re-ranked results
     """
-    start_time = time.time()
-    
     try:
-        # Create document score maps
-        doc_scores = {}
-        doc_results = {}
+        # Convert service results back to client format for fusion
+        from ..infra.opensearch_client import SearchResponse, SearchResult as ClientResult
         
-        # Process BM25 results
-        for rank, result in enumerate(bm25_result.results):
-            rrf_score = 1.0 / (rrf_constant + rank + 1)
-            doc_scores[result.doc_id] = doc_scores.get(result.doc_id, 0) + rrf_score
-            doc_results[result.doc_id] = result
+        bm25_response = SearchResponse(
+            results=[
+                ClientResult(
+                    doc_id=r.doc_id,
+                    score=r.score,
+                    title=r.metadata.get("title", ""),
+                    body=r.content,
+                    metadata=r.metadata
+                ) for r in bm25_result.results
+            ],
+            total_hits=bm25_result.total_found,
+            took_ms=bm25_result.retrieval_time_ms,
+            method="bm25"
+        )
         
-        # Process KNN results
-        for rank, result in enumerate(knn_result.results):
-            rrf_score = 1.0 / (rrf_constant + rank + 1)
-            doc_scores[result.doc_id] = doc_scores.get(result.doc_id, 0) + rrf_score
-            if result.doc_id not in doc_results:
-                doc_results[result.doc_id] = result
+        knn_response = SearchResponse(
+            results=[
+                ClientResult(
+                    doc_id=r.doc_id,
+                    score=r.score,
+                    title=r.metadata.get("title", ""),
+                    body=r.content,
+                    metadata=r.metadata
+                ) for r in knn_result.results
+            ],
+            total_hits=knn_result.total_found,
+            took_ms=knn_result.retrieval_time_ms,
+            method="knn"
+        )
         
-        # Sort by RRF score and take top-k
-        sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        # Perform RRF fusion
+        fused_response = search_client.rrf_fuse(
+            bm25_response=bm25_response,
+            knn_response=knn_response,
+            k=top_k,
+            rrf_k=rrf_k
+        )
         
-        # Build final results
-        fused_results = []
-        for doc_id, rrf_score in sorted_docs:
-            result = doc_results[doc_id]
-            # Update score to RRF score
-            fused_result = SearchResult(
+        # Convert back to service format
+        results = []
+        for result in fused_response.results:
+            service_result = SearchResult(
                 doc_id=result.doc_id,
-                score=rrf_score,
-                content=result.content,
-                metadata=result.metadata
+                content=result.body,
+                score=result.score,
+                metadata={
+                    "title": result.title,
+                    **result.metadata
+                }
             )
-            fused_results.append(fused_result)
-        
-        retrieval_time = (time.time() - start_time) * 1000
+            results.append(service_result)
         
         return RetrievalResult(
-            results=fused_results,
-            total_found=len(fused_results),
-            retrieval_time_ms=retrieval_time,
+            results=results,
+            total_found=len(results),
+            retrieval_time_ms=fused_response.took_ms,
             method="rrf"
         )
         
@@ -224,58 +231,32 @@ async def rrf_fuse(
         return RetrievalResult(
             results=[],
             total_found=0,
-            retrieval_time_ms=(time.time() - start_time) * 1000,
+            retrieval_time_ms=0,
             method="rrf"
         )
 
 
-def _build_filters(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Build OpenSearch filter clauses."""
-    filter_clauses = []
-    
-    for field, value in filters.items():
-        if isinstance(value, list):
-            # Terms filter for multiple values
-            filter_clauses.append({
-                "terms": {field: value}
-            })
-        elif isinstance(value, str):
-            # Term filter for single value
-            filter_clauses.append({
-                "term": {f"{field}.keyword": value}
-            })
-        elif isinstance(value, dict) and "range" in value:
-            # Range filter
-            filter_clauses.append({
-                "range": {field: value["range"]}
-            })
-    
-    return filter_clauses
+def _build_search_filters(filters: Dict[str, Any]) -> SearchFilters:
+    """Convert filter dict to SearchFilters object."""
+    return SearchFilters(
+        acl_hash=filters.get("acl_hash"),
+        space_key=filters.get("space_key"),
+        content_type=filters.get("content_type"),
+        updated_after=_parse_datetime(filters.get("updated_after")),
+        updated_before=_parse_datetime(filters.get("updated_before"))
+    )
 
 
-def _parse_opensearch_results(opensearch_response: Dict[str, Any], method: str) -> List[SearchResult]:
-    """Parse OpenSearch response into SearchResult objects."""
-    results = []
-    
-    try:
-        hits = opensearch_response.get("hits", {}).get("hits", [])
-        
-        for hit in hits:
-            source = hit.get("_source", {})
-            
-            result = SearchResult(
-                doc_id=source.get("doc_id", hit.get("_id", "")),
-                score=float(hit.get("_score", 0.0)),
-                content=source.get("content", ""),
-                metadata={
-                    **source.get("metadata", {}),
-                    "title": source.get("title", ""),
-                    "method": method
-                }
-            )
-            results.append(result)
-            
-    except Exception as e:
-        logger.error(f"Failed to parse OpenSearch results: {e}")
-    
-    return results
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    """Parse datetime from various formats."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            logger.warning(f"Failed to parse datetime: {value}")
+            return None
+    return None

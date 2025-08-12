@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from ..infra.config import Settings
 from ..infra.clients import make_chat_client, make_embed_client, make_search_session
 from ..infra.azure_auth import azure_token_provider
+from ..infra.opensearch_client import create_search_client
 from ..services.models import TurnResult, IntentResult
 from ..services.normalize import normalize_query
 from ..services.intent import determine_intent
@@ -45,7 +46,7 @@ async def handle_turn(
         # Initialize clients
         chat_client = make_chat_client(settings.chat, token_provider)
         embed_client = make_embed_client(settings.embed, token_provider)
-        search_session = make_search_session(settings.search)
+        search_client = create_search_client(settings.search)
         
         yield {"type": "status", "message": "Processing query...", "turn_id": turn_id}
         
@@ -95,7 +96,7 @@ async def handle_turn(
             normalized_query, 
             intent,
             embed_client,
-            search_session,
+            search_client,
             settings
         )
         
@@ -175,31 +176,43 @@ async def _perform_retrieval(
     query: str,
     intent: IntentResult,
     embed_client: Any,
-    search_session,
+    search_client,
     settings: Settings,
     top_k: int = 10
 ):
-    """Perform retrieval based on intent and settings."""
+    """Perform retrieval based on intent and settings with enterprise filters."""
     
     try:
         # Determine index based on intent
         if intent.intent == "swagger":
             index_name = "khub-opensearch-swagger-index"
         else:
-            index_name = "khub-test-md"  # Default confluence index
+            index_name = "confluence_current"  # Use alias for blue/green deployment
+        
+        # Build filters based on intent and user context
+        filters = {}
+        if intent.intent == "confluence":
+            filters["content_type"] = "confluence"
+        elif intent.intent == "swagger":
+            filters["content_type"] = "api_spec"
+        
+        # Add ACL filter (would be determined by user session in production)
+        # filters["acl_hash"] = user_acl_hash
         
         # Choose retrieval strategy based on intent
         if intent.intent == "list":
             # For list queries, prefer BM25 for broader coverage
             return await bm25_search(
                 query=query,
-                session=search_session,
+                search_client=search_client,
                 index_name=index_name,
-                top_k=top_k
+                filters=filters,
+                top_k=top_k,
+                time_decay_days=120  # 4-month half-life for recency
             )
         
         elif settings.embed.provider and intent.confidence > 0.7:
-            # For high-confidence queries, try hybrid search
+            # For high-confidence queries, try hybrid search with RRF
             try:
                 # Get query embedding
                 embedding_response = await embed_client.embeddings.create(
@@ -209,21 +222,25 @@ async def _perform_retrieval(
                 query_embedding = embedding_response.data[0].embedding
                 
                 # Perform both searches in parallel
-                bm25_task = bm25_search(query, search_session, index_name, top_k)
-                knn_task = knn_search(query_embedding, search_session, index_name, top_k)
+                bm25_task = bm25_search(
+                    query, search_client, index_name, filters, top_k, time_decay_days=120
+                )
+                knn_task = knn_search(
+                    query_embedding, search_client, index_name, filters, top_k, ef_search=256
+                )
                 
                 bm25_result, knn_result = await asyncio.gather(bm25_task, knn_task)
                 
-                # Fuse results
-                return await rrf_fuse(bm25_result, knn_result, top_k=top_k)
+                # Fuse results with RRF
+                return await rrf_fuse(bm25_result, knn_result, search_client, top_k=8, rrf_k=60)
                 
             except Exception as e:
                 logger.warning(f"Hybrid search failed, falling back to BM25: {e}")
-                return await bm25_search(query, search_session, index_name, top_k)
+                return await bm25_search(query, search_client, index_name, filters, top_k)
         
         else:
             # Fallback to BM25
-            return await bm25_search(query, search_session, index_name, top_k)
+            return await bm25_search(query, search_client, index_name, filters, top_k)
             
     except Exception as e:
         logger.error(f"Retrieval failed: {e}")
