@@ -7,11 +7,11 @@ test:
 	python -m pytest tests/
 
 run:
-	python src/main.py
+	UTILITIES_CONFIG=src/config.ini CLOUD_PROFILE=jpmc_azure streamlit run streamlit_app.py
 
 # Local development targets
 run-local:
-	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true USE_LOCAL_AZURE=true streamlit run src/main.py
+	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true USE_LOCAL_AZURE=true streamlit run streamlit_app.py
 
 test-local:
 	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true USE_LOCAL_AZURE=true python -m pytest -v --maxfail=1 --disable-warnings
@@ -37,7 +37,7 @@ test-vector:
 
 # Run with only mock search (useful for testing without Azure OpenAI)
 run-mock:
-	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true streamlit run src/main.py
+	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true streamlit run streamlit_app.py
 
 # Run demo UI (standalone, no backend dependencies)
 run-demo:
