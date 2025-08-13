@@ -171,6 +171,9 @@ class OpenSearchClient:
                 logger.warning("No AWS auth available, using session without auth for kNN")
                 response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
             
+            if not response.ok:
+                error_body = response.text
+                logger.error(f"kNN search failed with {response.status_code}: {error_body}")
             response.raise_for_status()
             
             data = response.json()
@@ -592,15 +595,17 @@ class OpenSearchClient:
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
-        """Build simple kNN query exactly like main branch - no complex features."""
-        # Simple kNN query like main branch - use top-level knn field, not query.knn
+        """Build simple kNN query exactly like OpenSearch docs - correct syntax."""
+        # Correct kNN query structure from OpenSearch docs
         search_body = {
             "size": k,
-            "knn": {
-                "field": "embedding",
-                "query_vector": query_vector,
-                "k": k,
-                "num_candidates": max(200, k * 4)  # Ensure good candidate pool
+            "query": {
+                "knn": {
+                    "embedding": {
+                        "vector": query_vector,
+                        "k": k
+                    }
+                }
             }
         }
         return search_body
