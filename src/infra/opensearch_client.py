@@ -463,7 +463,7 @@ class OpenSearchClient:
         base_query = {
             "size": k,
             "knn": {
-                "field": "embedding",
+                "field": "sections.embedding",  # Use actual JPMC field name
                 "query_vector": query_vector,
                 "k": k,
                 "num_candidates": max(200, k * 4)  # Ensure good candidate pool
@@ -581,13 +581,13 @@ class OpenSearchClient:
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
         """Build simple BM25 query exactly like main branch - no complex features."""
-        # Simple multi_match query like main branch
+        # Simple multi_match query with correct JPMC field names
         search_body = {
             "size": k,
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["content", "title"],  # Use main branch field names
+                    "fields": ["sections.content"],  # Use actual JPMC field names
                     "boost": 1.0
                 }
             }
@@ -596,12 +596,12 @@ class OpenSearchClient:
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
         """Build simple kNN query exactly like OpenSearch docs - correct syntax."""
-        # Correct kNN query structure from OpenSearch docs
+        # Correct kNN query structure from OpenSearch docs with JPMC field names
         search_body = {
             "size": k,
             "query": {
                 "knn": {
-                    "embedding": {
+                    "sections.embedding": {  # Use actual JPMC field name
                         "vector": query_vector,
                         "k": k
                     }
