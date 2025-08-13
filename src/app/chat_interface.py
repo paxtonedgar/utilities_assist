@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 # sys.path already configured by streamlit_app.py
 
 from infra.config import get_settings
-from controllers.turn_controller import handle_turn
+from controllers.graph_integration import handle_turn
 from infra.telemetry import get_telemetry_collector, format_event_for_display
 from infra.resource_manager import initialize_resources, get_resources, health_check
 

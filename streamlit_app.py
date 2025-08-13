@@ -6,6 +6,13 @@ import sys
 import os
 from pathlib import Path
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Add src directory to Python path
 project_root = Path(__file__).parent
 src_path = project_root / "src"
