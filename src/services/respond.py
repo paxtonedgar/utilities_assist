@@ -1,5 +1,6 @@
 """Response generation and context building services."""
 
+import json
 import logging
 import re
 from typing import List, Dict, Any, Optional, AsyncGenerator
@@ -101,17 +102,23 @@ async def generate_response(
 """
         messages.append({"role": "user", "content": user_message})
         
-        # Debug: log the model name being used
+        # Debug: log the complete request details
         logger.info(f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}")
+        logger.info(f"Azure OpenAI messages: {json.dumps(messages, indent=2)}")
         
         # Generate streaming response
-        response_stream = chat_client.chat.completions.create(
-            model=model_name,  # Use the deployment name for Azure OpenAI
-            messages=messages,
-            stream=True,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
+        try:
+            response_stream = chat_client.chat.completions.create(
+                model=model_name,  # Use the deployment name for Azure OpenAI
+                messages=messages,
+                stream=True,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            logger.error(f"Azure OpenAI request failed: {type(e).__name__}: {str(e)}")
+            logger.error(f"Request details: model={model_name}, messages_count={len(messages)}, stream=True, temp={temperature}, max_tokens={max_tokens}")
+            raise
         
         for chunk in response_stream:
             if chunk.choices and chunk.choices[0].delta.content:
