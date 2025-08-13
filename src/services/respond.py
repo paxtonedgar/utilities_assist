@@ -101,6 +101,9 @@ async def generate_response(
 """
         messages.append({"role": "user", "content": user_message})
         
+        # Debug: log the model name being used
+        logger.info(f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}")
+        
         # Generate streaming response
         response_stream = chat_client.chat.completions.create(
             model=model_name,  # Use the deployment name for Azure OpenAI
