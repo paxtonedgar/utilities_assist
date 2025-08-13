@@ -149,6 +149,18 @@ async def handle_turn(
         tokens_in = len(normalized_query.split()) + len(context.split()) if context else 0  # Rough estimate
         llm_error = None
         
+        # Get LLM parameters from config
+        temperature = 0.2  # Default fallback
+        max_tokens = 1500  # Default fallback
+        try:
+            from utils import load_config
+            config = load_config()
+            if config.has_section('azure_openai'):
+                temperature = config.getfloat('azure_openai', 'temperature', fallback=0.2)
+                max_tokens = config.getint('azure_openai', 'max_tokens_2k', fallback=1500)
+        except:
+            pass  # Use defaults if config loading fails
+        
         try:
             async for response_chunk in generate_response(
                 normalized_query,
@@ -156,7 +168,9 @@ async def handle_turn(
                 intent,
                 chat_client,
                 chat_history,
-                settings.chat.model  # Pass the deployment name for Azure OpenAI
+                settings.chat.model,  # Pass the deployment name for Azure OpenAI
+                temperature,
+                max_tokens
             ):
                 full_answer += response_chunk
                 yield {

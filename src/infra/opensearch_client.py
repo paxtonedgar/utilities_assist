@@ -90,10 +90,11 @@ class OpenSearchClient:
         """
         start_time = time.time()
         
-        # Build BM25 query with filters
-        search_body = self._build_bm25_query(
-            query, filters, k, time_decay_half_life_days
-        )
+        # Build simple BM25 query (like main branch)
+        search_body = self._build_simple_bm25_query(query, k)
+        
+        # Debug: log the exact query being sent
+        logger.info(f"OpenSearch BM25 query: {json.dumps(search_body, indent=2)}")
         
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -150,8 +151,8 @@ class OpenSearchClient:
         """
         start_time = time.time()
         
-        # Build kNN query with filters and time decay
-        search_body = self._build_knn_query(query_vector, filters, k, ef_search, time_decay_half_life_days)
+        # Build simple kNN query (like main branch)
+        search_body = self._build_simple_knn_query(query_vector, k)
         
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -571,6 +572,37 @@ class OpenSearchClient:
             results.append(result)
         
         return results
+    
+    def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
+        """Build simple BM25 query exactly like main branch - no complex features."""
+        # Simple multi_match query like main branch
+        search_body = {
+            "size": k,
+            "query": {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["content", "title"],  # Use main branch field names
+                    "boost": 1.0
+                }
+            }
+        }
+        return search_body
+    
+    def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
+        """Build simple kNN query exactly like main branch - no complex features."""
+        # Simple kNN query like main branch
+        search_body = {
+            "size": k,
+            "query": {
+                "knn": {
+                    "embedding": {
+                        "vector": query_vector,
+                        "k": k
+                    }
+                }
+            }
+        }
+        return search_body
     
     def health_check(self) -> Dict[str, Any]:
         """Check OpenSearch cluster health and connectivity."""

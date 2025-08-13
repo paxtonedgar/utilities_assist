@@ -123,12 +123,24 @@ Reasoning: [brief explanation]
         # Create messages for chat completion
         messages = [{"role": "user", "content": system_prompt}]
         
+        # Get LLM parameters from config
+        temperature = 0.1  # Default for intent classification
+        max_tokens = 100   # Default for intent classification
+        try:
+            from utils import load_config
+            config = load_config()
+            if config.has_section('azure_openai'):
+                temperature = config.getfloat('azure_openai', 'temperature', fallback=0.1)
+                max_tokens = config.getint('azure_openai', 'max_tokens_500', fallback=100)
+        except:
+            pass  # Use defaults if config loading fails
+        
         # Get LLM response (OpenAI client is sync, not async)
         response = chat_client.chat.completions.create(
             model=model_name,
             messages=messages,
-            max_tokens=100,
-            temperature=0.1
+            max_tokens=max_tokens,
+            temperature=temperature
         )
         
         content = response.choices[0].message.content.strip()

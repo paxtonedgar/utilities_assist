@@ -58,7 +58,9 @@ async def generate_response(
     intent: IntentResult,
     chat_client: Any,
     chat_history: List[Dict[str, str]] = None,
-    model_name: str = "gpt-3.5-turbo"
+    model_name: str = "gpt-3.5-turbo",
+    temperature: float = 0.2,
+    max_tokens: int = 1500
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response using LLM.
     
@@ -104,8 +106,8 @@ async def generate_response(
             model=model_name,  # Use the deployment name for Azure OpenAI
             messages=messages,
             stream=True,
-            temperature=0.2,
-            max_tokens=1500
+            temperature=temperature,
+            max_tokens=max_tokens
         )
         
         for chunk in response_stream:
