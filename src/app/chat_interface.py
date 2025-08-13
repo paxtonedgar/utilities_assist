@@ -186,7 +186,7 @@ async def process_user_input(user_input: str) -> None:
         try:
             async for chunk in handle_turn(
                 user_input,
-                resources,  # Use shared resources instead of settings
+                st.session_state.resources,  # Use shared resources instead of settings
                 chat_history=[],
                 use_mock_corpus=st.session_state.use_mock_corpus
             ):
