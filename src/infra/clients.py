@@ -68,9 +68,10 @@ def _cached_chat_client(
     elif provider == "azure":
         from openai import AzureOpenAI
         
-        # For Azure, we'll handle token in the wrapper
+        # NOTE: This cached function should not be used for Azure in production
+        # Azure clients use the direct authentication path instead
         return AzureOpenAI(
-            api_key=os.getenv("AZURE_CLIENT_SECRET", "dummy"),
+            api_key="dummy-not-used-for-azure",  # Cached Azure clients are bypassed
             api_version=api_version,
             azure_endpoint=api_base,
             timeout=5.0
@@ -113,8 +114,10 @@ def _cached_embed_client(
             except:
                 azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
         
+        # NOTE: This cached function should not be used for Azure in production
+        # Azure clients use the direct authentication path instead
         return AzureOpenAI(
-            api_key=os.getenv("AZURE_CLIENT_SECRET", "dummy"),
+            api_key="dummy-not-used-for-azure",  # Cached Azure clients are bypassed
             api_version="2024-06-01",
             azure_endpoint=azure_endpoint,
             timeout=5.0
@@ -343,9 +346,17 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
             except:
                 azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
         
+        # Get API version from config to match chat client
+        try:
+            from src.infra.config import get_settings
+            settings = get_settings()
+            api_version = settings.chat.api_version
+        except:
+            api_version = "2024-10-21"  # Match config.ini default
+        
         return AzureOpenAI(
             api_key=api_key,
-            api_version="2024-06-01",
+            api_version=api_version,
             azure_endpoint=azure_endpoint,
             timeout=5.0,
             default_headers=headers
