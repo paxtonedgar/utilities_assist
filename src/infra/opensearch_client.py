@@ -154,6 +154,9 @@ class OpenSearchClient:
         # Build simple kNN query (like main branch)
         search_body = self._build_simple_knn_query(query_vector, k)
         
+        # Debug: log the exact kNN query being sent
+        logger.info(f"OpenSearch kNN query: {json.dumps(search_body, indent=2)}")
+        
         try:
             url = f"{self.base_url}/{index}/_search"
             
