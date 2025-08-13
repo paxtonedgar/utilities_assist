@@ -48,10 +48,10 @@ async def handle_turn(
     req_id = generate_request_id()
     
     try:
-        # Auto-detect Azure token provider for JPMC profile
+        # Auto-detect Azure token provider for JPMC profile (like main branch - use BOTH API key + Bearer token)
         if settings.profile == "jpmc_azure" and token_provider is None:
             token_provider = azure_token_provider
-            logger.info("Using Azure certificate authentication for JPMC profile")
+            logger.info("Using Azure certificate authentication + API key (dual auth like main branch) for JPMC profile")
         
         # Initialize clients
         chat_client = make_chat_client(settings.chat, token_provider)

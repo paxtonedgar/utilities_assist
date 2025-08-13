@@ -216,33 +216,47 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable[[], str] | None = No
         
     Cache key: (provider, model, api_base, api_version, token_fingerprint)
     """
-    # For Azure with token provider, we need to create a fresh client with headers
+    # For Azure, always create a fresh client to handle token provider or direct API key
     # instead of using the cached version
-    if cfg.provider == "azure" and token_provider:
+    if cfg.provider == "azure":
         from openai import AzureOpenAI
         
-        # Try to get token, but fall back to config API key if token provider fails
+        # Get API key from config (required base authentication)
+        api_key = None
+        headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
+        
         try:
-            token = token_provider()
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-            }
-            api_key = token
-        except Exception as e:
-            logger.warning(f"Token provider failed ({e}), trying direct API key from config")
-            # Fall back to direct API key from config
+            from utils import load_config
+            config = load_config()
+            # Try multiple possible key names from your previous messages
+            api_key = (config.get('azure_openai', 'api_key', fallback=None) or
+                      config.get('azure_openai', 'azure_openai_api_key', fallback=None) or
+                      config.get('azure_openai', 'apikey', fallback=None))
+            if not api_key:
+                # Debug: show what keys are actually available
+                if config.has_section('azure_openai'):
+                    available_keys = list(config['azure_openai'].keys())
+                    logger.error(f"No API key found in [azure_openai]. Available keys: {available_keys}")
+                    raise ValueError("No API key found in config - this is required as base authentication")
+                else:
+                    logger.error("No [azure_openai] section found in config")
+                    raise ValueError("No [azure_openai] section found in config")
+            
+            logger.info("Got API key from config.ini for chat client")
+        except Exception as config_error:
+            logger.error(f"Failed to get API key from config: {config_error}")
+            raise ValueError("API key from config is required for Azure authentication")
+        
+        # Additionally, try to get Bearer token from certificate (like main branch does)
+        if token_provider:
             try:
-                from utils import load_config
-                config = load_config()
-                api_key = config.get('azure_openai', 'api_key', fallback=None)
-                if not api_key:
-                    raise ValueError("No API key found in config")
-                headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
-                logger.info("Using direct API key from config.ini")
-            except Exception as config_error:
-                logger.error(f"Failed to get API key from config: {config_error}")
-                raise ValueError("Could not get Azure API key from token provider or config")
+                bearer_token = token_provider()
+                headers["Authorization"] = f"Bearer {bearer_token}"
+                logger.info("Added Bearer token from certificate for chat client")
+            except Exception as e:
+                logger.warning(f"Bearer token failed ({e}), using API key only for chat client")
+        else:
+            logger.info("No certificate token provider - using API key only for chat client")
         
         # Apply JPMC proxy if needed
         _setup_jpmc_proxy()
@@ -277,33 +291,47 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         
     Cache key: (provider, model, dims, token_fingerprint)
     """
-    # For Azure with token provider, we need to create a fresh client with headers
+    # For Azure, always create a fresh client to handle token provider or direct API key
     # instead of using the cached version
-    if cfg.provider == "azure" and token_provider:
+    if cfg.provider == "azure":
         from openai import AzureOpenAI
         
-        # Try to get token, but fall back to config API key if token provider fails
+        # Get API key from config (required base authentication)
+        api_key = None
+        headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
+        
         try:
-            token = token_provider()
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "user_sid": os.getenv("JPMC_USER_SID", "REPLACE")  # JPMC enterprise header
-            }
-            api_key = token
-        except Exception as e:
-            logger.warning(f"Token provider failed ({e}), trying direct API key from config")
-            # Fall back to direct API key from config
+            from utils import load_config
+            config = load_config()
+            # Try multiple possible key names from your previous messages
+            api_key = (config.get('azure_openai', 'api_key', fallback=None) or
+                      config.get('azure_openai', 'azure_openai_api_key', fallback=None) or
+                      config.get('azure_openai', 'apikey', fallback=None))
+            if not api_key:
+                # Debug: show what keys are actually available
+                if config.has_section('azure_openai'):
+                    available_keys = list(config['azure_openai'].keys())
+                    logger.error(f"No API key found in [azure_openai]. Available keys: {available_keys}")
+                    raise ValueError("No API key found in config - this is required as base authentication")
+                else:
+                    logger.error("No [azure_openai] section found in config")
+                    raise ValueError("No [azure_openai] section found in config")
+            
+            logger.info("Got API key from config.ini for embed client")
+        except Exception as config_error:
+            logger.error(f"Failed to get API key from config: {config_error}")
+            raise ValueError("API key from config is required for Azure authentication")
+        
+        # Additionally, try to get Bearer token from certificate (like main branch does)
+        if token_provider:
             try:
-                from utils import load_config
-                config = load_config()
-                api_key = config.get('azure_openai', 'api_key', fallback=None)
-                if not api_key:
-                    raise ValueError("No API key found in config")
-                headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
-                logger.info("Using direct API key from config.ini")
-            except Exception as config_error:
-                logger.error(f"Failed to get API key from config: {config_error}")
-                raise ValueError("Could not get Azure API key from token provider or config")
+                bearer_token = token_provider()
+                headers["Authorization"] = f"Bearer {bearer_token}"
+                logger.info("Added Bearer token from certificate for embed client")
+            except Exception as e:
+                logger.warning(f"Bearer token failed ({e}), using API key only for embed client")
+        else:
+            logger.info("No certificate token provider - using API key only for embed client")
         
         # Apply JPMC proxy if needed
         _setup_jpmc_proxy()
