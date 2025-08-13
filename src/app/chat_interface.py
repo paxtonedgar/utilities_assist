@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from infra.config import get_settings
 from controllers.turn_controller import handle_turn
 from infra.telemetry import get_telemetry_collector, format_event_for_display
+from infra.resource_manager import initialize_resources, get_resources, health_check
 
 logger = logging.getLogger(__name__)
 
