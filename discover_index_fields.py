@@ -20,6 +20,10 @@ import json
 def main():
     """Discover field names in the JPMC OpenSearch index."""
     try:
+        # Set environment variables to match your setup
+        os.environ["UTILITIES_CONFIG"] = "src/config.ini"
+        os.environ["CLOUD_PROFILE"] = "jpmc_azure"
+        
         # Load settings
         settings = get_settings()
         
@@ -29,12 +33,19 @@ def main():
         # Get the index name from settings
         index_name = settings.search.index_alias
         print(f"🔍 Inspecting OpenSearch index: {index_name}")
+        print(f"📍 OpenSearch host: {settings.search.host}")
+        print(f"🔧 Profile: {os.getenv('CLOUD_PROFILE', 'not set')}")
         
         # Get index mapping
+        print("🔄 Attempting to retrieve index mapping...")
         mapping = search_client.get_index_mapping(index_name)
         
         if not mapping:
             print("❌ Failed to retrieve index mapping")
+            print("💡 Make sure:")
+            print("   - Your VPN is connected to JPMC network")
+            print("   - config.ini has correct OpenSearch endpoint")
+            print("   - AWS credentials are available")
             return
         
         print(f"✅ Retrieved mapping for index: {index_name}")
