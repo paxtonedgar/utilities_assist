@@ -228,10 +228,8 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable[[], str] | None = No
         try:
             from utils import load_config
             config = load_config()
-            # Try multiple possible key names from your previous messages
-            api_key = (config.get('azure_openai', 'api_key', fallback=None) or
-                      config.get('azure_openai', 'azure_openai_api_key', fallback=None) or
-                      config.get('azure_openai', 'apikey', fallback=None))
+            # Get API key from config
+            api_key = config.get('azure_openai', 'api_key', fallback=None)
             if not api_key:
                 # Debug: show what keys are actually available
                 if config.has_section('azure_openai'):
@@ -303,10 +301,8 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         try:
             from utils import load_config
             config = load_config()
-            # Try multiple possible key names from your previous messages
-            api_key = (config.get('azure_openai', 'api_key', fallback=None) or
-                      config.get('azure_openai', 'azure_openai_api_key', fallback=None) or
-                      config.get('azure_openai', 'apikey', fallback=None))
+            # Get API key from config
+            api_key = config.get('azure_openai', 'api_key', fallback=None)
             if not api_key:
                 # Debug: show what keys are actually available
                 if config.has_section('azure_openai'):
