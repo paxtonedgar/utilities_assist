@@ -2,6 +2,9 @@
 import os
 import configparser
 
+# Global flag to prevent repetitive config loading logs
+_config_loaded_logged = False
+
 def load_config():
     """Load configuration from config.ini file.
     
@@ -27,7 +30,13 @@ def load_config():
     
     try:
         llm_config.read(file_path)
-        print(f"✅ Loaded config from: {file_path}")
+        
+        # Log config loading only once to reduce noise
+        global _config_loaded_logged
+        if not _config_loaded_logged:
+            print("✅ Loaded configs successfully")
+            _config_loaded_logged = True
+        
         return llm_config
     except Exception as e:
         print(f"❌ Failed to load config from {file_path}: {e}")
