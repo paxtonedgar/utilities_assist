@@ -272,7 +272,8 @@ async def _perform_retrieval(
         elif intent.intent == "swagger":
             index_name = "khub-opensearch-swagger-index"
         else:
-            index_name = "confluence_current"  # Use alias for blue/green deployment
+            # Use the index from configuration (from config.ini)
+            index_name = settings.search.index_alias
         
         # Build filters based on intent and user context
         filters = {}

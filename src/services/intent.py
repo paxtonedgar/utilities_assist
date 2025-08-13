@@ -123,8 +123,8 @@ Reasoning: [brief explanation]
         # Create messages for chat completion
         messages = [{"role": "user", "content": system_prompt}]
         
-        # Get LLM response
-        response = await chat_client.chat.completions.create(
+        # Get LLM response (OpenAI client is sync, not async)
+        response = chat_client.chat.completions.create(
             model=model_name,
             messages=messages,
             max_tokens=100,
