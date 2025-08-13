@@ -11,7 +11,7 @@ from infra.opensearch_client import create_search_client
 from services.models import TurnResult, IntentResult
 from services.normalize import normalize_query
 from services.intent import determine_intent
-from services.retrieve import bm25_search, knn_search, rrf_fuse, enhanced_rrf_search
+import services.retrieve as retrieve
 from services.respond import build_context, generate_response, verify_answer, extract_source_chips
 from embedding_creation import create_single_embedding, EmbeddingError
 from infra.telemetry import (
@@ -305,7 +305,7 @@ async def _perform_retrieval(
             # For list queries, prefer BM25 for broader coverage
             bm25_start = time.perf_counter()
             try:
-                result = await bm25_search(
+                result = await retrieve.bm25_search(
                     query=query,
                     search_client=search_client,
                     index_name=index_name,
@@ -345,7 +345,7 @@ async def _perform_retrieval(
                 # Use enhanced RRF search with MMR diversification
                 hybrid_start = time.perf_counter()
                 try:
-                    result, diagnostics = await enhanced_rrf_search(
+                    result, diagnostics = await retrieve.enhanced_rrf_search(
                         query=query,
                         query_embedding=query_embedding,
                         search_client=search_client,
@@ -395,7 +395,7 @@ async def _perform_retrieval(
                 # Fallback BM25 with timing
                 bm25_start = time.perf_counter()
                 try:
-                    result = await bm25_search(query, search_client, index_name, filters, top_k)
+                    result = await retrieve.bm25_search(query, search_client, index_name, filters, top_k)
                     bm25_time = (time.perf_counter() - bm25_start) * 1000
                     top_ids = [r.doc_id for r in result.results[:5]] if result and result.results else []
                     log_retrieve_bm25_stage(req_id, top_k, len(result.results) if result else 0, bm25_time, top_ids)
@@ -409,7 +409,7 @@ async def _perform_retrieval(
                 # Fallback BM25 with timing
                 bm25_start = time.perf_counter()
                 try:
-                    result = await bm25_search(query, search_client, index_name, filters, top_k)
+                    result = await retrieve.bm25_search(query, search_client, index_name, filters, top_k)
                     bm25_time = (time.perf_counter() - bm25_start) * 1000
                     top_ids = [r.doc_id for r in result.results[:5]] if result and result.results else []
                     log_retrieve_bm25_stage(req_id, top_k, len(result.results) if result else 0, bm25_time, top_ids)
@@ -423,7 +423,7 @@ async def _perform_retrieval(
             # Fallback to BM25 with timing
             bm25_start = time.perf_counter()
             try:
-                result = await bm25_search(query, search_client, index_name, filters, top_k)
+                result = await retrieve.bm25_search(query, search_client, index_name, filters, top_k)
                 bm25_time = (time.perf_counter() - bm25_start) * 1000
                 top_ids = [r.doc_id for r in result.results[:5]] if result and result.results else []
                 log_retrieve_bm25_stage(req_id, top_k, len(result.results) if result else 0, bm25_time, top_ids)

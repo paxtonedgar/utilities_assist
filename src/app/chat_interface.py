@@ -10,9 +10,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 # Import only infra and controllers - no direct SDK imports
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path already configured by streamlit_app.py
 
 from infra.config import get_settings
 from controllers.turn_controller import handle_turn
