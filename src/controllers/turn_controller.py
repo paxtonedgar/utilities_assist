@@ -155,7 +155,8 @@ async def handle_turn(
                 context,
                 intent,
                 chat_client,
-                chat_history
+                chat_history,
+                settings.chat.model  # Pass the deployment name for Azure OpenAI
             ):
                 full_answer += response_chunk
                 yield {
