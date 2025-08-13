@@ -1,0 +1,96 @@
+"""Intent node - intent classification using jinja template."""
+
+import logging
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+
+from services.models import IntentResult
+from services.intent import determine_intent  # Keep as fallback
+
+logger = logging.getLogger(__name__)
+
+# Load jinja templates
+template_dir = Path(__file__).parent.parent / "prompts"
+jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+
+class IntentAnalysis(BaseModel):
+    """Structured output for intent classification."""
+    intent: str = Field(description="Primary intent category")
+    confidence: float = Field(description="Confidence score from 0.0 to 1.0")
+    reasoning: str = Field(description="Brief explanation of the classification")
+
+
+async def intent_node(state: dict, resources) -> dict:
+    """
+    Classify query intent using LLM with jinja template.
+    
+    Args:
+        state: Workflow state containing normalized_query
+        resources: RAG resources with chat client
+        
+    Returns:
+        State update with intent classification
+    """
+    try:
+        normalized_query = state["normalized_query"]
+        
+        # Utilities list for context
+        utilities_list = [
+            "Customer Summary Utility",
+            "Enhanced Transaction Utility", 
+            "Account Utility",
+            "Customer Interaction Utility",
+            "Digital Events",
+            "Product Catalog Utility",
+            "Global Customer Platform"
+        ]
+        
+        # Try LLM-based intent classification
+        try:
+            template = jinja_env.get_template("intent.jinja")
+            prompt = template.render(
+                normalized_query=normalized_query,
+                utilities_list=utilities_list
+            )
+            
+            # Use structured output for better parsing
+            intent_analyzer = resources.chat_client.with_structured_output(IntentAnalysis)
+            
+            analysis = await intent_analyzer.ainvoke([
+                SystemMessage(content="You are an expert intent classification system for enterprise utilities and APIs."),
+                HumanMessage(content=prompt)
+            ])
+            
+            intent_result = IntentResult(
+                intent=analysis.intent,
+                confidence=analysis.confidence
+            )
+            
+            logger.info(f"Intent classified: {analysis.intent} (confidence: {analysis.confidence:.2f}) - {analysis.reasoning}")
+            
+        except Exception as e:
+            logger.warning(f"LLM intent classification failed, using fallback: {e}")
+            # Use original determine_intent function
+            intent_result = await determine_intent(
+                normalized_query, 
+                resources.chat_client, 
+                utilities_list, 
+                resources.settings.chat.model
+            )
+        
+        return {
+            "intent": intent_result,
+            "workflow_path": state.get("workflow_path", []) + ["intent"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Intent node failed: {e}")
+        # Fallback intent
+        return {
+            "intent": IntentResult(intent="error", confidence=0.0),
+            "workflow_path": state.get("workflow_path", []) + ["intent_error"],
+            "error_messages": state.get("error_messages", []) + [f"Intent classification failed: {e}"]
+        }
