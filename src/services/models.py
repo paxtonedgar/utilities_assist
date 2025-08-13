@@ -25,6 +25,7 @@ class RetrievalResult(BaseModel):
     total_found: int
     retrieval_time_ms: float
     method: str  # "bm25", "knn", "rrf"
+    diagnostics: Optional[Dict[str, Any]] = None
 
 
 class SourceChip(BaseModel):

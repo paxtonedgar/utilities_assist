@@ -593,16 +593,14 @@ class OpenSearchClient:
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
         """Build simple kNN query exactly like main branch - no complex features."""
-        # Simple kNN query like main branch
+        # Simple kNN query like main branch - use top-level knn field, not query.knn
         search_body = {
             "size": k,
-            "query": {
-                "knn": {
-                    "embedding": {
-                        "vector": query_vector,
-                        "k": k
-                    }
-                }
+            "knn": {
+                "field": "embedding",
+                "query_vector": query_vector,
+                "k": k,
+                "num_candidates": max(200, k * 4)  # Ensure good candidate pool
             }
         }
         return search_body

@@ -372,8 +372,7 @@ async def _perform_retrieval(
                         ms=hybrid_time
                     )
                     
-                    # Store diagnostics for UI display
-                    result.diagnostics = diagnostics
+                    # Diagnostics now included in RetrievalResult object
                     return result
                     
                 except Exception as e:

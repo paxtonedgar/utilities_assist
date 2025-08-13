@@ -67,7 +67,8 @@ async def bm25_search(
             results=results,
             total_found=response.total_hits,
             retrieval_time_ms=response.took_ms,
-            method="bm25"
+            method="bm25",
+            diagnostics={"query_type": "bm25", "index": index_name}
         )
         
     except Exception as e:
@@ -76,7 +77,8 @@ async def bm25_search(
             results=[],
             total_found=0,
             retrieval_time_ms=0,
-            method="bm25"
+            method="bm25",
+            diagnostics={"error": str(e), "query_type": "bm25"}
         )
 
 
@@ -132,7 +134,8 @@ async def knn_search(
             results=results,
             total_found=response.total_hits,
             retrieval_time_ms=response.took_ms,
-            method="knn"
+            method="knn",
+            diagnostics={"query_type": "knn", "index": index_name, "embedding_dims": len(query_embedding)}
         )
         
     except Exception as e:
@@ -141,7 +144,8 @@ async def knn_search(
             results=[],
             total_found=0,
             retrieval_time_ms=0,
-            method="knn"
+            method="knn",
+            diagnostics={"error": str(e), "query_type": "knn"}
         )
 
 
@@ -226,7 +230,8 @@ async def rrf_fuse(
             results=results,
             total_found=len(results),
             retrieval_time_ms=fused_response.took_ms,
-            method="rrf"
+            method="rrf",
+            diagnostics={"query_type": "rrf", "bm25_count": len(bm25_result.results), "knn_count": len(knn_result.results)}
         )
         
     except Exception as e:
@@ -235,7 +240,8 @@ async def rrf_fuse(
             results=[],
             total_found=0,
             retrieval_time_ms=0,
-            method="rrf"
+            method="rrf",
+            diagnostics={"error": str(e), "query_type": "rrf"}
         )
 
 
@@ -550,7 +556,8 @@ async def enhanced_rrf_search(
             results=final_results,
             total_found=len(final_results),
             retrieval_time_ms=bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms,
-            method="enhanced_rrf"
+            method="enhanced_rrf",
+            diagnostics=diagnostics
         )
         
         return final_result, diagnostics
@@ -561,5 +568,6 @@ async def enhanced_rrf_search(
             results=[],
             total_found=0,
             retrieval_time_ms=0,
-            method="enhanced_rrf"
+            method="enhanced_rrf",
+            diagnostics=diagnostics
         ), diagnostics
