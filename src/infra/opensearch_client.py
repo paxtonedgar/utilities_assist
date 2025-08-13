@@ -610,6 +610,35 @@ class OpenSearchClient:
         }
         return search_body
     
+    def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
+        """Get the mapping (schema) for a specific index to discover field names."""
+        try:
+            url = f"{self.base_url}/{index_name}/_mapping"
+            
+            # Use direct requests with auth (like main branch)
+            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+            _setup_jpmc_proxy()  # Ensure proxy is configured
+            aws_auth = _get_aws_auth()
+            if aws_auth:
+                logger.info("Using direct AWS4Auth for mapping request")
+                response = requests.get(url, auth=aws_auth, timeout=self.config.timeout_s)
+            else:
+                logger.warning("No AWS auth available, using session for mapping")
+                response = self.session.get(url, timeout=self.config.timeout_s)
+            
+            if not response.ok:
+                error_body = response.text
+                logger.error(f"Get mapping failed with {response.status_code}: {error_body}")
+            response.raise_for_status()
+            
+            mapping_data = response.json()
+            logger.info(f"Retrieved mapping for index {index_name}")
+            return mapping_data
+            
+        except Exception as e:
+            logger.error(f"Failed to get index mapping: {e}")
+            return {}
+
     def health_check(self) -> Dict[str, Any]:
         """Check OpenSearch cluster health and connectivity."""
         try:
