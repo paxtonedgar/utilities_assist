@@ -362,12 +362,24 @@ def process_user_input(user_input: str) -> None:
         
         status.update(label="✅ complete", state="complete")
     
-    # Store response in both UI and conversation history
-    st.session_state.messages.append(assistant_response)
-    
-    # Add to conversation history for context
-    assistant_history = {"role": "assistant", "content": assistant_response["content"]}
-    st.session_state.conversation_history.append(assistant_history)
+    # Only add response if we got content
+    if assistant_response["content"]:
+        # Store response in both UI and conversation history
+        st.session_state.messages.append(assistant_response)
+        
+        # Add to conversation history for context
+        assistant_history = {"role": "assistant", "content": assistant_response["content"]}
+        st.session_state.conversation_history.append(assistant_history)
+    else:
+        # Add error message if no content
+        error_response = {
+            "role": "assistant",
+            "content": "❌ No response generated",
+            "sources": [],
+            "req_id": None
+        }
+        st.session_state.messages.append(error_response)
+        st.session_state.conversation_history.append({"role": "assistant", "content": "❌ No response generated"})
 
 def main():
     """Simple chat interface."""
@@ -388,12 +400,8 @@ def main():
         else:
             # Handle assistant messages
             content = message["content"] 
-            is_thinking = message.get("thinking", False)
             
-            if is_thinking:
-                # Show animated thinking indicator
-                st.markdown('<div class="assistant-message"><span class="thinking">🤔 thinking...</span></div>', unsafe_allow_html=True)
-            elif content:
+            if content:
                 # Show final message
                 st.markdown(f'<div class="assistant-message">{content}</div>', unsafe_allow_html=True)
                 
