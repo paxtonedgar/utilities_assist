@@ -69,8 +69,15 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
             # Wrap the Azure client for LangChain compatibility with JPMC headers
             import os
             
-            # Get JPMC-specific headers from the original client
-            default_headers = getattr(resources.chat_client, 'default_headers', {})
+            # Get JPMC-specific headers from the original client and filter out problematic ones
+            raw_headers = getattr(resources.chat_client, 'default_headers', {})
+            default_headers = {}
+            for key, value in raw_headers.items():
+                # Filter out openai.Omit objects that LangChain can't handle
+                if hasattr(value, '__class__') and 'Omit' in str(type(value)):
+                    continue
+                if isinstance(value, str):
+                    default_headers[key] = value
             
             langchain_client = AzureChatOpenAI(
                 api_version=resources.settings.chat.api_version,  # api_version from config

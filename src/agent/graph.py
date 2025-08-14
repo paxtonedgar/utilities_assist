@@ -271,7 +271,8 @@ async def _search_confluence_wrapper(state: GraphState, *, config=None, store=No
         intent = state.get("intent")
         use_mock = state.get("_use_mock_corpus", False)
         
-        index = "confluence_mock" if use_mock else "confluence_current"
+        # Use the configured search index from resources instead of hardcoding
+        index = "confluence_mock" if use_mock else resources.settings.search.index_alias
         
         result = await adaptive_search_tool(
             query=query,
@@ -364,7 +365,7 @@ async def _search_multi_wrapper(state: GraphState, *, config=None, store=None) -
         if use_mock:
             indices.append("confluence_mock")
         else:
-            indices.append("confluence_current")
+            indices.append(resources.settings.search.index_alias)  # Use configured index
             indices.append("khub-opensearch-swagger-index")
         
         # Search all indices
@@ -440,8 +441,15 @@ async def _rewrite_query_wrapper(state: GraphState, *, config=None, store=None) 
         from langchain_openai import AzureChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         
-        # Get JPMC-specific headers from the original client
-        default_headers = getattr(resources.chat_client, 'default_headers', {})
+        # Get JPMC-specific headers from the original client and filter out problematic ones
+        raw_headers = getattr(resources.chat_client, 'default_headers', {})
+        default_headers = {}
+        for key, value in raw_headers.items():
+            # Filter out openai.Omit objects that LangChain can't handle
+            if hasattr(value, '__class__') and 'Omit' in str(type(value)):
+                continue
+            if isinstance(value, str):
+                default_headers[key] = value
         
         langchain_client = AzureChatOpenAI(
             api_version=resources.settings.chat.api_version,  # api_version from config
