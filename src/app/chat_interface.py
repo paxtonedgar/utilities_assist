@@ -316,55 +316,66 @@ def render_stage_logs(req_id: str):
         logger.debug(f"Failed to render stage logs: {e}")
 
 def process_user_input(user_input: str) -> None:
-    """Process user input and display response."""
+    """Process user input with thinking animation."""
     # Add user message
     user_message = {"role": "user", "content": user_input}
     st.session_state.messages.append(user_message)
     st.session_state.conversation_history.append(user_message)
     
-    # Process the query
-    assistant_response = {
-        "role": "assistant",
-        "content": "",
-        "sources": [],
-        "req_id": None
-    }
-    
-    try:
-        # Create an async function to handle the streaming
-        async def async_handler():
-            async for chunk in handle_turn(
-                user_input,
-                st.session_state.resources,
-                chat_history=st.session_state.conversation_history[-10:],
-                use_mock_corpus=False,
-                thread_id=st.session_state.thread_id,
-                user_context=st.session_state.user_context
-            ):
-                if chunk["type"] == "response_chunk":
-                    assistant_response["content"] += chunk["content"]
-                elif chunk["type"] == "complete":
-                    result = chunk["result"]
-                    assistant_response["sources"] = result.get("sources", [])
-                    assistant_response["req_id"] = chunk.get("req_id")
-                    break
-                elif chunk["type"] == "error":
-                    assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
-                    break
+    # Show thinking animation (this was perfect, don't remove it!)
+    with st.status("🤔 thinking...", expanded=False) as status:
+        assistant_response = {
+            "role": "assistant",
+            "content": "",
+            "sources": [],
+            "req_id": None
+        }
         
-        # Run the async handler
-        asyncio.run(async_handler())
+        try:
+            # Create an async function to handle the streaming
+            async def async_handler():
+                async for chunk in handle_turn(
+                    user_input,
+                    st.session_state.resources,
+                    chat_history=st.session_state.conversation_history[-10:],
+                    use_mock_corpus=False,
+                    thread_id=st.session_state.thread_id,
+                    user_context=st.session_state.user_context
+                ):
+                    if chunk["type"] == "response_chunk":
+                        assistant_response["content"] += chunk["content"]
+                    elif chunk["type"] == "complete":
+                        result = chunk["result"]
+                        assistant_response["sources"] = result.get("sources", [])
+                        assistant_response["req_id"] = chunk.get("req_id")
+                        break
+                    elif chunk["type"] == "error":
+                        assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+                        break
+            
+            # Run the async handler  
+            asyncio.run(async_handler())
+            
+            # Debug: log what we got
+            logger.info(f"Response content length: {len(assistant_response['content'])}")
+            logger.info(f"Response content preview: {assistant_response['content'][:100]}...")
+            
+        except Exception as e:
+            assistant_response["content"] = f"❌ Error: {str(e)}"
+            logger.error(f"Error in process_user_input: {e}")
         
-    except Exception as e:
-        assistant_response["content"] = f"❌ Error: {str(e)}"
-        logger.error(f"Error in process_user_input: {e}")
-    
-    # Add response to messages (always add something)
-    if not assistant_response["content"]:
-        assistant_response["content"] = "❌ No response generated"
-    
-    st.session_state.messages.append(assistant_response)
-    st.session_state.conversation_history.append({"role": "assistant", "content": assistant_response["content"]})
+        status.update(label="✅ complete", state="complete")
+        
+        # Add response to messages (always add something)
+        if not assistant_response["content"]:
+            assistant_response["content"] = "❌ No response generated"
+        
+        # DEBUG: Force a rerun to show the new message
+        st.session_state.messages.append(assistant_response)
+        st.session_state.conversation_history.append({"role": "assistant", "content": assistant_response["content"]})
+        
+        # Force Streamlit to rerun and show the new message
+        st.rerun()
 
 def main():
     """Simple chat interface."""
