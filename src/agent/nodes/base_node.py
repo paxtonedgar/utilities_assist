@@ -49,6 +49,62 @@ def to_state_dict(state: Union[Dict, Any]) -> Dict[str, Any]:
         return {}  # Return empty dict as safe fallback
 
 
+def get_intent_label(intent) -> str:
+    """
+    Safely extract intent label from either IntentResult object or dict.
+    
+    This prevents AttributeError crashes when intent format is inconsistent.
+    
+    Args:
+        intent: Either IntentResult object, dict, or None
+        
+    Returns:
+        Intent label string or None if not found
+    """
+    if intent is None:
+        return None
+        
+    # Handle IntentResult object (has .intent attribute)
+    if hasattr(intent, "intent"):
+        return getattr(intent, "intent", None)
+        
+    # Handle dict form
+    if isinstance(intent, dict):
+        return intent.get("intent")
+        
+    # Fallback for string or other types
+    if isinstance(intent, str):
+        return intent
+        
+    logger.warning(f"Unknown intent type: {type(intent)} - {intent}")
+    return None
+
+
+def get_intent_confidence(intent) -> float:
+    """
+    Safely extract intent confidence from either IntentResult object or dict.
+    
+    Args:
+        intent: Either IntentResult object, dict, or None
+        
+    Returns:
+        Intent confidence float or 0.0 if not found
+    """
+    if intent is None:
+        return 0.0
+        
+    # Handle IntentResult object (has .confidence attribute)
+    if hasattr(intent, "confidence"):
+        return getattr(intent, "confidence", 0.0)
+        
+    # Handle dict form
+    if isinstance(intent, dict):
+        return intent.get("confidence", 0.0)
+        
+    logger.warning(f"Unknown intent type for confidence: {type(intent)} - {intent}")
+    return 0.0
+
+
 def from_state_dict(state_type: Type, data: Dict[str, Any]) -> Union[Dict, Any]:
     """
     Rewrap dict data into the original GraphState type if needed.

@@ -150,10 +150,18 @@ async def intent_node(state, config, *, store=None):
             intent_result.confidence
         )
         
+        # Convert IntentResult object to dict to prevent "IntentResult object has no attribute 'get'" errors
+        intent_dict = {
+            "intent": intent_result.intent,
+            "confidence": intent_result.confidence
+        }
+        
+        logger.debug(f"Storing intent as dict: {intent_dict}")
+        
         # CRITICAL: Preserve ALL existing state fields and return proper type
         merged = {
             **s,  # Preserve all existing state
-            INTENT: intent_result,
+            INTENT: intent_dict,  # Store as dict, not IntentResult object
             "workflow_path": s.get("workflow_path", []) + ["intent"]
         }
         return from_state_dict(incoming_type, merged)

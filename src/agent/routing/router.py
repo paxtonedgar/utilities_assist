@@ -61,6 +61,8 @@ class IntentRouter:
     @classmethod
     def route_after_intent(cls, state) -> RouteDestination:
         """Route to appropriate search based on intent classification."""
+        from agent.nodes.base_node import get_intent_label
+        
         # Convert GraphState to dict for safe access
         s = to_state_dict(state)
         intent = s.get("intent")
@@ -68,7 +70,13 @@ class IntentRouter:
             logger.warning("No intent found in state, defaulting to confluence search")
             return "search_confluence"
         
-        intent_type = intent.intent.lower()
+        # Use safe intent label extraction to prevent AttributeError
+        intent_label = get_intent_label(intent)
+        if not intent_label:
+            logger.warning("No intent label found, defaulting to confluence search")
+            return "search_confluence"
+        
+        intent_type = intent_label.lower()
         
         # Handle special intents with direct routing
         if intent_type in cls.INTENT_ROUTES:
@@ -145,6 +153,14 @@ class CoverageChecker:
         loop_count = s.get("loop_count", 0) 
         rewrite_attempts = s.get("rewrite_attempts", 0)
         normalized_query = s.get(NORMALIZED_QUERY, "")
+        
+        # Hard stop on AttributeError exceptions (intent object crashes)
+        error_messages = s.get("error_messages", [])
+        if error_messages:
+            for error in error_messages:
+                if any(keyword in error for keyword in ["AttributeError", "IntentResult", "'intent'", "has no attribute"]):
+                    logger.warning(f"Stopping rewrite: prior step threw AttributeError on intent - {error[:100]}...")
+                    return "combine"
         
         # Prevent infinite loops with multiple checks
         if loop_count >= 3:

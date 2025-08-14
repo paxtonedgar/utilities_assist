@@ -65,6 +65,7 @@ class ConfluenceSearchNode(SearchNodeHandler):
         try:
             # Extract resources from global resource manager
             from infra.resource_manager import get_resources
+            from agent.nodes.base_node import get_intent_confidence
             resources = get_resources()
             
             query = state.get(NORMALIZED_QUERY, "")
@@ -81,9 +82,13 @@ class ConfluenceSearchNode(SearchNodeHandler):
                     "error_messages": state.get("error_messages", []) + ["Empty query provided"]
                 }
             
+            # Use safe intent confidence extraction
+            intent_confidence = get_intent_confidence(intent)
+            logger.debug(f"Using intent confidence: {intent_confidence} for confluence search")
+            
             result = await adaptive_search_tool(
                 query=query,
-                intent_confidence=intent.confidence if intent else 0.5,
+                intent_confidence=intent_confidence,
                 intent_type="confluence",
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
@@ -126,14 +131,19 @@ class SwaggerSearchNode(SearchNodeHandler):
         try:
             # Extract resources from global resource manager
             from infra.resource_manager import get_resources
+            from agent.nodes.base_node import get_intent_confidence
             resources = get_resources()
             
             query = state["normalized_query"]
             intent = state.get("intent")
             
+            # Use safe intent confidence extraction
+            intent_confidence = get_intent_confidence(intent)
+            logger.debug(f"Using intent confidence: {intent_confidence} for swagger search")
+            
             result = await adaptive_search_tool(
                 query=query,
-                intent_confidence=intent.confidence if intent else 0.5,
+                intent_confidence=intent_confidence,
                 intent_type="swagger",
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
