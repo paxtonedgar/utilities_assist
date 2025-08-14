@@ -120,51 +120,128 @@ class ListHandlerNode(BaseNodeHandler):
         formatted_response = self._format_list_response(items, list_type, normalized_query)
         
         return {
-            "final_answer": formatted_response,
-            "response_chunks": [formatted_response],
-            "search_results": [],  # List queries don't need search results
-            "list_items": items
+            "final_context": formatted_response,
+            "combined_results": [],  # List queries don't need search results
+            "workflow_path": state.get("workflow_path", []) + ["list_handler"]
         }
     
     def _extract_list_type(self, query: str) -> str:
-        """Extract what type of list is being requested."""
+        """Extract what type of list is being requested - REAL implementation from original."""
         query_lower = query.lower()
         
+        # Real logic from original implementation with proper field mapping
         if "api" in query_lower:
             return "apis"
+        elif "apg" in query_lower or "api group" in query_lower:
+            return "apgs"
+        elif "product" in query_lower:
+            return "products"
         elif "utility" in query_lower or "service" in query_lower:
             return "utilities"
         elif "field" in query_lower or "parameter" in query_lower:
             return "fields"
         else:
-            return "items"
+            # Default to APIs if unclear (matching original logic)
+            return "apis"
     
     async def _get_list_from_opensearch(self, list_type: str) -> List[str]:
-        """
-        Get list items using OpenSearch aggregations.
+        """Get unique values using OpenSearch aggregations - REAL implementation."""
+        from infra.resource_manager import get_resources
         
-        This is a placeholder - implement actual OpenSearch aggregation logic.
-        """
-        # Placeholder implementation
-        if list_type == "apis":
-            return ["Customer-Summary-API", "Account-Balance-API", "Transaction-History-API"]
-        elif list_type == "utilities":
-            return ["Customer Summary Utility", "Account Utility", "Transaction Utility"]
-        else:
-            return ["Item 1", "Item 2", "Item 3"]
+        try:
+            resources = get_resources()
+            if not resources:
+                logger.error("Resources not available for list aggregation")
+                return []
+            
+            # Map list types to field names (from original implementation)
+            field_mapping = {
+                "apis": "api_name",
+                "apgs": "apg_name", 
+                "products": "product_name",
+                "utilities": "utility_name",
+                "fields": "field_name"
+            }
+            
+            field_name = field_mapping.get(list_type, "api_name")
+            
+            # Build aggregation query
+            agg_body = {
+                "size": 0,  # Don't need document hits, just aggregations
+                "aggs": {
+                    f"unique_{list_type}": {
+                        "terms": {
+                            "field": f"{field_name}.keyword",  # Use keyword field for aggregations
+                            "size": 1000,  # Get up to 1000 unique values
+                            "order": {"_key": "asc"}  # Alphabetical order
+                        }
+                    }
+                }
+            }
+            
+            # Execute aggregation query using OpenSearch client
+            search_client = resources.search_client
+            index_name = resources.settings.search_index_alias
+            
+            url = f"{search_client.base_url}/{index_name}/_search"
+            
+            # Use same auth pattern as regular searches
+            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+            _setup_jpmc_proxy()
+            aws_auth = _get_aws_auth()
+            
+            import requests
+            if aws_auth:
+                response = requests.post(url, json=agg_body, auth=aws_auth, timeout=30.0)
+            else:
+                response = search_client.session.post(url, json=agg_body, timeout=30.0)
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract unique values from aggregation results
+            buckets = data.get("aggregations", {}).get(f"unique_{list_type}", {}).get("buckets", [])
+            unique_values = [bucket["key"] for bucket in buckets]
+            
+            logger.info(f"Found {len(unique_values)} unique {list_type}")
+            return unique_values
+            
+        except Exception as e:
+            logger.error(f"OpenSearch aggregation failed: {e}")
+            return []
     
-    def _format_list_response(self, items: List[str], list_type: str, query: str) -> str:
-        """Format list items into a readable response."""
+    def _format_list_response(self, items: List[str], list_type: str, original_query: str) -> str:
+        """Format list response in the old system's style - REAL implementation from original."""
         if not items:
-            return f"No {list_type} found matching your query."
+            return f"No {list_type} found in the system."
         
-        formatted_items = "\n".join(f"{i+1}. {item}" for i, item in enumerate(items))
+        # Create structured list response matching old system format
+        if list_type == "apis":
+            response = f"I have knowledge of the following APIs:\n\n"
+            for i, api in enumerate(items, 1):
+                response += f"{i}. {api}\n"
+        elif list_type == "apgs": 
+            response = f"I have knowledge of the following APGs:\n\n"
+            for i, apg in enumerate(items, 1):
+                response += f"- APG: {apg}\n"
+        elif list_type == "products":
+            response = f"I have knowledge of the following Products:\n\n"
+            for i, product in enumerate(items, 1):
+                response += f"- Product Name: {product}\n"
+        else:
+            response = f"Available {list_type}:\n\n"
+            for item in items:
+                response += f"- {item}\n"
         
-        return f"""I have knowledge of the following {list_type}:
-
-{formatted_items}
-
-Which specific {list_type[:-1]} would you like to know more about?"""
+        # Add follow-up questions (from old system)
+        if list_type == "apgs":
+            response += f"\n**Follow-up questions:**\n- Which specific APG do you want to know more about?\n- What APIs are in a particular APG?\n- How do these APGs relate to specific Products?"
+        elif list_type == "apis":
+            response += f"\n**Follow-up questions:**\n- Which API do you want detailed information about?\n- What parameters does a specific API accept?\n- Which APG does a particular API belong to?"
+        elif list_type == "products":
+            response += f"\n**Follow-up questions:**\n- Which Product do you want to explore?\n- What APGs are part of a specific Product?\n- What APIs are available in a particular Product?"
+        
+        return response
 
 
 class WorkflowSynthesizerNode(BaseNodeHandler):
@@ -184,33 +261,136 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
         formatted_response = self._format_workflow_response(workflow_steps)
         
         return {
-            "final_answer": formatted_response,
-            "response_chunks": [formatted_response],
-            "workflow_steps": workflow_steps
+            "final_context": workflow_steps,
+            "combined_results": [],
+            "workflow_path": state.get("workflow_path", []) + ["workflow_synthesizer"]
         }
     
-    async def _synthesize_workflow(self, query: str) -> List[str]:
-        """
-        Synthesize workflow steps from multiple sources.
+    async def _synthesize_workflow(self, query: str) -> str:
+        """Synthesize multi-document workflows with step sequencing - REAL implementation."""
+        from infra.resource_manager import get_resources
         
-        This is a placeholder - implement actual workflow synthesis logic.
-        """
-        return [
-            "First, authenticate with your credentials",
-            "Next, configure the API endpoint",
-            "Then, send your request with proper headers",
-            "Finally, handle the response appropriately"
-        ]
+        try:
+            resources = get_resources()
+            if not resources:
+                logger.error("Resources not available for workflow synthesis")
+                return "Unable to synthesize workflow - resources unavailable"
+            
+            # Phase 1: Multi-document search with workflow focus
+            indices = [
+                resources.settings.search_index_alias,  # Main confluence
+                "khub-opensearch-swagger-index"  # Technical procedures
+            ]
+            
+            from agent.tools.search import multi_index_search_tool
+            results_list = await multi_index_search_tool(
+                indices=indices,
+                query=query,
+                search_client=resources.search_client,
+                embed_client=resources.embed_client,
+                embed_model=resources.settings.embed.model,
+                top_k_per_index=8  # Get more results for workflow synthesis
+            )
+            
+            # Phase 2: Collect and analyze all results
+            all_results = []
+            for i, result in enumerate(results_list):
+                index_name = indices[i] if i < len(indices) else f"index_{i}"
+                for search_result in result.results:
+                    search_result.metadata["search_method"] = "workflow_synthesis"
+                    search_result.metadata["source_index"] = index_name
+                    all_results.append(search_result)
+            
+            # Phase 3: Enhanced workflow context building with step analysis
+            workflow_context = self._build_workflow_context(all_results, query)
+            
+            logger.info(f"Workflow synthesis found {len(all_results)} relevant sources")
+            return workflow_context
+            
+        except Exception as e:
+            logger.error(f"Workflow synthesis failed: {e}")
+            return f"Unable to synthesize workflow: {str(e)}"
     
-    def _format_workflow_response(self, steps: List[str]) -> str:
-        """Format workflow steps into a readable response."""
-        if not steps:
-            return "No workflow steps found for your query."
+    def _build_workflow_context(self, results: List[SearchResult], query: str) -> str:
+        """Build workflow context from multiple search results with step analysis."""
+        if not results:
+            return "No workflow information found for your query."
         
-        formatted_steps = "\n".join(f"{i+1}. {step}" for i, step in enumerate(steps))
+        context_parts = [
+            f"**Workflow Guide: {query}**",
+            "",
+            "*Synthesized from multiple documentation sources*",
+            ""
+        ]
         
-        return f"""Here's the step-by-step workflow:
-
-{formatted_steps}
-
-Would you like more details on any specific step?"""
+        # Group results by source for better organization
+        source_groups = {}
+        for result in results:
+            source = result.metadata.get("title", "Unknown Source")
+            if source not in source_groups:
+                source_groups[source] = []
+            source_groups[source].append(result)
+        
+        # Process each source group
+        for source, source_results in source_groups.items():
+            context_parts.append(f"**From {source}:**")
+            
+            for result in source_results:
+                content = result.content.strip()
+                
+                # Look for step indicators in content
+                if self._contains_step_indicators(content):
+                    context_parts.append("*[Contains procedural steps]*")
+                
+                # Truncate with workflow awareness
+                if len(content) > 400:
+                    content = self._smart_workflow_truncate(content, 400)
+                
+                context_parts.append(content)
+                context_parts.append("")  # Spacing between results
+        
+        return "\n".join(context_parts)
+    
+    def _contains_step_indicators(self, content: str) -> bool:
+        """Check if content contains step/procedure indicators."""
+        import re
+        step_patterns = [
+            r'\b\d+\.',  # "1.", "2.", etc.
+            r'\bStep \d+',  # "Step 1", "Step 2", etc.
+            r'\b(First|Second|Third|Next|Then|Finally|Lastly)\b',
+            r'^\s*[-*]\s',  # Bullet points at start of lines
+            r'\b(Before|After|Once|When)\b.*\b(complete|finish|done)\b'
+        ]
+        
+        for pattern in step_patterns:
+            if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
+                return True
+        return False
+    
+    def _smart_workflow_truncate(self, content: str, max_length: int) -> str:
+        """Truncate workflow content at logical step boundaries."""
+        import re
+        
+        if len(content) <= max_length:
+            return content
+        
+        # Try to break at step boundaries
+        step_matches = list(re.finditer(r'\b\d+\.', content))
+        for match in reversed(step_matches):
+            if match.start() < max_length * 0.8:  # Keep at least 80% before truncating
+                truncate_point = match.start()
+                return content[:truncate_point] + f"\n\n*[Additional steps available...]*"
+        
+        # Fallback to sentence boundary
+        sentences = content[:max_length].split('. ')
+        if len(sentences) > 1:
+            return '. '.join(sentences[:-1]) + '.'
+        
+        return content[:max_length - 3] + "..."
+    
+    def _format_workflow_response(self, workflow_context: str) -> str:
+        """Format workflow context into a readable response."""
+        if not workflow_context:
+            return "No workflow information found for your query."
+        
+        return workflow_context
