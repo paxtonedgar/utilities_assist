@@ -41,20 +41,10 @@ class SearchFilters:
     updated_before: Optional[datetime] = None
 
 
-@dataclass 
-class SearchResult:
-    """Individual search result with score and metadata."""
-    doc_id: str
-    score: float
-    title: str
-    body: str
-    metadata: Dict[str, Any]
-    
-    
 @dataclass
 class SearchResponse:
     """Search response with results and metadata."""
-    results: List[SearchResult]
+    results: List[ServiceSearchResult]  # Use the service model
     total_hits: int
     took_ms: int
     method: str

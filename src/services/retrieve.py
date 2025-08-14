@@ -50,15 +50,19 @@ async def bm25_search(
             time_decay_half_life_days=time_decay_days
         )
         
-        # Convert to service format
+        # Convert to service format - OpenSearch client now returns services.models.SearchResult
         results = []
         for result in response.results:
+            # Result is already a services.models.SearchResult, just pass it through
+            # Extract title from metadata if needed for consistency
+            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
+            
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.body,
+                content=result.content,  # Use content field, not body
                 score=result.score,
                 metadata={
-                    "title": result.title,
+                    "title": title,  # Extract from metadata
                     **result.metadata
                 }
             )
@@ -117,15 +121,19 @@ async def knn_search(
             ef_search=ef_search
         )
         
-        # Convert to service format
+        # Convert to service format - OpenSearch client now returns services.models.SearchResult
         results = []
         for result in response.results:
+            # Result is already a services.models.SearchResult, just pass it through
+            # Extract title from metadata if needed for consistency
+            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
+            
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.body,
+                content=result.content,  # Use content field, not body
                 score=result.score,
                 metadata={
-                    "title": result.title,
+                    "title": title,  # Extract from metadata
                     **result.metadata
                 }
             )
@@ -213,15 +221,19 @@ async def rrf_fuse(
             rrf_k=rrf_k
         )
         
-        # Convert back to service format
+        # Convert back to service format - RRF fusion returns services.models.SearchResult
         results = []
         for result in fused_response.results:
+            # Result is already a services.models.SearchResult from RRF fusion
+            # Extract title from metadata if needed for consistency
+            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
+            
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.body,
+                content=result.content,  # Use content field, not body
                 score=result.score,
                 metadata={
-                    "title": result.title,
+                    "title": title,  # Extract from metadata
                     **result.metadata
                 }
             )
