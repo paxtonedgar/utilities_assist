@@ -46,7 +46,20 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
             from infra.resource_manager import get_resources
             resources = get_resources()
             
-            response = await resources.chat_client.ainvoke([
+            # Create LangChain wrapper for Azure OpenAI client
+            from langchain_openai import AzureChatOpenAI
+            
+            # Wrap the Azure client for LangChain compatibility  
+            langchain_client = AzureChatOpenAI(
+                openai_api_version=resources.settings.chat.api_version,
+                azure_deployment=resources.settings.chat.model,
+                azure_endpoint=resources.settings.chat.api_base,
+                openai_api_key=resources.chat_client.api_key,
+                temperature=0.1,
+                max_tokens=500
+            )
+            
+            response = await langchain_client.ainvoke([
                 SystemMessage(content="You are a query normalization assistant."),
                 HumanMessage(content=prompt)
             ])

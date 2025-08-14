@@ -9,7 +9,8 @@ faiss_cpu==1.10.0
 langchain==0.3.24
 langchain_openai==0.3.14
 langgraph==0.6.0
-langgraph-checkpoint-sqlite
+# langgraph-checkpoint-sqlite==2.0.9  # Not available in deployment
+# langgraph-store==0.1.0  # Optional - only if PostgreSQL persistence needed
 jinja2==3.1.4
 nest-asyncio==1.6.0
 #nltk==3.9.1

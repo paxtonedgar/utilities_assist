@@ -27,15 +27,16 @@ def get_checkpointer_and_store() -> Tuple[Optional[Any], Optional[Any]]:
             logger.info("LangGraph persistence disabled via environment variable")
             return None, None
         
-        # Determine persistence backend
-        persistence_backend = os.getenv("LANGGRAPH_PERSISTENCE_BACKEND", "sqlite").lower()
+        # Determine persistence backend (default to memory for enterprise deployments)
+        persistence_backend = os.getenv("LANGGRAPH_PERSISTENCE_BACKEND", "memory").lower()
         
-        if persistence_backend == "memory":
-            return _create_memory_persistence()
-        elif persistence_backend == "sqlite":
-            return _create_sqlite_persistence()
-        elif persistence_backend == "postgres":
+        if persistence_backend == "postgres":
             return _create_postgres_persistence()
+        elif persistence_backend == "sqlite":
+            logger.info("SQLite requested but may not be available in deployment")
+            return _create_sqlite_persistence()
+        elif persistence_backend == "memory":
+            return _create_memory_persistence()
         else:
             logger.warning(f"Unknown persistence backend: {persistence_backend}, falling back to memory")
             return _create_memory_persistence()

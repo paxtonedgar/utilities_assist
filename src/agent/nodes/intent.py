@@ -63,8 +63,21 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
             from infra.resource_manager import get_resources
             resources = get_resources()
             
+            # Create LangChain wrapper for Azure OpenAI client
+            from langchain_openai import AzureChatOpenAI
+            
+            # Wrap the Azure client for LangChain compatibility
+            langchain_client = AzureChatOpenAI(
+                openai_api_version=resources.settings.chat.api_version,
+                azure_deployment=resources.settings.chat.model,
+                azure_endpoint=resources.settings.chat.api_base,
+                openai_api_key=resources.chat_client.api_key,
+                temperature=0.1,
+                max_tokens=200
+            )
+            
             # Use structured output for better parsing
-            intent_analyzer = resources.chat_client.with_structured_output(IntentAnalysis)
+            intent_analyzer = langchain_client.with_structured_output(IntentAnalysis)
             
             analysis = await intent_analyzer.ainvoke([
                 SystemMessage(content="You are an expert intent classification system for enterprise utilities and APIs."),

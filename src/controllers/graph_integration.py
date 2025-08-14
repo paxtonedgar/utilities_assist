@@ -169,7 +169,7 @@ async def handle_turn_with_graph(
             "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
-            "_use_mock_corpus": use_mock_corpus
+            "_use_mock_corpus": True  # Force mock corpus until indices are available
         })
         
         # Track progress and stream updates with user context

@@ -7,7 +7,7 @@ test:
 	python -m pytest tests/
 
 run:
-	UTILITIES_CONFIG=src/config.ini CLOUD_PROFILE=jpmc_azure streamlit run streamlit_app.py
+	UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure streamlit run streamlit_app.py
 
 # Local development targets
 run-local:
