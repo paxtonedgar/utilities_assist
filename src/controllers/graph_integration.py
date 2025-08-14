@@ -357,16 +357,31 @@ def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id:
     return progress
 
 
-def _format_graph_final_result(final_state: Dict[str, Any], start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
+def _format_graph_final_result(final_state, start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
     """Format final graph state as TurnResult compatible response with missing features."""
     
-    # Extract results
-    final_answer = final_state.get("final_answer", "No answer generated.")
-    combined_results = final_state.get("combined_results", [])
-    workflow_path = final_state.get("workflow_path", [])
+    # CRITICAL: Convert GraphState to dict at graph output boundary
+    # This fixes the "GraphState object has no attribute 'get'" error
+    if hasattr(final_state, 'model_dump'):
+        # Pydantic v2
+        state_dict = final_state.model_dump()
+    elif hasattr(final_state, 'dict'):
+        # Pydantic v1
+        state_dict = final_state.dict()
+    elif isinstance(final_state, dict):
+        # Already a dict
+        state_dict = final_state
+    else:
+        # Last resort - attempt dict conversion
+        state_dict = dict(final_state)
+    
+    # Extract results from normalized dict
+    final_answer = state_dict.get("final_answer", "No answer generated.")
+    combined_results = state_dict.get("combined_results", [])
+    workflow_path = state_dict.get("workflow_path", [])
     
     # MISSING: Use source chips if available (from traditional pipeline)
-    source_chips = final_state.get("source_chips", [])
+    source_chips = state_dict.get("source_chips", [])
     if source_chips:
         sources = source_chips  # Use extracted source chips
     else:
@@ -380,16 +395,16 @@ def _format_graph_final_result(final_state: Dict[str, Any], start_time: float, t
             })
     
     # MISSING: Include verification metrics (from traditional pipeline)
-    verification_metrics = final_state.get("verification_metrics", {})
+    verification_metrics = state_dict.get("verification_metrics", {})
     
     # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
         sources=sources,
-        intent=final_state.get("intent", IntentResult(intent="unknown", confidence=0.0)),
+        intent=state_dict.get("intent", IntentResult(intent="unknown", confidence=0.0)),
         response_time_ms=(time.time() - start_time) * 1000,
         graph_workflow_path=workflow_path,  # Additional field for graph tracking
-        graph_loop_count=final_state.get("loop_count", 0),
+        graph_loop_count=state_dict.get("loop_count", 0),
         verification=verification_metrics  # MISSING: Answer quality verification
     )
     
