@@ -98,6 +98,7 @@ def create_graph(
     workflow.add_node("search_confluence", _search_confluence_wrapper)
     workflow.add_node("search_swagger", _search_swagger_wrapper) 
     workflow.add_node("search_multi", _search_multi_wrapper)
+    workflow.add_node("list_handler", _list_handler_wrapper)  # NEW: Handle list queries
     workflow.add_node("restart", _restart_wrapper)  # MISSING: Restart intent handler
     workflow.add_node("rewrite_query", _rewrite_query_wrapper)
     workflow.add_node("combine", _combine_wrapper)
@@ -115,6 +116,7 @@ def create_graph(
             "search_confluence": "search_confluence",
             "search_swagger": "search_swagger", 
             "search_multi": "search_multi",
+            "list_handler": "list_handler",  # NEW: Handle list queries
             "restart": "restart"  # MISSING: Handle restart intent
         }
     )
@@ -165,6 +167,7 @@ def create_graph(
     
     # Final steps
     workflow.add_edge("combine", "answer")
+    workflow.add_edge("list_handler", "answer")  # NEW: List handler goes directly to answer (no search needed)
     workflow.add_edge("answer", END)
     workflow.add_edge("restart", END)  # MISSING: Direct restart to end
     
@@ -180,7 +183,7 @@ def create_graph(
     return workflow.compile(**compile_kwargs)
 
 
-def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi", "restart"]:
+def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi", "list_handler", "restart"]:
     """Route to appropriate search based on intent classification."""
     intent = state.get("intent")
     if not intent:
@@ -188,9 +191,13 @@ def _route_after_intent(state: GraphState) -> Literal["search_confluence", "sear
     
     intent_type = intent.intent.lower()
     
-    # Handle restart intent specially (MISSING from original implementation)
+    # Handle restart intent specially
     if intent_type == "restart":
         return "restart"
+    
+    # Handle list queries specially - use OpenSearch aggregations
+    if intent_type == "list":
+        return "list_handler"
     
     # Check for compound/comparative queries that need multi-search
     query = state.get("normalized_query", "").lower()
@@ -615,6 +622,144 @@ def _extract_source_chips(results: List[SearchResult], max_chips: int = 5) -> Li
         return chips
 
 
+async def _list_handler_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """
+    Handle list queries using OpenSearch aggregations - follows LangGraph pattern.
+    
+    This replicates the old system's hierarchical list behavior:
+    - "list API names" → get API names from OpenSearch
+    - "what APGs are there" → get APG names from OpenSearch  
+    - "show all Products" → get Product names from OpenSearch
+    """
+    try:
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
+        query = state.get("normalized_query", "").lower()
+        
+        # Determine what type of list is being requested
+        if "api" in query:
+            list_type = "apis"
+            field_name = "api_name"
+        elif "apg" in query or "api group" in query:
+            list_type = "apgs" 
+            field_name = "apg_name"
+        elif "product" in query:
+            list_type = "products"
+            field_name = "product_name"
+        else:
+            # Default to APIs if unclear
+            list_type = "apis"
+            field_name = "api_name"
+        
+        # Use OpenSearch aggregations to get unique values
+        aggregation_results = await _get_list_from_opensearch(
+            resources.search_client,
+            resources.settings.search_index_alias,
+            field_name,
+            list_type
+        )
+        
+        # Format results for the old system's expected structure
+        formatted_context = _format_list_response(aggregation_results, list_type, query)
+        
+        return {
+            "final_context": formatted_context,
+            "combined_results": [],  # No search results needed for lists
+            "workflow_path": state.get("workflow_path", []) + ["list_handler"]
+        }
+        
+    except Exception as e:
+        logger.error(f"List handler failed: {e}")
+        return {
+            "final_context": f"I encountered an error retrieving the {list_type} list: {str(e)}",
+            "combined_results": [],
+            "workflow_path": state.get("workflow_path", []) + ["list_handler_error"],
+            "error_messages": state.get("error_messages", []) + [f"List handler failed: {e}"]
+        }
+
+
+async def _get_list_from_opensearch(search_client, index_name: str, field_name: str, list_type: str) -> List[str]:
+    """Get unique values using OpenSearch aggregations."""
+    try:
+        # Build aggregation query  
+        agg_body = {
+            "size": 0,  # Don't need document hits, just aggregations
+            "aggs": {
+                f"unique_{list_type}": {
+                    "terms": {
+                        "field": f"{field_name}.keyword",  # Use keyword field for aggregations
+                        "size": 1000,  # Get up to 1000 unique values
+                        "order": {"_key": "asc"}  # Alphabetical order
+                    }
+                }
+            }
+        }
+        
+        # Execute aggregation query
+        url = f"{search_client.base_url}/{index_name}/_search"
+        
+        # Use same auth pattern as regular searches
+        from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        
+        import requests
+        if aws_auth:
+            response = requests.post(url, json=agg_body, auth=aws_auth, timeout=30.0)
+        else:
+            response = search_client.session.post(url, json=agg_body, timeout=30.0)
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        # Extract unique values from aggregation results
+        buckets = data.get("aggregations", {}).get(f"unique_{list_type}", {}).get("buckets", [])
+        unique_values = [bucket["key"] for bucket in buckets]
+        
+        logger.info(f"Found {len(unique_values)} unique {list_type}")
+        return unique_values
+        
+    except Exception as e:
+        logger.error(f"OpenSearch aggregation failed: {e}")
+        return []
+
+
+def _format_list_response(items: List[str], list_type: str, original_query: str) -> str:
+    """Format list response in the old system's style."""
+    if not items:
+        return f"No {list_type} found in the system."
+    
+    # Create structured list response matching old system format
+    if list_type == "apis":
+        response = f"I have knowledge of the following APIs:\n\n"
+        for i, api in enumerate(items, 1):
+            response += f"{i}. {api}\n"
+    elif list_type == "apgs": 
+        response = f"I have knowledge of the following APGs:\n\n"
+        for i, apg in enumerate(items, 1):
+            response += f"- APG: {apg}\n"
+    elif list_type == "products":
+        response = f"I have knowledge of the following Products:\n\n"
+        for i, product in enumerate(items, 1):
+            response += f"- Product Name: {product}\n"
+    else:
+        response = f"Available {list_type}:\n\n"
+        for item in items:
+            response += f"- {item}\n"
+    
+    # Add follow-up questions (from old system)
+    if list_type == "apgs":
+        response += f"\n**Follow-up questions:**\n- Which specific APG do you want to know more about?\n- What APIs are in a particular APG?\n- How do these APGs relate to specific Products?"
+    elif list_type == "apis":
+        response += f"\n**Follow-up questions:**\n- Which API do you want detailed information about?\n- What parameters does a specific API accept?\n- Which APG does a particular API belong to?"
+    elif list_type == "products":
+        response += f"\n**Follow-up questions:**\n- Which Product do you want to explore?\n- What APGs are part of a specific Product?\n- What APIs are available in a particular Product?"
+    
+    return response
+
+
 # Node registry for external access
 NODE_REGISTRY = {
     "summarize": _summarize_wrapper,
@@ -622,6 +767,7 @@ NODE_REGISTRY = {
     "search_confluence": _search_confluence_wrapper,
     "search_swagger": _search_swagger_wrapper,
     "search_multi": _search_multi_wrapper,
+    "list_handler": _list_handler_wrapper,  # NEW: List queries handler
     "restart": _restart_wrapper,  # MISSING: Restart handler
     "rewrite_query": _rewrite_query_wrapper,
     "combine": _combine_wrapper,

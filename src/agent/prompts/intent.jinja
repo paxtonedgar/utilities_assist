@@ -5,15 +5,22 @@ Your task is to analyze the user query and determine:
 2. Your confidence level (0.0 to 1.0)
 
 Intent Categories:
-- confluence: Questions about documentation, procedures, general information
-- swagger: Questions about API specifications, endpoints, parameters
-- utility: Questions about specific utility functions or services
+- confluence: Questions about documentation, procedures, general information, utility concepts
+- swagger: API specifications, endpoints, parameters, field lookups ("Which API has field X?")
+- list: Requesting catalogs ("list API names", "what APGs are there", "show all Products")  
 - comparative: Comparing multiple entities, utilities, or APIs
-- list: Requesting lists or catalogs of items
+- utility: Questions about specific utility functions or services
 - troubleshooting: Help with errors, issues, or problems
 - workflow: Multi-step processes or complex procedures
 - restart: User wants to clear context or start over
 - error: Query cannot be understood
+
+Special Classification Rules:
+- "list the API names" or "which all APIs" → classify as "list" 
+- API specifications/endpoints/responses → "swagger"
+- API fields or parameters lookup → "swagger"
+- General concepts about utilities → "confluence"
+- If unsure between confluence/swagger → choose "confluence"
 
 Available Utilities:
 {% for utility in utilities_list %}
