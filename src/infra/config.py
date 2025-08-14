@@ -24,7 +24,7 @@ class EmbedCfg(BaseModel):
 class SearchCfg(BaseModel):
     """Configuration for OpenSearch/Elasticsearch"""
     host: str
-    index_alias: str = "confluence_current"
+    index_alias: str = "khub-opensearch-index"  # Production JPMC index
     username: str | None = None
     password: str | None = None
     timeout_s: float = 2.5

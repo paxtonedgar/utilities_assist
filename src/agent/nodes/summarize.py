@@ -49,12 +49,18 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
             # Create LangChain wrapper for Azure OpenAI client
             from langchain_openai import AzureChatOpenAI
             
-            # Wrap the Azure client for LangChain compatibility using exact config.ini field names
+            # Wrap the Azure client for LangChain compatibility with JPMC headers
+            import os
+            
+            # Get JPMC-specific headers from the original client
+            default_headers = getattr(resources.chat_client, 'default_headers', {})
+            
             langchain_client = AzureChatOpenAI(
                 api_version=resources.settings.chat.api_version,  # api_version from config
                 azure_deployment=resources.settings.chat.model,   # deployment_name from config
                 azure_endpoint=resources.settings.chat.api_base,  # azure_openai_endpoint from config
                 api_key=resources.chat_client.api_key,            # api_key from config
+                default_headers=default_headers,                  # JPMC headers (user_sid, etc.)
                 temperature=0.1,
                 max_tokens=500
             )
