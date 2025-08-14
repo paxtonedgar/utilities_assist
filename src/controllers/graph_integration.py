@@ -91,6 +91,16 @@ async def handle_turn(
     req_id = generate_req_id()
     set_context_var("current_req_id", req_id)
     
+    # Validate user input to prevent empty query issues
+    if not user_input or not user_input.strip():
+        logger.warning(f"Empty or whitespace-only user input received: '{repr(user_input)}'")
+        yield {
+            "type": "error",
+            "message": "Please provide a valid query. Empty queries are not supported.",
+            "req_id": req_id
+        }
+        return
+    
     # Set user context if available
     if user_context and user_context.get("user_id"):
         set_context_var("user_id", user_context["user_id"])
@@ -129,6 +139,17 @@ async def handle_turn_with_graph(
     start_time = time.time()
     turn_id = f"graph_{int(start_time)}"
     req_id = generate_request_id()
+    
+    # Additional validation at graph level
+    if not user_input or not user_input.strip():
+        logger.error(f"Graph received empty user input: '{repr(user_input)}'")
+        yield {
+            "type": "error",
+            "message": "Invalid query: empty or whitespace-only input not allowed",
+            "turn_id": turn_id,
+            "req_id": req_id
+        }
+        return
     
     try:
         # Get shared resources (Phase 1 performance optimizations maintained)
