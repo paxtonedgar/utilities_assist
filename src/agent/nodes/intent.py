@@ -62,7 +62,7 @@ async def intent_node(state, config, *, store=None):
             # CRITICAL: Preserve ALL existing state fields and return proper type
             merged = {
                 **s,  # Preserve all existing state
-                INTENT: IntentResult(intent="confluence", confidence=0.1),  # Default fallback
+                INTENT: {"intent": "confluence", "confidence": 0.1},  # Store as dict consistently
                 "workflow_path": s.get("workflow_path", []) + ["intent_empty"]
             }
             return from_state_dict(incoming_type, merged)
@@ -138,23 +138,28 @@ async def intent_node(state, config, *, store=None):
             
         except Exception as e:
             logger.warning(f"LLM intent classification failed, using simple fallback: {e}")
-            # Simple fallback without complex dependencies
-            intent_result = IntentResult(
-                intent="confluence",
-                confidence=0.5
-            )
+            # Simple fallback without complex dependencies - store as dict
+            intent_result = {
+                "intent": "confluence",
+                "confidence": 0.5
+            }
+        
+        # Normalize intent_result to dict format
+        if hasattr(intent_result, 'intent'):
+            # Convert IntentResult object to dict
+            intent_dict = {
+                "intent": intent_result.intent,
+                "confidence": intent_result.confidence
+            }
+        else:
+            # Already a dict
+            intent_dict = intent_result
         
         logger.info(
             "NODE_END intent | intent=%s | confidence=%.2f",
-            intent_result.intent,
-            intent_result.confidence
+            intent_dict["intent"],
+            intent_dict["confidence"]
         )
-        
-        # Convert IntentResult object to dict to prevent "IntentResult object has no attribute 'get'" errors
-        intent_dict = {
-            "intent": intent_result.intent,
-            "confidence": intent_result.confidence
-        }
         
         logger.debug(f"Storing intent as dict: {intent_dict}")
         
@@ -171,10 +176,10 @@ async def intent_node(state, config, *, store=None):
         # Convert to dict if not already done (in case exception happened early)
         s = to_state_dict(state) if 's' not in locals() else s
         
-        # Fallback intent and return proper type
+        # Fallback intent and return proper type - store as dict consistently
         merged = {
             **s,  # Preserve all existing state
-            INTENT: IntentResult(intent="error", confidence=0.0),
+            INTENT: {"intent": "error", "confidence": 0.0},  # Store as dict, not IntentResult object
             "workflow_path": s.get("workflow_path", []) + ["intent_error"],
             "error_messages": s.get("error_messages", []) + [f"Intent classification failed: {e}"]
         }

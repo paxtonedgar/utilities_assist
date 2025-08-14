@@ -26,6 +26,7 @@ import requests
 
 from src.infra.settings import get_settings
 from src.telemetry.logger import log_event, stage
+from services.models import SearchResult as ServiceSearchResult  # Use service model
 
 logger = logging.getLogger(__name__)
 
@@ -390,7 +391,7 @@ class OpenSearchClient:
             if doc_id in doc_map:
                 result = doc_map[doc_id]
                 # Create new result with RRF score
-                fused_result = SearchResult(
+                fused_result = ServiceSearchResult(
                     doc_id=result.doc_id,
                     score=rrf_score,
                     content=result.content,  # Use content field
@@ -700,7 +701,7 @@ class OpenSearchClient:
         
         return clauses
     
-    def _parse_search_response(self, data: Dict[str, Any]) -> List[SearchResult]:
+    def _parse_search_response(self, data: Dict[str, Any]) -> List[ServiceSearchResult]:
         """Parse OpenSearch response into SearchResult objects - handles nested structure."""
         results = []
         
@@ -731,14 +732,21 @@ class OpenSearchClient:
                 "sections_matched": len(inner_hits)
             }
             
-            result = SearchResult(
-                doc_id=hit["_id"],
+            # Extract real URL or construct a meaningful one
+            url = source.get("page_url") or metadata.get("url") or metadata.get("page_url")
+            if not url or url == "#":
+                # Construct a meaningful URL or use doc_id-based placeholder
+                url = f"#doc-{hit['_id']}" if hit.get("_id") else "#"
+            
+            result = ServiceSearchResult(
+                doc_id=hit["_id"],  # Ensure doc_id is always populated - REQUIRED field
                 score=hit["_score"],
-                content=body,  # Use body as content
+                content=body,  # Use body as content - REQUIRED field
                 metadata={
                     **metadata,
                     "title": title,  # Store title in metadata
-                    "page_title": title  # Also store as page_title for compatibility
+                    "page_title": title,  # Also store as page_title for compatibility
+                    "url": url  # Store real URL in metadata
                 }
             )
             results.append(result)

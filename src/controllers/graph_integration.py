@@ -383,32 +383,46 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
     else:
         # Fallback: Build sources from combined results with required fields
         sources = []
-        for result in combined_results[:10]:  # Limit to top 10
+        for i, result in enumerate(combined_results[:10]):  # Limit to top 10
+            # Ensure doc_id is always present (CRITICAL for TurnResult validation)
+            doc_id = result.doc_id if hasattr(result, 'doc_id') and result.doc_id else f"unknown-{i}"
+            
             # Extract real URL or construct one from metadata
             url = result.metadata.get("url") or result.metadata.get("page_url") or result.metadata.get("link")
             if not url or url == "#":
-                # Construct a meaningful URL or use a placeholder
-                url = f"#doc-{result.doc_id}" if result.doc_id else "#"
+                # Construct a meaningful URL using doc_id
+                url = f"#doc-{doc_id}"
             
             sources.append({
-                "doc_id": result.doc_id,  # Required field
-                "title": result.metadata.get("title") or result.metadata.get("page_title") or "Document",
+                "doc_id": doc_id,  # Required field - always populated
+                "title": result.metadata.get("title") or result.metadata.get("page_title") or f"Document {i+1}",
                 "url": url,
-                "excerpt": result.content[:200] + "..." if len(result.content) > 200 else result.content
+                "excerpt": (result.content[:200] + "...") if hasattr(result, 'content') and len(result.content) > 200 else (result.content if hasattr(result, 'content') else "No content available")
             })
     
     # MISSING: Include verification metrics (from traditional pipeline)
     verification_metrics = state_dict.get("verification_metrics", {})
     
-    # Handle intent - convert dict to IntentResult if needed
+    # Handle intent - always expect dict format and convert to IntentResult for TurnResult
     intent_data = state_dict.get("intent", {"intent": "unknown", "confidence": 0.0})
-    if isinstance(intent_data, dict):
-        intent_result = IntentResult(
-            intent=intent_data.get("intent", "unknown"),
-            confidence=intent_data.get("confidence", 0.0)
-        )
-    else:
-        intent_result = intent_data  # Already an IntentResult
+    
+    # Defensive handling for both dict and IntentResult formats
+    if hasattr(intent_data, "dict"):
+        # Pydantic model - convert to dict first
+        intent_data = intent_data.dict()
+    elif hasattr(intent_data, "intent"):
+        # IntentResult object - extract values
+        intent_data = {"intent": intent_data.intent, "confidence": intent_data.confidence}
+    elif not isinstance(intent_data, dict):
+        # Unknown format - fallback
+        logger.warning(f"Unknown intent format: {type(intent_data)}, using default")
+        intent_data = {"intent": "unknown", "confidence": 0.0}
+    
+    # Now we have a dict, convert to IntentResult for TurnResult
+    intent_result = IntentResult(
+        intent=intent_data.get("intent", "unknown"),
+        confidence=intent_data.get("confidence", 0.0)
+    )
     
     # Validate sources before TurnResult construction
     for i, source in enumerate(sources):
