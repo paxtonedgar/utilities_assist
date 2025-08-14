@@ -122,6 +122,31 @@ def inject_minimal_css():
         color: #6c757d;
         margin: 8px 0 0 0;
     }
+    
+    /* Typing indicator animation */
+    .typing-indicator {
+        display: inline-block;
+        animation: blink 1s infinite;
+        color: #007bff;
+        font-weight: bold;
+    }
+    
+    @keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0; }
+    }
+    
+    /* Thinking animation */
+    .thinking {
+        color: #6c757d;
+        font-style: italic;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -291,46 +316,51 @@ def render_stage_logs(req_id: str):
         logger.debug(f"Failed to render stage logs: {e}")
 
 async def process_user_input(user_input: str) -> None:
-    """Process user input simply."""
-    # Add user message to both UI and conversation history
+    """Process user input with thinking animation."""
+    # Add user message immediately and show it
     user_message = {"role": "user", "content": user_input}
     st.session_state.messages.append(user_message)
     st.session_state.conversation_history.append(user_message)
     
-    # Show thinking
-    with st.spinner("Thinking..."):
-        assistant_response = {
-            "role": "assistant",
-            "content": "",
-            "sources": [],
-            "req_id": None
-        }
-        
-        try:
-            async for chunk in handle_turn(
-                user_input,
-                st.session_state.resources,  # Use shared resources instead of settings
-                chat_history=st.session_state.conversation_history[-10:],  # Last 10 messages
-                use_mock_corpus=False,  # Always use production Confluence/OpenSearch
-                thread_id=st.session_state.thread_id,
-                user_context=st.session_state.user_context
-            ):
-                if chunk["type"] == "response_chunk":
-                    assistant_response["content"] += chunk["content"]
-                elif chunk["type"] == "complete":
-                    result = chunk["result"]
-                    assistant_response["sources"] = result.get("sources", [])
-                    assistant_response["req_id"] = chunk.get("req_id")
-                    break
-                elif chunk["type"] == "error":
-                    assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
-                    break
-        
-        except Exception as e:
-            assistant_response["content"] = f"❌ Error: {str(e)}"
-            logger.error(f"Error in process_user_input: {e}")
+    # Add thinking indicator
+    thinking_message = {"role": "assistant", "content": "", "thinking": True}
+    st.session_state.messages.append(thinking_message)
+    st.rerun()  # Show user message and thinking indicator
     
-    # Store response in both UI and conversation history
+    # Process the response
+    assistant_response = {
+        "role": "assistant",
+        "content": "",
+        "sources": [],
+        "req_id": None
+    }
+    
+    try:
+        async for chunk in handle_turn(
+            user_input,
+            st.session_state.resources,
+            chat_history=st.session_state.conversation_history[-10:],
+            use_mock_corpus=False,
+            thread_id=st.session_state.thread_id,
+            user_context=st.session_state.user_context
+        ):
+            if chunk["type"] == "response_chunk":
+                assistant_response["content"] += chunk["content"]
+            elif chunk["type"] == "complete":
+                result = chunk["result"]
+                assistant_response["sources"] = result.get("sources", [])
+                assistant_response["req_id"] = chunk.get("req_id")
+                break
+            elif chunk["type"] == "error":
+                assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+                break
+    
+    except Exception as e:
+        assistant_response["content"] = f"❌ Error: {str(e)}"
+        logger.error(f"Error in process_user_input: {e}")
+    
+    # Remove thinking indicator and add final response
+    st.session_state.messages.pop()  # Remove thinking message
     st.session_state.messages.append(assistant_response)
     
     # Add to conversation history for context
@@ -349,51 +379,34 @@ def main():
     initialize_session()
     render_header()
     
-    # Simple controls
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Clear Chat"):
-            st.session_state.messages = []
-            st.session_state.conversation_history = []
-            st.rerun()
-    with col2:
-        # Always use production Confluence/OpenSearch - no mock option
-        st.caption("📊 Production Data Only")
-    with col3:
-        if st.button("New Thread"):
-            # Start a new conversation thread
-            try:
-                from infra.persistence import generate_thread_id
-                st.session_state.thread_id = generate_thread_id(
-                    st.session_state.user_context.get("user_id", "unknown"),
-                    st.session_state.user_context.get("session_metadata")
-                )
-            except ImportError:
-                # Fallback thread ID generation
-                import time
-                user_id = st.session_state.user_context.get("user_id", "unknown")
-                st.session_state.thread_id = f"{user_id}_{int(time.time())}"
-            st.session_state.messages = []
-            st.session_state.conversation_history = []
-            st.rerun()
-    
-    # Chat history
-    for message in st.session_state.messages:
+    # Chat history with thinking animation
+    for i, message in enumerate(st.session_state.messages):
         if message["role"] == "user":
             st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
-            if message.get("sources"):
-                render_sources(message["sources"])
-            if message.get("req_id"):
-                render_simple_stats(message["req_id"])
-                render_stage_logs(message["req_id"])
+            # Handle assistant messages
+            content = message["content"] 
+            is_thinking = message.get("thinking", False)
+            
+            if is_thinking:
+                # Show animated thinking indicator
+                st.markdown('<div class="assistant-message"><span class="thinking">🤔 thinking...</span></div>', unsafe_allow_html=True)
+            elif content:
+                # Show final message
+                st.markdown(f'<div class="assistant-message">{content}</div>', unsafe_allow_html=True)
+                
+                # Show sources and stats for completed messages
+                if message.get("sources"):
+                    render_sources(message["sources"])
+                if message.get("req_id"):
+                    render_simple_stats(message["req_id"])
+                    render_stage_logs(message["req_id"])
     
     # Input
     user_input = st.chat_input("Ask about utilities, APIs, or procedures...")
     if user_input:
+        # Run async function synchronously  
         asyncio.run(process_user_input(user_input))
-        st.rerun()
 
 if __name__ == "__main__":
     main()
