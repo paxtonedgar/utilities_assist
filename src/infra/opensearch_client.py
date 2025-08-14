@@ -211,8 +211,32 @@ class OpenSearchClient:
                 method="bm25"
             )
             
+        except requests.exceptions.HTTPError as e:
+            # Special handling for 404 - index not found
+            if hasattr(e.response, 'status_code') and e.response.status_code == 404:
+                logger.warning(f"Index not found: {index}. Continuing with empty results.")
+                log_event(
+                    stage="bm25",
+                    event="index_not_found",
+                    index=index,
+                    status_code=404,
+                    message=f"Index {index} not found, returning empty results"
+                )
+            else:
+                log_event(
+                    stage="bm25",
+                    event="error",
+                    err=True,
+                    error_type="HTTPError",
+                    error_message=str(e)[:200],
+                    index=index,
+                    status_code=e.response.status_code if hasattr(e.response, 'status_code') else None
+                )
+            
+            return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
+            
         except Exception as e:
-            # Log error
+            # Log other errors
             log_event(
                 stage="bm25",
                 event="error",
@@ -331,8 +355,32 @@ class OpenSearchClient:
                 method="knn"
             )
             
+        except requests.exceptions.HTTPError as e:
+            # Special handling for 404 - index not found
+            if hasattr(e.response, 'status_code') and e.response.status_code == 404:
+                logger.warning(f"Index not found: {index}. Continuing with empty results.")
+                log_event(
+                    stage="knn",
+                    event="index_not_found",
+                    index=index,
+                    status_code=404,
+                    message=f"Index {index} not found, returning empty results"
+                )
+            else:
+                log_event(
+                    stage="knn",
+                    event="error",
+                    err=True,
+                    error_type="HTTPError",
+                    error_message=str(e)[:200],
+                    index=index,
+                    status_code=e.response.status_code if hasattr(e.response, 'status_code') else None
+                )
+            
+            return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
+            
         except Exception as e:
-            # Log error
+            # Log other errors
             log_event(
                 stage="knn",
                 event="error",
@@ -783,15 +831,27 @@ class OpenSearchClient:
             # Handle nested structure with inner_hits (like v1 working branch)
             body_parts = []
             
-            # Extract content from inner_hits (matched sections)
+            # Extract content from inner_hits (matched sections) with section metadata
             inner_hits = hit.get("inner_hits", {}).get("matched_sections", {}).get("hits", {}).get("hits", [])
+            section_paths = []
+            anchors = []
+            
             for section_hit in inner_hits:
                 section_source = section_hit.get("_source", {})
                 heading = section_source.get("heading", "")
                 content = section_source.get("content", "")
+                anchor = section_source.get("anchor", "")  # URL anchor/slug
+                section_path = section_source.get("section_path", "")  # e.g., "CIU > Onboarding > Create Client IDs"
+                
                 if content:
                     section_text = f"{heading}\n{content}" if heading else content
                     body_parts.append(section_text)
+                    
+                    # Track section metadata for actionable answers
+                    if section_path:
+                        section_paths.append(section_path)
+                    if anchor:
+                        anchors.append(anchor)
             
             body = "\n\n".join(body_parts) if body_parts else ""
             
@@ -813,6 +873,9 @@ class OpenSearchClient:
                 "utility_name": source.get("utility_name", ""),
                 "api_name": source.get("api_name", ""),
                 "sections_matched": len(inner_hits),
+                "section_paths": section_paths,  # For actionable content detection
+                "anchors": anchors,  # For direct section linking
+                "space": source.get("space", ""),  # Track namespace
                 # Preserve backward compatibility
                 "page_title": title,
             }

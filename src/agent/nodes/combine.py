@@ -44,12 +44,38 @@ async def combine_node(state, config=None, *, store=None):
         
         if not all_results:
             logger.warning("No search results to combine")
+            
+            # Generate specific search suggestions based on query
+            from agent.acronym_map import expand_acronym
+            expanded_query, expansions = expand_acronym(query)
+            
+            suggestions = []
+            if expansions:
+                # Acronym-based suggestions
+                acronym = query.upper().split()[0]  # Get first word as acronym
+                expansion = expansions[0]
+                suggestions = [
+                    f"{expansion} onboarding runbook",
+                    f"{expansion} API setup guide", 
+                    f"create {acronym} client IDs"
+                ]
+            else:
+                # Generic suggestions based on query
+                suggestions = [
+                    f"{query} setup documentation",
+                    f"{query} API reference",
+                    f"{query} integration guide"
+                ]
+            
+            suggestion_text = "Try these searches: " + " | ".join(f'"{s}"' for s in suggestions)
+            
             # CRITICAL: Preserve ALL existing state fields and return proper type
             merged = {
                 **s,  # Preserve all existing state
                 "combined_results": [],
-                "final_context": "No relevant information found.",
-                "workflow_path": s.get("workflow_path", []) + ["combine"]
+                "final_context": f"No Utilities documentation found for '{query}'.",
+                "final_answer": f"No relevant documentation found. {suggestion_text}",
+                "workflow_path": s.get("workflow_path", []) + ["combine", "no_results"]
             }
             return from_state_dict(incoming_type, merged)
         
@@ -268,17 +294,27 @@ async def _apply_mmr_diversification(results: List[SearchResult], query: str, to
 
 
 def _build_context_from_results(results: List[SearchResult], max_length: int = 6000) -> str:
-    """Build human-readable briefing context from search results."""
+    """Build actionable context with section paths and anchor links."""
     if not results:
         return "No relevant information found."
     
     context_parts = []
     current_length = 0
+    has_actionable_content = False
     
     for i, result in enumerate(results):
         # Extract meaningful title and utility info
         title = result.metadata.get("title", result.metadata.get("api_name", f"Document {i+1}"))
         utility_name = result.metadata.get("utility_name", "")
+        page_url = result.metadata.get("page_url", "")
+        section_paths = result.metadata.get("section_paths", [])
+        anchors = result.metadata.get("anchors", [])
+        
+        # Check if content is actionable (has how-to/onboarding sections)
+        for path in section_paths:
+            if any(keyword in path.lower() for keyword in ["onboarding", "how to", "setup", "configure", "create", "steps"]):
+                has_actionable_content = True
+                break
         
         # Clean and format the content for human consumption
         content = result.content.strip()
@@ -295,11 +331,29 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 6
             else:
                 content = content[:truncate_at] + "..."
         
-        # Create a clean, scannable brief entry
+        # Create an actionable entry with section links
         if utility_name and utility_name != title:
-            part = f"\n**{title}** ({utility_name})\n{content}\n"
+            section_header = f"\n**{title}** ({utility_name})"
         else:
-            part = f"\n**{title}**\n{content}\n"
+            section_header = f"\n**{title}**"
+        
+        # Add section paths and anchor links if available
+        if page_url and anchors:
+            # Build anchor URLs for each section
+            section_links = []
+            for j, anchor in enumerate(anchors[:3]):  # Limit to 3 anchors
+                section_path = section_paths[j] if j < len(section_paths) else ""
+                if section_path:
+                    section_links.append(f"[{section_path}]({page_url}#{anchor})")
+                else:
+                    section_links.append(f"[Section]({page_url}#{anchor})")
+            
+            if section_links:
+                section_header += "\n› " + " › ".join(section_links)
+        elif page_url:
+            section_header += f"\n› [View Document]({page_url})"
+        
+        part = f"{section_header}\n{content}\n"
         
         if current_length + len(part) > max_length:
             break
@@ -307,7 +361,12 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 6
         context_parts.append(part)
         current_length += len(part)
     
+    # Build final context
     context = "".join(context_parts)
+    
+    # Add warning if no actionable content
+    if not has_actionable_content and len(results) > 0:
+        context = "⚠️ No step-by-step procedures found. Results contain definitions/overviews only.\n" + context
     
     if len(results) > len(context_parts):
         context += f"\n*({len(results) - len(context_parts)} additional sources available)*"
