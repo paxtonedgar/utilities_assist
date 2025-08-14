@@ -130,13 +130,41 @@ class ConfluenceSearchNode(SearchNodeHandler):
             # P0 FIX: Hard guard against empty retrieval to prevent generic answers
             if len(result.results) == 0:
                 logger.info("EMPTY CONFLUENCE RETRIEVAL - Short-circuiting to prevent expensive LLM call")
+                
+                # Provide helpful suggestions based on the query
+                from agent.acronym_map import UTILITY_ACRONYMS
+                suggestions = []
+                
+                # Check if query contains an acronym
+                query_upper = query.upper()
+                for acronym, expansion in UTILITY_ACRONYMS.items():
+                    if acronym in query_upper:
+                        suggestions.extend([
+                            f"{expansion} onboarding",
+                            f"{expansion} API",
+                            f"{expansion} integration guide",
+                            f"create {acronym} client ID"
+                        ])
+                        break
+                
+                # Default suggestions if no acronym found
+                if not suggestions:
+                    suggestions = [
+                        f"{query} onboarding",
+                        f"{query} API documentation", 
+                        f"{query} setup guide",
+                        f"utilities {query}"
+                    ]
+                
+                suggestion_text = "Try searching for: " + " | ".join(suggestions[:3])
+                
                 # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
                 return {
                     **state,  # Preserve all existing state
                     "search_results": [],
                     "combined_results": [],
-                    "final_context": "No confluence documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
-                    "final_answer": "I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms.",
+                    "final_context": f"No Utilities documentation found for '{query}'.",
+                    "final_answer": f"I didn't find Utilities documentation matching '{query}'. {suggestion_text}",
                     "workflow_path": state.get("workflow_path", []) + ["search_confluence", "empty_guard"]
                 }
             

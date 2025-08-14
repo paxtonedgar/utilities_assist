@@ -831,75 +831,153 @@ class OpenSearchClient:
         return results
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
-        """Build optimized BM25 query with multi_match, field boosting, and payload reduction."""
-        # Extract key terms for BM25-friendly searching
-        key_terms = self._extract_key_terms(query)
+        """Build optimized BM25 query with namespace filtering, acronym expansion, and title boosting."""
+        from agent.acronym_map import expand_acronym, is_short_acronym_query
         
-        # Optimized multi_match query with field boosting as per user requirements
-        must_clauses = [
-            {
-                "nested": {
-                    "path": "sections", 
-                    "query": {
-                        "multi_match": {
-                            "query": key_terms,  # Use extracted key terms instead of full verbose query
-                            "type": "best_fields",
-                            "fields": [
-                                "sections.heading^4",   # Boost title equivalents heavily
-                                "sections.summary^2",   # Boost summaries moderately  
-                                "sections.content"      # Base content field (no boost)
-                            ],
-                            "tie_breaker": 0.3,
-                            "minimum_should_match": "2<-1 5<-2"  # Reduce off-topic matches on long queries
+        # Expand acronyms if present (e.g., "CIU" -> "Customer Interaction Utility CIU")
+        expanded_query, expansions = expand_acronym(query)
+        is_acronym = is_short_acronym_query(query)
+        
+        # Extract key terms for BM25-friendly searching
+        key_terms = self._extract_key_terms(expanded_query if expansions else query)
+        
+        # Build filter clauses - CRITICAL: Filter to Utilities namespace
+        filter_clauses = []
+        
+        # NAMESPACE FILTER: Only search Utilities docs (prevents medical CIU match)
+        filter_clauses.append({
+            "bool": {
+                "should": [
+                    {"term": {"space.keyword": "Utilities"}},
+                    {"term": {"labels.keyword": "utilities"}},
+                    {"wildcard": {"path.keyword": "*/utilities/*"}},
+                    {"prefix": {"title.keyword": "utilities/"}}
+                ],
+                "minimum_should_match": 1
+            }
+        })
+        
+        # Build should clauses for scoring
+        should_clauses = []
+        
+        # ACRONYM HANDLING: Add exact title matches with high boosts
+        if expansions:
+            for expansion in expansions:
+                # Exact title match gets highest boost
+                should_clauses.append({
+                    "term": {
+                        "title.keyword": {
+                            "value": expansion,
+                            "boost": 20
                         }
-                    },
-                    "inner_hits": {
-                        "name": "matched_sections",
-                        "size": 3,  # Reduced from 5 to minimize payload
-                        "sort": [{"_score": "desc"}],
-                        "_source": ["heading", "content"]  # Only fetch needed fields
                     }
+                })
+                # Also boost the acronym itself in title
+                should_clauses.append({
+                    "term": {
+                        "title.keyword": {
+                            "value": query.upper(),
+                            "boost": 15
+                        }
+                    }
+                })
+                # Phrase match for the expansion
+                should_clauses.append({
+                    "match_phrase": {
+                        "title": {
+                            "query": expansion,
+                            "boost": 10
+                        }
+                    }
+                })
+        
+        # Standard multi_match query with field boosting
+        should_clauses.append({
+            "nested": {
+                "path": "sections", 
+                "query": {
+                    "multi_match": {
+                        "query": key_terms,
+                        "type": "best_fields",
+                        "fields": [
+                            "sections.heading^8" if is_acronym else "sections.heading^4",  # Extra boost for acronym queries
+                            "sections.summary^2",
+                            "sections.content"
+                        ],
+                        "tie_breaker": 0.3,
+                        "minimum_should_match": "2<-1 5<-2" if len(key_terms.split()) > 4 else "1"
+                    }
+                },
+                "inner_hits": {
+                    "name": "matched_sections",
+                    "size": 3,
+                    "sort": [{"_score": "desc"}],
+                    "_source": ["heading", "content"]
                 }
             }
-        ]
+        })
         
-        # PAYLOAD REDUCTION: Reduced size, minimal _source fields, disabled tracking
+        # Build the complete bool query
+        bool_query = {
+            "bool": {
+                "filter": filter_clauses,  # Namespace filtering
+                "should": should_clauses,   # Scoring with acronym boosts
+                "minimum_should_match": 1
+            }
+        }
+        
+        # PAYLOAD REDUCTION: Reduced size, essential fields, enable total tracking for error handling
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": ["page_url", "api_name", "utility_name"],  # Only essential fields
-            "track_total_hits": False,  # Disable total hits tracking for performance
-            "query": {
-                "bool": {
-                    "must": must_clauses
-                }
-            }
+            "_source": ["page_url", "api_name", "utility_name", "title", "space", "labels", "path"],  # Essential fields + namespace info
+            "track_total_hits": True,  # Enable to properly handle empty results
+            "query": bool_query
         }
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
-        """Build optimized nested kNN query with reduced payload size."""
+        """Build optimized nested kNN query with namespace filtering and reduced payload size."""
+        
+        # NAMESPACE FILTER: Same as BM25 to prevent cross-domain matches
+        filter_clauses = [{
+            "bool": {
+                "should": [
+                    {"term": {"space.keyword": "Utilities"}},
+                    {"term": {"labels.keyword": "utilities"}},
+                    {"wildcard": {"path.keyword": "*/utilities/*"}},
+                    {"prefix": {"title.keyword": "utilities/"}}
+                ],
+                "minimum_should_match": 1
+            }
+        }]
+        
         # Use nested query structure for JPMC production index with optimizations
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": ["page_url", "api_name", "utility_name"],  # Only essential fields
-            "track_total_hits": False,  # Disable total hits tracking for performance
+            "_source": ["page_url", "api_name", "utility_name", "title", "space", "labels", "path"],  # Essential fields + namespace
+            "track_total_hits": True,  # Enable for proper error handling
             "query": {
-                "nested": {
-                    "path": "sections",
-                    "query": {
-                        "knn": {
-                            "sections.embedding": {
-                                "vector": query_vector,
-                                "k": 5
+                "bool": {
+                    "filter": filter_clauses,  # Apply namespace filter
+                    "must": [{
+                        "nested": {
+                            "path": "sections",
+                            "query": {
+                                "knn": {
+                                    "sections.embedding": {
+                                        "vector": query_vector,
+                                        "k": 5
+                                    }
+                                }
+                            },
+                            "inner_hits": {
+                                "name": "matched_sections", 
+                                "size": 3,  # Reduced from 5 to minimize payload
+                                "sort": [{"_score": "desc"}],
+                                "_source": ["heading", "content"]  # Only fetch needed fields
                             }
                         }
-                    },
-                    "inner_hits": {
-                        "name": "matched_sections", 
-                        "size": 3,  # Reduced from 5 to minimize payload
-                        "sort": [{"_score": "desc"}],
-                        "_source": ["heading", "content"]  # Only fetch needed fields
-                    }
+                    }]
                 }
             }
         }

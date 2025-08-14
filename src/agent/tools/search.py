@@ -111,10 +111,19 @@ async def search_index_tool(
         if strategy == "enhanced_rrf" and embed_client:
             # Enhanced RRF with vector search
             try:
+                # Expand acronyms for embedding query
+                from agent.acronym_map import expand_acronym
+                expanded_query, expansions = expand_acronym(query)
+                embedding_query = expanded_query if expansions else query
+                
+                # Add domain context for better embedding
+                if expansions:
+                    embedding_query += " Utility onboarding API JPMC"
+                
                 expected_dims = 1536
                 query_embedding = await create_single_embedding(
                     embed_client=embed_client,
-                    text=query,
+                    text=embedding_query,
                     model=embed_model,
                     expected_dims=expected_dims
                 )
@@ -138,10 +147,19 @@ async def search_index_tool(
         if strategy == "knn" and embed_client:
             # Vector search only
             try:
+                # Expand acronyms for embedding query
+                from agent.acronym_map import expand_acronym
+                expanded_query, expansions = expand_acronym(query)
+                embedding_query = expanded_query if expansions else query
+                
+                # Add domain context for better embedding
+                if expansions:
+                    embedding_query += " Utility onboarding API JPMC"
+                
                 expected_dims = 1536
                 query_embedding = await create_single_embedding(
                     embed_client=embed_client,
-                    text=query,
+                    text=embedding_query,
                     model=embed_model,
                     expected_dims=expected_dims
                 )
