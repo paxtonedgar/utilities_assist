@@ -689,49 +689,99 @@ class OpenSearchClient:
         return clauses
     
     def _parse_search_response(self, data: Dict[str, Any]) -> List[SearchResult]:
-        """Parse OpenSearch response into SearchResult objects."""
+        """Parse OpenSearch response into SearchResult objects - handles nested structure."""
         results = []
         
         for hit in data.get("hits", {}).get("hits", []):
             source = hit.get("_source", {})
             
+            # Handle nested structure with inner_hits (like v1 working branch)
+            title = source.get("api_name", "")
+            body_parts = []
+            
+            # Extract content from inner_hits (matched sections)
+            inner_hits = hit.get("inner_hits", {}).get("matched_sections", {}).get("hits", {}).get("hits", [])
+            for section_hit in inner_hits:
+                section_source = section_hit.get("_source", {})
+                heading = section_source.get("heading", "")
+                content = section_source.get("content", "")
+                if content:
+                    section_text = f"{heading}\n{content}" if heading else content
+                    body_parts.append(section_text)
+            
+            body = "\n\n".join(body_parts) if body_parts else ""
+            
+            # Build metadata from source fields
+            metadata = {
+                "page_url": source.get("page_url", ""),
+                "utility_name": source.get("utility_name", ""),
+                "api_name": source.get("api_name", ""),
+                "sections_matched": len(inner_hits)
+            }
+            
             result = SearchResult(
                 doc_id=hit["_id"],
                 score=hit["_score"],
-                title=source.get("title", ""),
-                body=source.get("body", ""),
-                metadata=source.get("metadata", {})
+                title=title,
+                body=body,
+                metadata=metadata
             )
             results.append(result)
         
         return results
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
-        """Build simple BM25 query exactly like main branch - no complex features."""
-        # Simple multi_match query with multiple field possibilities
+        """Build nested BM25 query matching JPMC production index structure."""
+        # Use nested query structure for JPMC production index
         search_body = {
             "size": k,
+            "_source": ["page_url", "api_name", "utility_name"],
             "query": {
-                "multi_match": {
-                    "query": query,
-                    "fields": ["title", "body", "content", "sections.content", "text"],  # Try multiple field names
-                    "type": "most_fields"
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "match": {
+                            "sections.content": {
+                                "query": query
+                            }
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 5,
+                        "highlight": {
+                            "fields": {
+                                "sections.content": {}
+                            }
+                        },
+                        "sort": [{"_score": "desc"}]
+                    }
                 }
-            },
-            "_source": True  # Include all source fields for debugging
+            }
         }
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
-        """Build simple kNN query exactly like OpenSearch docs - correct syntax."""
-        # Correct kNN query structure from OpenSearch docs with JPMC field names
+        """Build nested kNN query matching JPMC production index structure."""
+        # Use nested query structure for JPMC production index
         search_body = {
             "size": k,
+            "_source": ["page_url", "api_name", "utility_name"],
             "query": {
-                "knn": {
-                    "sections.embedding": {  # Use actual JPMC field name
-                        "vector": query_vector,
-                        "k": k
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "knn": {
+                            "sections.embedding": {
+                                "vector": query_vector,
+                                "k": 5
+                            }
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections", 
+                        "size": 5,
+                        "sort": [{"_score": "desc"}]
                     }
                 }
             }
