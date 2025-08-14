@@ -219,32 +219,37 @@ async def handle_turn_with_graph(
         logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
         
         # Initialize graph state with consistent keys and resilient defaults
-        # Use plain dict construction - TypedDict is just for type hints
-        initial_state: GraphState = {
-            ORIGINAL_QUERY: text,                 # Required by summarize_node 
-            NORMALIZED_QUERY: text,               # Start normalized as original
-            INTENT: None,
-            "search_results": [],
-            "combined_results": [],
-            "final_context": None,
-            "final_answer": None,
-            "response_chunks": [],
-            
-            # User context and authentication integration
-            "user_id": user_context.get("user_id"),
-            "thread_id": thread_id,
-            "session_id": user_context.get("session_metadata", {}).get("cloud_profile"),
-            "user_context": user_context,
-            "user_preferences": user_context.get("user_preferences", {}),
-            
-            "workflow_path": [],
-            "loop_count": 0,
-            "rewrite_attempts": 0,  # Track rewrite attempts to prevent infinite loops
-            "coverage_threshold": 0.7,
-            "min_results": 3,
-            "error_messages": [],
-            "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
-        }
+        # Use Pydantic for validation, then convert to dict for LangGraph compatibility
+        pydantic_state = GraphState(
+            **{
+                ORIGINAL_QUERY: text,                 # Required by summarize_node 
+                NORMALIZED_QUERY: text,               # Start normalized as original
+                INTENT: None,
+                "search_results": [],
+                "combined_results": [],
+                "final_context": None,
+                "final_answer": None,
+                "response_chunks": [],
+                
+                # User context and authentication integration
+                "user_id": user_context.get("user_id"),
+                "thread_id": thread_id,
+                "session_id": user_context.get("session_metadata", {}).get("cloud_profile"),
+                "user_context": user_context,
+                "user_preferences": user_context.get("user_preferences", {}),
+                
+                "workflow_path": [],
+                "loop_count": 0,
+                "rewrite_attempts": 0,  # Track rewrite attempts to prevent infinite loops
+                "coverage_threshold": 0.7,
+                "min_results": 3,
+                "error_messages": [],
+                "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
+            }
+        )
+        
+        # Convert to dict for LangGraph - preserves extra fields due to extra="allow"
+        initial_state = pydantic_state.model_dump()
         
         # State sanity log - confirm keys are present
         logger.info(
