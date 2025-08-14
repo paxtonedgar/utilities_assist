@@ -6,6 +6,7 @@ import streamlit as st
 import asyncio
 import time
 import logging
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -18,6 +19,22 @@ from infra.telemetry import get_telemetry_collector, format_event_for_display
 from infra.resource_manager import initialize_resources, get_resources, health_check
 
 logger = logging.getLogger(__name__)
+
+def _extract_user_context() -> Dict[str, Any]:
+    """Extract user context for the session."""
+    try:
+        from infra.persistence import extract_user_context
+        # Pass None resources to extract from environment 
+        return extract_user_context(None)
+    except Exception as e:
+        logger.warning(f"Failed to extract user context: {e}")
+        return {
+            "user_id": "streamlit_user",
+            "session_metadata": {
+                "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini")
+            }
+        }
 
 def inject_minimal_css():
     """Clean, professional styling."""
@@ -99,7 +116,7 @@ def inject_minimal_css():
     """, unsafe_allow_html=True)
 
 def initialize_session():
-    """Initialize Streamlit session state and shared resources."""
+    """Initialize Streamlit session state with user context and thread management."""
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
@@ -109,6 +126,22 @@ def initialize_session():
     
     if "use_mock_corpus" not in st.session_state:
         st.session_state.use_mock_corpus = False  # Default to production data for JPMC
+    
+    # Initialize user context and thread management
+    if "user_context" not in st.session_state:
+        st.session_state.user_context = _extract_user_context()
+        logger.info(f"Initialized user context: {st.session_state.user_context.get('user_id', 'unknown')}")
+    
+    if "thread_id" not in st.session_state:
+        from infra.persistence import generate_thread_id
+        st.session_state.thread_id = generate_thread_id(
+            st.session_state.user_context.get("user_id", "unknown"),
+            st.session_state.user_context.get("session_metadata")
+        )
+        logger.info(f"Generated new thread ID: {st.session_state.thread_id}")
+    
+    if "conversation_history" not in st.session_state:
+        st.session_state.conversation_history = []
     
     # Phase 1 Optimization: Initialize shared resources once at startup (LangGraph pattern)
     if "resources_initialized" not in st.session_state:
@@ -168,11 +201,10 @@ def render_simple_stats(req_id: str):
 
 async def process_user_input(user_input: str) -> None:
     """Process user input simply."""
-    # Add user message
-    st.session_state.messages.append({
-        "role": "user", 
-        "content": user_input
-    })
+    # Add user message to both UI and conversation history
+    user_message = {"role": "user", "content": user_input}
+    st.session_state.messages.append(user_message)
+    st.session_state.conversation_history.append(user_message)
     
     # Show thinking
     with st.spinner("Thinking..."):
@@ -187,8 +219,10 @@ async def process_user_input(user_input: str) -> None:
             async for chunk in handle_turn(
                 user_input,
                 st.session_state.resources,  # Use shared resources instead of settings
-                chat_history=[],
-                use_mock_corpus=st.session_state.use_mock_corpus
+                chat_history=st.session_state.conversation_history[-10:],  # Last 10 messages
+                use_mock_corpus=st.session_state.use_mock_corpus,
+                thread_id=st.session_state.thread_id,
+                user_context=st.session_state.user_context
             ):
                 if chunk["type"] == "response_chunk":
                     assistant_response["content"] += chunk["content"]
@@ -205,8 +239,12 @@ async def process_user_input(user_input: str) -> None:
             assistant_response["content"] = f"❌ Error: {str(e)}"
             logger.error(f"Error in process_user_input: {e}")
     
-    # Store response
+    # Store response in both UI and conversation history
     st.session_state.messages.append(assistant_response)
+    
+    # Add to conversation history for context
+    assistant_history = {"role": "assistant", "content": assistant_response["content"]}
+    st.session_state.conversation_history.append(assistant_history)
 
 def main():
     """Simple chat interface."""
@@ -225,11 +263,23 @@ def main():
     with col1:
         if st.button("Clear Chat"):
             st.session_state.messages = []
+            st.session_state.conversation_history = []
             st.rerun()
     with col2:
         corpus_label = "Mock Data" if st.session_state.use_mock_corpus else "Production"
         if st.button(f"Using: {corpus_label}"):
             st.session_state.use_mock_corpus = not st.session_state.use_mock_corpus
+            st.rerun()
+    with col3:
+        if st.button("New Thread"):
+            # Start a new conversation thread
+            from infra.persistence import generate_thread_id
+            st.session_state.thread_id = generate_thread_id(
+                st.session_state.user_context.get("user_id", "unknown"),
+                st.session_state.user_context.get("session_metadata")
+            )
+            st.session_state.messages = []
+            st.session_state.conversation_history = []
             st.rerun()
     
     # Chat history

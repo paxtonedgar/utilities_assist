@@ -28,7 +28,7 @@ jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
 class GraphState(Dict[str, Any]):
-    """State for the LangGraph workflow."""
+    """State for the LangGraph workflow with user context and authentication."""
     # Core data
     original_query: str
     normalized_query: Optional[str]
@@ -43,6 +43,13 @@ class GraphState(Dict[str, Any]):
     final_answer: Optional[str]
     response_chunks: List[str]
     
+    # User context and authentication (CRITICAL ADDITION)
+    user_id: Optional[str]
+    thread_id: Optional[str] 
+    session_id: Optional[str]
+    user_context: Optional[Dict[str, Any]]
+    user_preferences: Optional[Dict[str, Any]]
+    
     # Control flow
     workflow_path: List[str]
     loop_count: int
@@ -52,14 +59,19 @@ class GraphState(Dict[str, Any]):
     # Error handling
     error_messages: List[str]
     
-    # Resources (injected)
-    _resources: Any
+    # Configuration (not clients - follows LangGraph pattern)
     _use_mock_corpus: bool
 
 
-def create_graph(enable_loops: bool = True, coverage_threshold: float = 0.7, min_results: int = 3) -> StateGraph:
+def create_graph(
+    enable_loops: bool = True, 
+    coverage_threshold: float = 0.7, 
+    min_results: int = 3,
+    checkpointer=None,
+    store=None
+) -> StateGraph:
     """
-    Create the main LangGraph with branching and optional loops.
+    Create the main LangGraph with branching, optional loops, and persistence.
     
     Graph structure:
     Summarize → Intent → Branch:
@@ -73,9 +85,11 @@ def create_graph(enable_loops: bool = True, coverage_threshold: float = 0.7, min
         enable_loops: Whether to enable iterative refinement loops
         coverage_threshold: Minimum coverage score to avoid re-search
         min_results: Minimum number of results required
+        checkpointer: Optional checkpointer for conversation persistence
+        store: Optional store for cross-thread user memory
         
     Returns:
-        Compiled StateGraph ready for execution
+        Compiled StateGraph ready for execution with persistence
     """
     
     # Create the graph
@@ -87,6 +101,7 @@ def create_graph(enable_loops: bool = True, coverage_threshold: float = 0.7, min
     workflow.add_node("search_confluence", _search_confluence_wrapper)
     workflow.add_node("search_swagger", _search_swagger_wrapper) 
     workflow.add_node("search_multi", _search_multi_wrapper)
+    workflow.add_node("restart", _restart_wrapper)  # MISSING: Restart intent handler
     workflow.add_node("rewrite_query", _rewrite_query_wrapper)
     workflow.add_node("combine", _combine_wrapper)
     workflow.add_node("answer", _answer_wrapper)
@@ -95,14 +110,15 @@ def create_graph(enable_loops: bool = True, coverage_threshold: float = 0.7, min
     workflow.add_edge(START, "summarize")
     workflow.add_edge("summarize", "intent")
     
-    # Intent-based branching
+    # Intent-based branching (including restart handling)
     workflow.add_conditional_edges(
         "intent",
         _route_after_intent,
         {
             "search_confluence": "search_confluence",
             "search_swagger": "search_swagger", 
-            "search_multi": "search_multi"
+            "search_multi": "search_multi",
+            "restart": "restart"  # MISSING: Handle restart intent
         }
     )
     
@@ -153,17 +169,31 @@ def create_graph(enable_loops: bool = True, coverage_threshold: float = 0.7, min
     # Final steps
     workflow.add_edge("combine", "answer")
     workflow.add_edge("answer", END)
+    workflow.add_edge("restart", END)  # MISSING: Direct restart to end
     
-    return workflow.compile()
+    # Compile with optional persistence components
+    compile_kwargs = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+        logger.info("Graph compiled with checkpointer for conversation persistence")
+    if store is not None:
+        compile_kwargs["store"] = store  
+        logger.info("Graph compiled with store for cross-thread user memory")
+    
+    return workflow.compile(**compile_kwargs)
 
 
-def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi"]:
+def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi", "restart"]:
     """Route to appropriate search based on intent classification."""
     intent = state.get("intent")
     if not intent:
         return "search_confluence"  # Default fallback
     
     intent_type = intent.intent.lower()
+    
+    # Handle restart intent specially (MISSING from original implementation)
+    if intent_type == "restart":
+        return "restart"
     
     # Check for compound/comparative queries that need multi-search
     query = state.get("normalized_query", "").lower()
@@ -218,24 +248,25 @@ def _check_coverage(state: GraphState, coverage_threshold: float, min_results: i
 
 # Node wrapper functions that handle resources and state management
 
-async def _summarize_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Wrapper for summarize node."""
-    resources = state["_resources"]
-    result = await summarize_node(state, resources)
+async def _summarize_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Wrapper for summarize node - follows LangGraph pattern."""
+    result = await summarize_node(state, config, store=store)
     return result
 
 
-async def _intent_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Wrapper for intent node."""
-    resources = state["_resources"]
-    result = await intent_node(state, resources)
+async def _intent_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Wrapper for intent node - follows LangGraph pattern."""
+    result = await intent_node(state, config, store=store)
     return result
 
 
-async def _search_confluence_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Search confluence index."""
+async def _search_confluence_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Search confluence index - follows LangGraph pattern."""
     try:
-        resources = state["_resources"]
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
         query = state["normalized_query"]
         intent = state.get("intent")
         use_mock = state.get("_use_mock_corpus", False)
@@ -272,10 +303,13 @@ async def _search_confluence_wrapper(state: GraphState) -> Dict[str, Any]:
         }
 
 
-async def _search_swagger_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Search swagger index.""" 
+async def _search_swagger_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Search swagger index - follows LangGraph pattern.""" 
     try:
-        resources = state["_resources"]
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
         query = state["normalized_query"]
         intent = state.get("intent")
         
@@ -309,15 +343,18 @@ async def _search_swagger_wrapper(state: GraphState) -> Dict[str, Any]:
         }
 
 
-async def _search_multi_wrapper(state: GraphState) -> Dict[str, Any]:
+async def _search_multi_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
     """
-    Multi-index search for compound questions.
+    Multi-index search for compound questions - follows LangGraph pattern.
     
     For compound queries, search multiple indices and combine results.
     This enables comparison queries and comprehensive coverage.
     """
     try:
-        resources = state["_resources"]
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
         query = state["normalized_query"]
         intent = state.get("intent")
         use_mock = state.get("_use_mock_corpus", False)
@@ -365,15 +402,18 @@ async def _search_multi_wrapper(state: GraphState) -> Dict[str, Any]:
         }
 
 
-async def _rewrite_query_wrapper(state: GraphState) -> Dict[str, Any]:
+async def _rewrite_query_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
     """
-    Rewrite query for better search results.
+    Rewrite query for better search results - follows LangGraph pattern.
     
     This implements the loop logic: if coverage is insufficient, 
     use LLM to rewrite the query and try again.
     """
     try:
-        resources = state["_resources"]
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
         original_query = state["normalized_query"]
         current_results = state.get("search_results", [])
         loop_count = state.get("loop_count", 0)
@@ -420,17 +460,31 @@ async def _rewrite_query_wrapper(state: GraphState) -> Dict[str, Any]:
         }
 
 
-async def _combine_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Wrapper for combine node."""
-    resources = state["_resources"]
-    result = await combine_node(state, resources)
+async def _combine_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Wrapper for combine node - follows LangGraph pattern."""
+    result = await combine_node(state, config, store=store)
     return result
 
 
-async def _answer_wrapper(state: GraphState) -> Dict[str, Any]:
-    """Generate final answer using jinja template."""
+async def _restart_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Handle restart intent - MISSING from original LangGraph implementation."""
+    restart_message = "Context has been cleared. How can I help you today?"
+    
+    return {
+        "final_answer": restart_message,
+        "response_chunks": [restart_message],
+        "combined_results": [],
+        "workflow_path": state.get("workflow_path", []) + ["restart"]
+    }
+
+
+async def _answer_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """Generate final answer using jinja template with verification - follows LangGraph pattern."""
     try:
-        resources = state["_resources"]
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
         query = state.get("normalized_query", state.get("original_query", ""))
         intent = state.get("intent")
         context = state.get("final_context", "")
@@ -480,9 +534,19 @@ async def _answer_wrapper(state: GraphState) -> Dict[str, Any]:
             full_answer = f"Based on the available information:\n\n{context[:1000]}..."
             response_chunks = [full_answer]
         
+        # MISSING: Answer verification (from traditional pipeline)
+        verification_metrics = _verify_answer_quality(full_answer, context, query)
+        logger.info(f"Answer verification: confidence={verification_metrics.get('confidence_score', 0.0):.2f}")
+        
+        # MISSING: Extract source chips (from traditional pipeline)
+        combined_results = state.get("combined_results", [])
+        source_chips = _extract_source_chips(combined_results)
+        
         return {
             "final_answer": full_answer,
             "response_chunks": response_chunks,
+            "source_chips": source_chips,  # MISSING: Source chips for UI
+            "verification_metrics": verification_metrics,  # MISSING: Quality metrics
             "workflow_path": state.get("workflow_path", []) + ["answer"]
         }
         
@@ -496,6 +560,38 @@ async def _answer_wrapper(state: GraphState) -> Dict[str, Any]:
         }
 
 
+def _verify_answer_quality(answer: str, context: str, query: str) -> Dict[str, Any]:
+    """MISSING FUNCTION: Answer verification from traditional pipeline."""
+    try:
+        from services.respond import verify_answer
+        return verify_answer(answer, context, query)
+    except ImportError:
+        # Minimal verification if respond service not available
+        return {
+            "has_content": len(answer.strip()) > 10,
+            "confidence_score": 0.8 if len(answer.strip()) > 50 else 0.3
+        }
+
+
+def _extract_source_chips(results: List[SearchResult], max_chips: int = 5) -> List[Dict[str, Any]]:
+    """MISSING FUNCTION: Source chips extraction from traditional pipeline."""
+    try:
+        from services.respond import extract_source_chips
+        source_chips = extract_source_chips(results, max_chips)
+        return [chip.dict() if hasattr(chip, 'dict') else chip for chip in source_chips]
+    except ImportError:
+        # Basic chip extraction if respond service not available
+        chips = []
+        for result in results[:max_chips]:
+            chips.append({
+                "title": result.metadata.get("title", "Document"),
+                "doc_id": result.doc_id,
+                "url": result.metadata.get("url", "#"),
+                "score": result.score
+            })
+        return chips
+
+
 # Node registry for external access
 NODE_REGISTRY = {
     "summarize": _summarize_wrapper,
@@ -503,6 +599,7 @@ NODE_REGISTRY = {
     "search_confluence": _search_confluence_wrapper,
     "search_swagger": _search_swagger_wrapper,
     "search_multi": _search_multi_wrapper,
+    "restart": _restart_wrapper,  # MISSING: Restart handler
     "rewrite_query": _rewrite_query_wrapper,
     "combine": _combine_wrapper,
     "answer": _answer_wrapper

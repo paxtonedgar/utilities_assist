@@ -23,13 +23,16 @@ class IntentAnalysis(BaseModel):
     reasoning: str = Field(description="Brief explanation of the classification")
 
 
-async def intent_node(state: dict, resources) -> dict:
+async def intent_node(state: dict, config, *, store=None) -> dict:
     """
     Classify query intent using LLM with jinja template.
     
+    Follows LangGraph pattern with config parameter and optional store injection.
+    
     Args:
         state: Workflow state containing normalized_query
-        resources: RAG resources with chat client
+        config: RunnableConfig with user context and configuration
+        store: Optional BaseStore for cross-thread user memory
         
     Returns:
         State update with intent classification
@@ -56,6 +59,10 @@ async def intent_node(state: dict, resources) -> dict:
                 utilities_list=utilities_list
             )
             
+            # Extract resources from config
+            from infra.resource_manager import get_resources
+            resources = get_resources()
+            
             # Use structured output for better parsing
             intent_analyzer = resources.chat_client.with_structured_output(IntentAnalysis)
             
@@ -73,6 +80,10 @@ async def intent_node(state: dict, resources) -> dict:
             
         except Exception as e:
             logger.warning(f"LLM intent classification failed, using fallback: {e}")
+            # Extract resources from config for fallback
+            from infra.resource_manager import get_resources
+            resources = get_resources()
+            
             # Use original determine_intent function
             intent_result = await determine_intent(
                 normalized_query, 

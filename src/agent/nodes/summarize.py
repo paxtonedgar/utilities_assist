@@ -14,20 +14,26 @@ template_dir = Path(__file__).parent.parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
-async def summarize_node(state: dict, resources) -> dict:
+async def summarize_node(state: dict, config, *, store=None) -> dict:
     """
     Summarize/normalize the user query using LLM with jinja template.
     
-    This node replaces the simple normalize_query function with LLM-based
-    normalization for better handling of complex queries.
+    Follows LangGraph pattern with config parameter and optional store injection.
     
     Args:
         state: Workflow state containing original_query
-        resources: RAG resources with chat client
+        config: RunnableConfig with user context and configuration
+        store: Optional BaseStore for cross-thread user memory
         
     Returns:
         State update with normalized_query
     """
+    import time
+    from infra.telemetry import log_normalize_stage
+    
+    start_time = time.perf_counter()
+    req_id = getattr(config, 'run_id', 'unknown') if config else 'unknown'
+    
     try:
         user_input = state["original_query"]
         
@@ -35,6 +41,10 @@ async def summarize_node(state: dict, resources) -> dict:
         try:
             template = jinja_env.get_template("summarize.jinja")
             prompt = template.render(user_input=user_input)
+            
+            # Extract resources from config
+            from infra.resource_manager import get_resources
+            resources = get_resources()
             
             response = await resources.chat_client.ainvoke([
                 SystemMessage(content="You are a query normalization assistant."),
@@ -52,6 +62,10 @@ async def summarize_node(state: dict, resources) -> dict:
         except Exception as e:
             logger.warning(f"LLM normalization failed, using fallback: {e}")
             normalized = normalize_query(user_input)
+        
+        # MISSING: Add telemetry logging (from traditional pipeline)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
         
         return {
             "normalized_query": normalized,

@@ -14,6 +14,12 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from infra.resource_manager import get_resources, RAGResources
 from services.models import TurnResult, IntentResult
 from infra.telemetry import generate_request_id, log_overall_stage
+from infra.persistence import (
+    get_checkpointer_and_store, 
+    extract_user_context, 
+    generate_thread_id,
+    create_langgraph_config
+)
 
 # Import both traditional and graph-based handlers
 from controllers.turn_controller import handle_turn as handle_turn_traditional
@@ -29,30 +35,37 @@ async def handle_turn(
     user_input: str,
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
-    use_mock_corpus: bool = False
+    use_mock_corpus: bool = False,
+    thread_id: Optional[str] = None,
+    user_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    Enhanced turn handler with LangGraph integration.
+    Enhanced turn handler with LangGraph integration, authentication, and persistence.
     
-    This function maintains the exact same interface as the original handle_turn
-    but can switch to LangGraph processing based on environment flag.
+    This function maintains compatibility with the original handle_turn interface
+    but adds enterprise-ready features like user context, conversation persistence,
+    and thread management.
     
     Args:
         user_input: Raw user input
         resources: Pre-configured resource container (auto-fetched if None)
         chat_history: Recent conversation history
         use_mock_corpus: If True, use confluence_mock index instead of confluence_current
+        thread_id: Optional thread ID for conversation persistence
+        user_context: Optional user context from authentication
         
     Yields:
         Dict with turn progress updates and final result
     """
     if LANGGRAPH_ENABLED:
-        # Use LangGraph workflow
+        # Use LangGraph workflow with authentication and persistence
         async for update in handle_turn_with_graph(
             user_input=user_input,
             resources=resources,
             chat_history=chat_history,
-            use_mock_corpus=use_mock_corpus
+            use_mock_corpus=use_mock_corpus,
+            thread_id=thread_id,
+            user_context=user_context
         ):
             yield update
     else:
@@ -70,12 +83,15 @@ async def handle_turn_with_graph(
     user_input: str,
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
-    use_mock_corpus: bool = False
+    use_mock_corpus: bool = False,
+    thread_id: Optional[str] = None,
+    user_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    LangGraph-based turn handler with fallback to traditional processing.
+    LangGraph-based turn handler with authentication, persistence, and graceful fallback.
     
-    Implements the A4 requirement: Keep streaming, add graceful fallback.
+    Integrates user context, thread management, and conversation persistence
+    while maintaining streaming interface and fallback capabilities.
     """
     start_time = time.time()
     turn_id = f"graph_{int(start_time)}"
@@ -90,14 +106,39 @@ async def handle_turn_with_graph(
         
         logger.info(f"Processing with LangGraph (resource age: {resources.get_age_seconds():.1f}s)")
         
-        # Create and configure graph
+        # Extract user context from authentication if not provided
+        if user_context is None:
+            user_context = extract_user_context(resources)
+            logger.info(f"Extracted user context: user_id={user_context.get('user_id', 'unknown')}")
+        
+        # Generate thread ID if not provided
+        if thread_id is None:
+            thread_id = generate_thread_id(
+                user_context.get("user_id", "unknown"), 
+                user_context.get("session_metadata")
+            )
+            logger.info(f"Generated thread ID: {thread_id}")
+        
+        # Initialize persistence layer
+        checkpointer, store = get_checkpointer_and_store()
+        if checkpointer:
+            logger.info("Using persistent checkpointer for conversation memory")
+        if store:
+            logger.info("Using persistent store for cross-thread user memory")
+        
+        # Create LangGraph configuration with thread and user context
+        langgraph_config = create_langgraph_config(user_context, thread_id)
+        
+        # Create and configure graph with persistence
         graph = create_graph(
             enable_loops=True,
             coverage_threshold=0.7,
-            min_results=3
+            min_results=3,
+            checkpointer=checkpointer,
+            store=store
         )
         
-        # Initialize graph state
+        # Initialize graph state with user context and authentication
         initial_state = GraphState({
             "original_query": user_input,
             "normalized_query": None,
@@ -107,24 +148,38 @@ async def handle_turn_with_graph(
             "final_context": None,
             "final_answer": None,
             "response_chunks": [],
+            
+            # User context and authentication integration
+            "user_id": user_context.get("user_id"),
+            "thread_id": thread_id,
+            "session_id": user_context.get("session_metadata", {}).get("cloud_profile"),
+            "user_context": user_context,
+            "user_preferences": user_context.get("user_preferences", {}),
+            
             "workflow_path": [],
             "loop_count": 0,
             "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
-            "_resources": resources,
             "_use_mock_corpus": use_mock_corpus
         })
         
-        # Track progress and stream updates
-        yield {"type": "status", "message": "Processing with advanced workflow...", "turn_id": turn_id, "req_id": req_id}
+        # Track progress and stream updates with user context
+        yield {
+            "type": "status", 
+            "message": f"Processing with advanced workflow (user: {user_context.get('user_id', 'unknown')})...", 
+            "turn_id": turn_id, 
+            "req_id": req_id,
+            "thread_id": thread_id,
+            "user_id": user_context.get("user_id")
+        }
         
-        # Execute graph with streaming updates
+        # Execute graph with streaming updates and persistence
         final_state = None
-        async for chunk in graph.astream(initial_state):
+        async for chunk in graph.astream(initial_state, config=langgraph_config):
             for node_name, node_update in chunk.items():
                 # Stream progress updates
-                yield _format_graph_progress(node_name, node_update, turn_id, req_id)
+                yield _format_graph_progress(node_name, node_update, turn_id, req_id, thread_id)
                 
                 # If we have response chunks, stream them
                 if "response_chunks" in node_update:
@@ -133,7 +188,8 @@ async def handle_turn_with_graph(
                             "type": "response_chunk",
                             "content": response_chunk,
                             "turn_id": turn_id,
-                            "req_id": req_id
+                            "req_id": req_id,
+                            "thread_id": thread_id
                         }
                 
                 # Update final state
@@ -175,8 +231,8 @@ async def handle_turn_with_graph(
             yield update
 
 
-def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id: str, req_id: str) -> Dict[str, Any]:
-    """Format graph node updates as progress messages."""
+def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id: str, req_id: str, thread_id: str = None) -> Dict[str, Any]:
+    """Format graph node updates as progress messages with thread context."""
     
     # Map node names to user-friendly messages
     status_messages = {
@@ -192,7 +248,7 @@ def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id:
     
     message = status_messages.get(node_name, f"Processing {node_name}...")
     
-    return {
+    progress = {
         "type": "status",
         "message": message,
         "turn_id": turn_id,
@@ -200,38 +256,61 @@ def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id:
         "graph_node": node_name,
         "workflow_path": node_update.get("workflow_path", [])
     }
+    
+    if thread_id:
+        progress["thread_id"] = thread_id
+    
+    # Include user context if available
+    if "user_id" in node_update:
+        progress["user_id"] = node_update["user_id"]
+    
+    return progress
 
 
 def _format_graph_final_result(final_state: Dict[str, Any], start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
-    """Format final graph state as TurnResult compatible response."""
+    """Format final graph state as TurnResult compatible response with missing features."""
     
     # Extract results
     final_answer = final_state.get("final_answer", "No answer generated.")
     combined_results = final_state.get("combined_results", [])
     workflow_path = final_state.get("workflow_path", [])
     
-    # Build sources from combined results
-    sources = []
-    for result in combined_results[:10]:  # Limit to top 10
-        sources.append({
-            "title": result.metadata.get("title", "Document"),
-            "url": result.metadata.get("url", "#"),
-            "score": result.score
-        })
+    # MISSING: Use source chips if available (from traditional pipeline)
+    source_chips = final_state.get("source_chips", [])
+    if source_chips:
+        sources = source_chips  # Use extracted source chips
+    else:
+        # Fallback: Build sources from combined results
+        sources = []
+        for result in combined_results[:10]:  # Limit to top 10
+            sources.append({
+                "title": result.metadata.get("title", "Document"),
+                "url": result.metadata.get("url", "#"),
+                "score": result.score
+            })
     
-    # Create TurnResult-compatible structure
+    # MISSING: Include verification metrics (from traditional pipeline)
+    verification_metrics = final_state.get("verification_metrics", {})
+    
+    # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
         sources=sources,
         intent=final_state.get("intent", IntentResult(intent="unknown", confidence=0.0)),
         response_time_ms=(time.time() - start_time) * 1000,
         graph_workflow_path=workflow_path,  # Additional field for graph tracking
-        graph_loop_count=final_state.get("loop_count", 0)
+        graph_loop_count=final_state.get("loop_count", 0),
+        verification=verification_metrics  # MISSING: Answer quality verification
     )
+    
+    # MISSING: Stream verification metrics (from traditional pipeline)
+    result_dict = turn_result.dict()
+    if verification_metrics:
+        result_dict["verification"] = verification_metrics
     
     return {
         "type": "complete",
-        "result": turn_result.dict(),
+        "result": result_dict,
         "turn_id": turn_id,
         "req_id": req_id
     }

@@ -8,16 +8,19 @@ from services.retrieve import rrf_fuse_results, mmr_diversify
 logger = logging.getLogger(__name__)
 
 
-async def combine_node(state: dict, resources) -> dict:
+async def combine_node(state: dict, config, *, store=None) -> dict:
     """
     Combine and merge results from multiple searches.
     
     This reuses existing BM25+vector fusion logic but makes it callable
     for LangGraph workflows that perform multiple searches.
     
+    Follows LangGraph pattern with config parameter and optional store injection.
+    
     Args:
         state: Workflow state containing search_results
-        resources: RAG resources
+        config: RunnableConfig with user context and configuration
+        store: Optional BaseStore for cross-thread user memory
         
     Returns:
         State update with combined and ranked results
