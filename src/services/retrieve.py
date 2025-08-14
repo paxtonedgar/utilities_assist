@@ -6,6 +6,7 @@ import json
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from collections import Counter  # Fix for MMR diversification
 
 from services.models import SearchResult, RetrievalResult
 from infra.opensearch_client import OpenSearchClient, SearchFilters

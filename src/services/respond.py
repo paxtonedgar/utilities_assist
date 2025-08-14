@@ -56,7 +56,7 @@ def build_context(
 async def generate_response(
     query: str,
     context: str,
-    intent: IntentResult,
+    intent,  # Can be either dict or IntentResult
     chat_client: Any,
     chat_history: List[Dict[str, str]] = None,
     model_name: str = "gpt-3.5-turbo",
@@ -193,9 +193,22 @@ def extract_source_chips(
     return chips
 
 
-def _prioritize_by_intent(results: List[SearchResult], intent: IntentResult) -> List[SearchResult]:
-    """Prioritize search results based on intent."""
-    if intent.intent == "list":
+def _get_intent_label(intent) -> str:
+    """Safely extract intent label from either dict or IntentResult object."""
+    if intent is None:
+        return "unknown"
+    if hasattr(intent, "intent"):
+        return intent.intent
+    if isinstance(intent, dict):
+        return intent.get("intent", "unknown")
+    return "unknown"
+
+
+def _prioritize_by_intent(results: List[SearchResult], intent) -> List[SearchResult]:
+    """Prioritize search results based on intent - handles both dict and IntentResult."""
+    intent_label = _get_intent_label(intent)
+    
+    if intent_label == "list":
         # For list queries, prioritize results with structured data
         return sorted(results, key=lambda r: (
             -r.score,  # Primary: search relevance
@@ -203,7 +216,7 @@ def _prioritize_by_intent(results: List[SearchResult], intent: IntentResult) -> 
             -len(r.content)  # Tertiary: content richness
         ))
     
-    elif intent.intent == "swagger":
+    elif intent_label == "swagger":
         # For API queries, prioritize technical documentation
         return sorted(results, key=lambda r: (
             -_api_relevance_score(r),  # Primary: API relevance
@@ -245,8 +258,10 @@ def _format_result_context(result: SearchResult, index: int) -> str:
     return context_block
 
 
-def _build_system_prompt(intent: IntentResult) -> str:
-    """Build system prompt based on classified intent with enhanced briefing capabilities."""
+def _build_system_prompt(intent) -> str:
+    """Build system prompt based on classified intent - handles both dict and IntentResult."""
+    
+    intent_label = _get_intent_label(intent)
     
     base_prompt = """You are an enterprise knowledge assistant for product owners and developers. Create clear, executive-ready briefings.
 
@@ -263,7 +278,7 @@ Instructions:
 - If information is incomplete, acknowledge limitations clearly
 - Use professional tone suitable for briefing executives"""
     
-    if intent.intent == "list":
+    if intent_label == "list":
         return base_prompt + """
 
 Special Format for List Queries:
@@ -272,7 +287,7 @@ Special Format for List Queries:
 - Include follow-up questions: "Which specific [item] do you want to know more about?"
 - For hierarchical data, show relationships (Product → APG → API)"""
         
-    elif intent.intent == "swagger":
+    elif intent_label == "swagger":
         return base_prompt + """
 
 Special Format for API Specification Queries:
@@ -282,7 +297,7 @@ Special Format for API Specification Queries:
 - Highlight important constraints or requirements
 - Reference specific API documentation when available"""
         
-    elif intent.intent == "workflow":
+    elif intent_label == "workflow":
         return base_prompt + """
 
 Special Format for Workflow/Procedure Queries:
@@ -296,7 +311,7 @@ Special Format for Workflow/Procedure Queries:
 - For complex workflows, consider outputting structured format: %%workflow%% JSON for visualization
 - Focus on actionable instructions, not just descriptions"""
 
-    elif intent.intent == "restart":
+    elif intent_label == "restart":
         return base_prompt + """
 
 For Restart Requests:
