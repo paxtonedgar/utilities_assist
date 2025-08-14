@@ -66,13 +66,14 @@ class ConfluenceSearchNode(SearchNodeHandler):
         intent_type = get_intent_label(intent)
         
         # INTENT-BASED ROUTING: Map intent to specific indices
+        # Use default_index for content indices, keep swagger separate
         index_mapping = {
-            "definition": "confluence-kb-index",       # Concept/definition → confluence only
-            "confluence": "confluence-kb-index",       # General docs → confluence 
+            "definition": default_index,              # Concept/definition → main content index
+            "confluence": default_index,              # General docs → main content index 
             "swagger": "swagger-api-index",           # API questions → swagger only
             "api": "swagger-api-index",               # API-related → swagger only
             "list": default_index,                    # Lists need aggregations → main index
-            "workflow": "confluence-kb-index",        # How-to/processes → confluence
+            "workflow": default_index,                # How-to/processes → main content index
         }
         
         selected_index = index_mapping.get(intent_type, default_index)
@@ -125,6 +126,19 @@ class ConfluenceSearchNode(SearchNodeHandler):
             for search_result in result.results:
                 search_result.metadata["search_method"] = "confluence"
                 search_result.metadata["search_id"] = "confluence"
+            
+            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
+            if len(result.results) == 0:
+                logger.info("EMPTY CONFLUENCE RETRIEVAL - Short-circuiting to prevent expensive LLM call")
+                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
+                return {
+                    **state,  # Preserve all existing state
+                    "search_results": [],
+                    "combined_results": [],
+                    "final_context": "No confluence documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
+                    "final_answer": "I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms.",
+                    "workflow_path": state.get("workflow_path", []) + ["search_confluence", "empty_guard"]
+                }
             
             # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
@@ -184,6 +198,19 @@ class SwaggerSearchNode(SearchNodeHandler):
             for search_result in result.results:
                 search_result.metadata["search_method"] = "swagger"
                 search_result.metadata["search_id"] = "swagger"
+            
+            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
+            if len(result.results) == 0:
+                logger.info("EMPTY SWAGGER RETRIEVAL - Short-circuiting to prevent expensive LLM call")
+                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
+                return {
+                    **state,  # Preserve all existing state
+                    "search_results": [],
+                    "combined_results": [],
+                    "final_context": "No swagger/API documents found matching your query. Please try more specific terms or check if the API documentation exists.",
+                    "final_answer": "I couldn't find any relevant API documentation for your query. Please try using different keywords or more specific terms.",
+                    "workflow_path": state.get("workflow_path", []) + ["search_swagger", "empty_guard"]
+                }
             
             # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
@@ -245,6 +272,19 @@ class MultiSearchNode(SearchNodeHandler):
                     all_results.append(search_result)
             
             logger.info(f"Multi-search found {len(all_results)} results across {len(indices)} indices")
+            
+            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
+            if len(all_results) == 0:
+                logger.info("EMPTY RETRIEVAL - Short-circuiting to prevent expensive LLM call with no context")
+                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
+                return {
+                    **state,  # Preserve all existing state
+                    "search_results": [],
+                    "combined_results": [],
+                    "final_context": "No documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
+                    "final_answer": "I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms.",
+                    "workflow_path": state.get("workflow_path", []) + ["search_multi", "empty_guard"]
+                }
             
             # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {

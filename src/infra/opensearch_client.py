@@ -31,6 +31,28 @@ from services.models import SearchResult as ServiceSearchResult  # Use service m
 logger = logging.getLogger(__name__)
 
 
+def get_total_hits(response_data: Dict[str, Any]) -> int:
+    """
+    Safely extract total hits count from OpenSearch response.
+    
+    Handles both formats:
+    - Legacy: {"hits": {"total": 42}}
+    - Modern: {"hits": {"total": {"value": 42, "relation": "eq"}}}
+    """
+    try:
+        hits_section = response_data.get("hits", {})
+        total = hits_section.get("total", 0)
+        
+        if isinstance(total, int):
+            return total
+        elif isinstance(total, dict):
+            return total.get("value", 0)
+        else:
+            return 0
+    except (KeyError, TypeError, AttributeError):
+        return 0
+
+
 @dataclass
 class SearchFilters:
     """Search filters for ACL, space, and time-based filtering."""
@@ -171,19 +193,20 @@ class OpenSearchClient:
             )
             
             # Log successful completion
+            total_hits = get_total_hits(data)
             log_event(
                 stage="bm25",
                 event="success",
                 took_ms=took_ms,
                 result_count=len(results),
-                total_hits=data["hits"]["total"]["value"],
+                total_hits=total_hits,
                 index=index,
                 elasticsearch_took=data.get("took", 0)
             )
             
             return SearchResponse(
                 results=results,
-                total_hits=data["hits"]["total"]["value"],
+                total_hits=total_hits,
                 took_ms=int(took_ms),
                 method="bm25"
             )
@@ -290,19 +313,20 @@ class OpenSearchClient:
             results = self._parse_search_response(data)
             
             # Log successful completion
+            total_hits = get_total_hits(data)
             log_event(
                 stage="knn",
                 event="success",
                 took_ms=took_ms,
                 result_count=len(results),
-                total_hits=data["hits"]["total"]["value"],
+                total_hits=total_hits,
                 index=index,
                 elasticsearch_took=data.get("took", 0)
             )
             
             return SearchResponse(
                 results=results,
-                total_hits=data["hits"]["total"]["value"],
+                total_hits=total_hits,
                 took_ms=int(took_ms),
                 method="knn"
             )
@@ -741,7 +765,13 @@ class OpenSearchClient:
         """Parse OpenSearch response into SearchResult objects with canonical schema."""
         results = []
         
-        for hit in data.get("hits", {}).get("hits", []):
+        # Safely extract hits array
+        hits = data.get("hits", {}).get("hits", [])
+        if not isinstance(hits, list):
+            logger.warning("Invalid hits format in OpenSearch response")
+            return []
+        
+        for hit in hits:
             source = hit.get("_source", {})
             
             # Extract title with fallbacks - REQUIRED field in canonical schema
