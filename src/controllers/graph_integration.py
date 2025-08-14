@@ -48,6 +48,11 @@ from agent.graph import create_graph, GraphState
 
 logger = logging.getLogger(__name__)
 
+# State key constants - use these across all nodes to prevent KeyError issues
+ORIGINAL_QUERY = "original_query"
+NORMALIZED_QUERY = "normalized_query" 
+INTENT = "intent"
+
 # Environment flag for LangGraph control
 def is_langgraph_enabled() -> bool:
     """Check if LangGraph is enabled via centralized settings."""
@@ -195,14 +200,17 @@ async def handle_turn_with_graph(
             store=store
         )
         
-        # DEBUG: Log state creation
-        logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}'")
+        # Sanitize input once
+        text = (user_input or "").strip()
         
-        # Initialize graph state with user context and authentication
+        # DEBUG: Log state creation
+        logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
+        
+        # Initialize graph state with consistent keys and resilient defaults
         initial_state = GraphState({
-            "original_query": user_input,
-            "normalized_query": None,
-            "intent": None,
+            ORIGINAL_QUERY: text,                 # Required by summarize_node 
+            NORMALIZED_QUERY: text,               # Start normalized as original
+            INTENT: None,
             "search_results": [],
             "combined_results": [],
             "final_context": None,
@@ -218,11 +226,20 @@ async def handle_turn_with_graph(
             
             "workflow_path": [],
             "loop_count": 0,
+            "rewrite_attempts": 0,  # Track rewrite attempts to prevent infinite loops
             "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
             "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
         })
+        
+        # State sanity log - confirm keys are present
+        logger.info(
+            "TURN_START user_id=%s thread_id=%s | original_query=%r normalized_query=%r",
+            user_context.get("user_id", "unknown"), thread_id,
+            initial_state.get(ORIGINAL_QUERY, "")[:80],
+            initial_state.get(NORMALIZED_QUERY, "")[:80]
+        )
         
         # Track progress and stream updates with user context
         yield {

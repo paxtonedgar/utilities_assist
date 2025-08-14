@@ -11,6 +11,9 @@ from services.intent import determine_intent  # Keep as fallback
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler
 
+# Import constants to prevent KeyError issues
+from controllers.graph_integration import NORMALIZED_QUERY, INTENT
+
 logger = logging.getLogger(__name__)
 
 # Load jinja templates
@@ -41,7 +44,14 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
         State update with intent classification
     """
     try:
-        normalized_query = state["normalized_query"]
+        # Use consistent state keys with fallback
+        normalized_query = state.get(NORMALIZED_QUERY, "").strip()
+        if not normalized_query:
+            logger.warning("intent_node: normalized_query missing/empty; setting intent=None and routing to search fallback.")
+            return {
+                INTENT: IntentResult(intent="confluence", confidence=0.1),  # Default fallback
+                "workflow_path": state.get("workflow_path", []) + ["intent_empty"]
+            }
         
         # Utilities list for context
         utilities_list = [
@@ -121,7 +131,7 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
             )
         
         return {
-            "intent": intent_result,
+            INTENT: intent_result,
             "workflow_path": state.get("workflow_path", []) + ["intent"]
         }
         
@@ -129,7 +139,7 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
         logger.error(f"Intent node failed: {e}")
         # Fallback intent
         return {
-            "intent": IntentResult(intent="error", confidence=0.0),
+            INTENT: IntentResult(intent="error", confidence=0.0),
             "workflow_path": state.get("workflow_path", []) + ["intent_error"],
             "error_messages": state.get("error_messages", []) + [f"Intent classification failed: {e}"]
         }

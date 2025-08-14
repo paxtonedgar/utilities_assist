@@ -14,6 +14,9 @@ from agent.nodes.intent import intent_node
 from agent.tools.search import adaptive_search_tool, multi_index_search_tool
 from services.models import SearchResult
 
+# Import constants to prevent KeyError issues
+from controllers.graph_integration import ORIGINAL_QUERY, NORMALIZED_QUERY
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +65,7 @@ class ConfluenceSearchNode(SearchNodeHandler):
             from infra.resource_manager import get_resources
             resources = get_resources()
             
-            query = state.get("normalized_query", "")
+            query = state.get(NORMALIZED_QUERY, "")
             intent = state.get("intent")
             
             # Handle empty query to prevent infinite loops
@@ -215,8 +218,8 @@ class RewriteQueryNode(SearchNodeHandler):
     
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute query rewriting logic."""
-        original_query = state.get("original_query", "")
-        normalized_query = state.get("normalized_query", "")
+        original_query = state.get(ORIGINAL_QUERY, "")
+        normalized_query = state.get(NORMALIZED_QUERY, "")
         search_results = state.get("search_results", [])
         loop_count = state.get("loop_count", 0)
         
@@ -225,8 +228,9 @@ class RewriteQueryNode(SearchNodeHandler):
             logger.warning("Cannot rewrite empty query, using original query")
             fallback_query = original_query or "general information"
             return {
-                "normalized_query": fallback_query,
-                "loop_count": loop_count + 1
+                NORMALIZED_QUERY: fallback_query,
+                "loop_count": loop_count + 1,
+                "rewrite_attempts": state.get("rewrite_attempts", 0) + 1
             }
         
         # Perform query rewriting
@@ -242,8 +246,9 @@ class RewriteQueryNode(SearchNodeHandler):
         logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
         
         return {
-            "normalized_query": rewritten_query,
-            "loop_count": loop_count + 1
+            NORMALIZED_QUERY: rewritten_query,
+            "loop_count": loop_count + 1,
+            "rewrite_attempts": state.get("rewrite_attempts", 0) + 1
         }
     
     async def _rewrite_query(

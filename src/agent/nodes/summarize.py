@@ -9,6 +9,9 @@ from services.normalize import normalize_query  # Keep existing logic as fallbac
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler
 
+# Import constants to prevent KeyError issues
+from controllers.graph_integration import ORIGINAL_QUERY, NORMALIZED_QUERY
+
 logger = logging.getLogger(__name__)
 
 # Load jinja templates
@@ -38,7 +41,14 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
     req_id = getattr(config, 'run_id', 'unknown') if config else 'unknown'
     
     try:
-        user_input = state["original_query"]
+        # Use consistent state keys with fallback
+        user_input = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
+        if not user_input:
+            logger.warning("summarize_node: empty input; skipping normalization.")
+            return {
+                NORMALIZED_QUERY: "",
+                "workflow_path": state.get("workflow_path", []) + ["summarize_empty"]
+            }
         
         # Try LLM-based normalization first
         try:
@@ -104,15 +114,16 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
         
         return {
-            "normalized_query": normalized,
+            NORMALIZED_QUERY: normalized,
             "workflow_path": state.get("workflow_path", []) + ["summarize"]
         }
         
     except Exception as e:
         logger.error(f"Summarize node failed: {e}")
-        # Fallback to original query
+        # Fallback to original query with resilient key access
+        fallback_query = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
         return {
-            "normalized_query": state["original_query"],
+            NORMALIZED_QUERY: fallback_query,
             "workflow_path": state.get("workflow_path", []) + ["summarize_error"],
             "error_messages": state.get("error_messages", []) + [f"Summarize failed: {e}"]
         }

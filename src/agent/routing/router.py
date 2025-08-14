@@ -9,6 +9,9 @@ Contains all routing decisions and conditions.
 from typing import Literal, Dict, Any
 import logging
 
+# Import constants to prevent KeyError issues
+from controllers.graph_integration import NORMALIZED_QUERY
+
 logger = logging.getLogger(__name__)
 
 # Type alias for route destinations
@@ -116,12 +119,18 @@ class CoverageChecker:
             "rewrite" if coverage is insufficient, "combine" if acceptable
         """
         search_results = state.get("search_results", [])
-        loop_count = state.get("loop_count", 0)
-        normalized_query = state.get("normalized_query", "")
+        loop_count = state.get("loop_count", 0) 
+        rewrite_attempts = state.get("rewrite_attempts", 0)
+        normalized_query = state.get(NORMALIZED_QUERY, "")
         
-        # Prevent infinite loops
+        # Prevent infinite loops with multiple checks
         if loop_count >= 3:
             logger.warning(f"Max loops reached ({loop_count}), proceeding to combine")
+            return "combine"
+        
+        # Short-circuit on too many rewrite attempts
+        if rewrite_attempts >= 2:
+            logger.warning(f"Max rewrite attempts reached ({rewrite_attempts}), proceeding to combine")
             return "combine"
         
         # If query is empty or too short, proceed to combine (don't rewrite)
