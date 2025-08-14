@@ -304,6 +304,39 @@ class ApplicationSettings(BaseSettings):
                 parts[2] = "***masked***"
                 return "/".join(parts)
         return url
+    
+    @property
+    def chat(self):
+        """Compatibility property for LangGraph nodes expecting settings.chat.*"""
+        if not self.azure_openai:
+            return None
+        
+        class ChatConfig:
+            def __init__(self, azure_config):
+                self.api_version = azure_config.api_version
+                self.model = azure_config.deployment_name
+                self.api_base = azure_config.azure_openai_endpoint
+                self.api_key = azure_config.api_key
+                self.temperature = azure_config.temperature
+                self.max_tokens_2k = azure_config.max_tokens_2k
+                self.max_tokens_500 = azure_config.max_tokens_500
+        
+        return ChatConfig(self.azure_openai)
+    
+    @property 
+    def embed(self):
+        """Compatibility property for LangGraph nodes expecting settings.embed.*"""
+        if not self.azure_openai:
+            return None
+        
+        class EmbedConfig:
+            def __init__(self, azure_config):
+                self.api_version = azure_config.api_version
+                self.model = azure_config.azure_openai_embedding_model
+                self.api_base = azure_config.azure_openai_endpoint
+                self.api_key = azure_config.api_key
+        
+        return EmbedConfig(self.azure_openai)
 
 
 # Singleton instance
