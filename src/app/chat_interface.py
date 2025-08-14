@@ -133,8 +133,7 @@ def initialize_session():
         st.session_state.settings = get_settings()
         logger.info(f"Initialized with {st.session_state.settings.profile} profile")
     
-    if "use_mock_corpus" not in st.session_state:
-        st.session_state.use_mock_corpus = False  # Default to production data for JPMC
+    # Removed mock corpus - only use production Confluence and OpenSearch
     
     # Initialize user context and thread management
     if "user_context" not in st.session_state:
@@ -235,7 +234,7 @@ async def process_user_input(user_input: str) -> None:
                 user_input,
                 st.session_state.resources,  # Use shared resources instead of settings
                 chat_history=st.session_state.conversation_history[-10:],  # Last 10 messages
-                use_mock_corpus=st.session_state.use_mock_corpus,
+                use_mock_corpus=False,  # Always use production Confluence/OpenSearch
                 thread_id=st.session_state.thread_id,
                 user_context=st.session_state.user_context
             ):
@@ -281,10 +280,8 @@ def main():
             st.session_state.conversation_history = []
             st.rerun()
     with col2:
-        corpus_label = "Mock Data" if st.session_state.use_mock_corpus else "Production"
-        if st.button(f"Using: {corpus_label}"):
-            st.session_state.use_mock_corpus = not st.session_state.use_mock_corpus
-            st.rerun()
+        # Always use production Confluence/OpenSearch - no mock option
+        st.caption("📊 Production Data Only")
     with col3:
         if st.button("New Thread"):
             # Start a new conversation thread

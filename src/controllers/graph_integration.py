@@ -169,7 +169,7 @@ async def handle_turn_with_graph(
             "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
-            "_use_mock_corpus": True  # Force mock corpus until indices are available
+            "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
         })
         
         # Track progress and stream updates with user context

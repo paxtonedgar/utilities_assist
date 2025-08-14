@@ -436,7 +436,20 @@ async def _rewrite_query_wrapper(state: GraphState, *, config=None, store=None) 
         Rewritten query:
         """
         
-        response = await resources.chat_client.ainvoke([
+        # Create LangChain wrapper for Azure OpenAI client using exact config.ini field names
+        from langchain_openai import AzureChatOpenAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+        
+        langchain_client = AzureChatOpenAI(
+            api_version=resources.settings.chat.api_version,  # api_version from config
+            azure_deployment=resources.settings.chat.model,   # deployment_name from config  
+            azure_endpoint=resources.settings.chat.api_base,  # azure_openai_endpoint from config
+            api_key=resources.chat_client.api_key,            # api_key from config
+            temperature=0.1,
+            max_tokens=200
+        )
+        
+        response = await langchain_client.ainvoke([
             SystemMessage(content="You are a query optimization expert. Rewrite queries to improve search results."),
             HumanMessage(content=rewrite_prompt)
         ])
