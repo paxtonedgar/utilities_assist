@@ -182,7 +182,7 @@ async def adaptive_search_tool(
     search_client: OpenSearchClient = None,
     embed_client = None,
     embed_model: str = "text-embedding-ada-002",
-    use_mock_corpus: bool = False,
+    search_index: str = "khub-opensearch-index",
     top_k: int = 10
 ) -> RetrievalResult:
     """
@@ -198,7 +198,7 @@ async def adaptive_search_tool(
         search_client: OpenSearch client instance
         embed_client: Embedding client for vector search
         embed_model: Embedding model to use
-        use_mock_corpus: Whether to use mock index
+        search_index: Index name to search (e.g., "khub-opensearch-index")
         top_k: Number of results to return
         
     Returns:
@@ -206,12 +206,10 @@ async def adaptive_search_tool(
     """
     try:
         # Determine index based on intent
-        if use_mock_corpus:
-            index_name = "confluence_mock"
-        elif intent_type == "swagger":
+        if intent_type == "swagger":
             index_name = "khub-opensearch-swagger-index"
         else:
-            index_name = "confluence_current"  # Default index
+            index_name = search_index  # Use provided index
         
         # Build filters based on intent
         filters = {}

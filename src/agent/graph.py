@@ -58,9 +58,6 @@ class GraphState(Dict[str, Any]):
     
     # Error handling
     error_messages: List[str]
-    
-    # Configuration (not clients - follows LangGraph pattern)
-    _use_mock_corpus: bool
 
 
 def create_graph(
@@ -269,10 +266,6 @@ async def _search_confluence_wrapper(state: GraphState, *, config=None, store=No
         
         query = state["normalized_query"]
         intent = state.get("intent")
-        use_mock = state.get("_use_mock_corpus", False)
-        
-        # Use the configured search index from resources instead of hardcoding
-        index = "confluence_mock" if use_mock else resources.settings.search.index_alias
         
         result = await adaptive_search_tool(
             query=query,
@@ -281,7 +274,7 @@ async def _search_confluence_wrapper(state: GraphState, *, config=None, store=No
             search_client=resources.search_client,
             embed_client=resources.embed_client,
             embed_model=resources.settings.embed.model,
-            use_mock_corpus=use_mock,
+            search_index=resources.settings.search.index_alias,
             top_k=10
         )
         
@@ -321,7 +314,7 @@ async def _search_swagger_wrapper(state: GraphState, *, config=None, store=None)
             search_client=resources.search_client,
             embed_client=resources.embed_client,
             embed_model=resources.settings.embed.model,
-            use_mock_corpus=False,  # Swagger is never mocked
+            search_index="khub-opensearch-swagger-index",
             top_k=10
         )
         
@@ -358,15 +351,12 @@ async def _search_multi_wrapper(state: GraphState, *, config=None, store=None) -
         
         query = state["normalized_query"]
         intent = state.get("intent")
-        use_mock = state.get("_use_mock_corpus", False)
         
         # Define indices to search for compound queries
-        indices = []
-        if use_mock:
-            indices.append("confluence_mock")
-        else:
-            indices.append(resources.settings.search.index_alias)  # Use configured index
-            indices.append("khub-opensearch-swagger-index")
+        indices = [
+            resources.settings.search.index_alias,  # Use configured index
+            "khub-opensearch-swagger-index"
+        ]
         
         # Search all indices
         results_list = await multi_index_search_tool(
