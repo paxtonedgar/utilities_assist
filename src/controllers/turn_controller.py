@@ -25,8 +25,7 @@ logger = logging.getLogger(__name__)
 async def handle_turn(
     user_input: str,
     resources: Optional[RAGResources] = None,
-    chat_history: List[Dict[str, str]] = None,
-    use_mock_corpus: bool = False
+    chat_history: List[Dict[str, str]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Handle a complete conversation turn with streaming response.
     
@@ -37,7 +36,6 @@ async def handle_turn(
         user_input: Raw user input
         resources: Pre-configured resource container (auto-fetched if None)
         chat_history: Recent conversation history
-        use_mock_corpus: If True, use confluence_mock index instead of confluence_current
         
     Yields:
         Dict with turn progress updates and final result
@@ -124,8 +122,7 @@ async def handle_turn(
             normalized_query, 
             intent,
             resources,  # Pass entire resource container
-            req_id,
-            use_mock_corpus=use_mock_corpus
+            req_id
         )
         
         if retrieval_result:

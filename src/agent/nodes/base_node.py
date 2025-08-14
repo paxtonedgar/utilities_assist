@@ -236,7 +236,7 @@ class SearchNodeHandler(BaseNodeHandler):
                 stage=self.node_name,
                 event="start",
                 query=s.get("normalized_query", ""),
-                intent=s.get("intent", {}).get("intent") if s.get("intent") else None,
+                intent=get_intent_label(s.get("intent")) if s.get("intent") else None,
                 thread_id=config.get("configurable", {}).get("thread_id") if config else None
             )
             

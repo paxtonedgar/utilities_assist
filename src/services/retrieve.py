@@ -181,17 +181,20 @@ async def rrf_fuse(
         RetrievalResult with fused and re-ranked results
     """
     try:
-        # Convert service results back to client format for fusion
-        from infra.opensearch_client import SearchResponse, SearchResult as ClientResult
+        # Convert service results to client format for fusion
+        from infra.opensearch_client import SearchResponse
+        from services.models import SearchResult as ServiceSearchResult  # Use the service model that RRF expects
         
         bm25_response = SearchResponse(
             results=[
-                ClientResult(
+                ServiceSearchResult(
                     doc_id=r.doc_id,
                     score=r.score,
-                    title=r.metadata.get("title", ""),
-                    body=r.content,
-                    metadata=r.metadata
+                    content=r.content,  # Use content field consistently
+                    metadata={
+                        **r.metadata,
+                        "title": r.metadata.get("title", "")  # Ensure title is available
+                    }
                 ) for r in bm25_result.results
             ],
             total_hits=bm25_result.total_found,
@@ -201,12 +204,14 @@ async def rrf_fuse(
         
         knn_response = SearchResponse(
             results=[
-                ClientResult(
+                ServiceSearchResult(
                     doc_id=r.doc_id,
                     score=r.score,
-                    title=r.metadata.get("title", ""),
-                    body=r.content,
-                    metadata=r.metadata
+                    content=r.content,  # Use content field consistently
+                    metadata={
+                        **r.metadata,
+                        "title": r.metadata.get("title", "")  # Ensure title is available
+                    }
                 ) for r in knn_result.results
             ],
             total_hits=knn_result.total_found,

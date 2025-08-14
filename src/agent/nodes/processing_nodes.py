@@ -54,15 +54,27 @@ class AnswerNode(BaseNodeHandler):
         combined_results = state.get("combined_results", [])
         intent = state.get("intent")
         
+        # Get chat client from resources
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        if not resources or not resources.chat_client:
+            logger.error("Chat client not available for answer generation")
+            return {
+                "final_answer": "Unable to generate response - chat service unavailable.",
+                "response_chunks": ["Unable to generate response - chat service unavailable."],
+                "answer_verification": {"has_content": True, "confidence_score": 0.0},
+                "source_chips": []
+            }
+        
         # Generate streaming response - collect all chunks
         response_chunks = []
         async for chunk in generate_response(
             query=normalized_query,
             context=final_context,
             intent=intent,
-            chat_client=None,  # Will be injected by resource manager
+            chat_client=resources.chat_client,  # Use actual chat client from resources
             chat_history=[],
-            model_name="gpt-3.5-turbo",
+            model_name=resources.settings.chat.model,  # Use configured model name
             temperature=0.2
         ):
             response_chunks.append(chunk)

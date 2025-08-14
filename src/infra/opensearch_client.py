@@ -728,9 +728,14 @@ class OpenSearchClient:
                 # Construct a meaningful URL or use doc_id-based placeholder
                 url = f"#doc-{hit['_id']}" if hit.get("_id") else "#"
             
+            # Ensure doc_id is always valid and non-empty - CRITICAL for TurnResult validation
+            doc_id = hit.get("_id") or f"doc_{len(results)+1}"
+            if not doc_id or doc_id.strip() == "":
+                doc_id = f"doc_{len(results)+1}"
+            
             result = ServiceSearchResult(
-                doc_id=hit["_id"],  # Ensure doc_id is always populated - REQUIRED field
-                score=hit["_score"],
+                doc_id=doc_id,  # Ensure doc_id is always populated and non-empty - REQUIRED field
+                score=hit.get("_score", 0.0),  # Handle missing scores
                 content=body,  # Use body as content - REQUIRED field
                 metadata={
                     **metadata,
