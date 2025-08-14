@@ -1,14 +1,21 @@
 # src/services/embed.py
 """
-Embedding service with comprehensive logging and error handling.
+Embedding service with comprehensive logging, error handling, and per-turn caching.
 """
 
 import logging
-from typing import List, Optional, Any
+import time
+import hashlib
+from typing import List, Optional, Any, Dict, Tuple
 
 from src.telemetry.logger import stage, log_event
 
 logger = logging.getLogger(__name__)
+
+# Per-turn embedding cache to avoid recomputing embeddings for search rewrites
+# Format: {query_hash: (embedding_vector, timestamp)}
+_EMBEDDING_CACHE: Dict[str, Tuple[List[float], float]] = {}
+_CACHE_TTL_SECONDS = 300  # 5 minutes TTL per turn
 
 
 @stage("embed")
@@ -108,22 +115,126 @@ async def create_embeddings(
         raise
 
 
+def _get_cache_key(query: str, model: str) -> str:
+    """Generate cache key from query and model."""
+    content = f"{query}|{model}"
+    return hashlib.md5(content.encode()).hexdigest()
+
+
+def _clean_expired_cache():
+    """Remove expired cache entries to prevent memory bloat."""
+    current_time = time.time()
+    expired_keys = [
+        key for key, (_, timestamp) in _EMBEDDING_CACHE.items()
+        if current_time - timestamp > _CACHE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        del _EMBEDDING_CACHE[key]
+    
+    if expired_keys:
+        logger.debug(f"Cleaned {len(expired_keys)} expired embedding cache entries")
+
+
 @stage("embed")
 async def create_query_embedding(
     query: str,
     embed_client: Any = None,
-    model: str = "text-embedding-3-small"
+    model: str = "text-embedding-3-small",
+    enable_cache: bool = True
 ) -> List[float]:
     """
-    Create embedding for a single query string.
+    Create embedding for a single query string with per-turn caching.
+    
+    Avoids recomputing embeddings for search rewrites as per user requirements.
     
     Args:
         query: Query text to embed
         embed_client: Embedding client instance 
         model: Embedding model to use
+        enable_cache: Whether to use caching (default True)
         
     Returns:
         Embedding vector
     """
-    embeddings = await create_embeddings([query], embed_client, model)
-    return embeddings[0] if embeddings else []
+    if not query or not query.strip():
+        log_event(
+            stage="embed",
+            event="skip",
+            reason="empty_query"
+        )
+        return []
+    
+    # QUERY EMBEDDING CACHING: Check cache first to avoid recomputing for search rewrites
+    if enable_cache:
+        cache_key = _get_cache_key(query.strip(), model)
+        current_time = time.time()
+        
+        # Check if we have a valid cached embedding
+        if cache_key in _EMBEDDING_CACHE:
+            cached_embedding, timestamp = _EMBEDDING_CACHE[cache_key]
+            if current_time - timestamp <= _CACHE_TTL_SECONDS:
+                log_event(
+                    stage="embed",
+                    event="cache_hit",
+                    query_length=len(query),
+                    model=model,
+                    cache_age_seconds=current_time - timestamp
+                )
+                return cached_embedding
+            else:
+                # Remove expired entry
+                del _EMBEDDING_CACHE[cache_key]
+        
+        # Clean expired entries periodically
+        if len(_EMBEDDING_CACHE) > 50:  # Clean when cache gets large
+            _clean_expired_cache()
+    
+    # Cache miss - compute embedding
+    log_event(
+        stage="embed",
+        event="cache_miss" if enable_cache else "cache_disabled",
+        query_length=len(query),
+        model=model
+    )
+    
+    embeddings = await create_embeddings([query.strip()], embed_client, model)
+    embedding = embeddings[0] if embeddings else []
+    
+    # Store in cache for future use
+    if enable_cache and embedding:
+        cache_key = _get_cache_key(query.strip(), model)
+        _EMBEDDING_CACHE[cache_key] = (embedding, time.time())
+        
+        log_event(
+            stage="embed", 
+            event="cached",
+            query_length=len(query),
+            vector_dims=len(embedding),
+            cache_size=len(_EMBEDDING_CACHE)
+        )
+    
+    return embedding
+
+
+def clear_embedding_cache():
+    """Clear the embedding cache. Useful for testing or memory management."""
+    global _EMBEDDING_CACHE
+    cache_size = len(_EMBEDDING_CACHE)
+    _EMBEDDING_CACHE.clear()
+    logger.info(f"Cleared embedding cache: {cache_size} entries removed")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get embedding cache statistics for monitoring."""
+    current_time = time.time()
+    valid_entries = sum(
+        1 for _, timestamp in _EMBEDDING_CACHE.values()
+        if current_time - timestamp <= _CACHE_TTL_SECONDS
+    )
+    
+    return {
+        "total_entries": len(_EMBEDDING_CACHE),
+        "valid_entries": valid_entries,
+        "expired_entries": len(_EMBEDDING_CACHE) - valid_entries,
+        "cache_ttl_seconds": _CACHE_TTL_SECONDS
+    }

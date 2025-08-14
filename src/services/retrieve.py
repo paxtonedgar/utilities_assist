@@ -51,21 +51,18 @@ async def bm25_search(
             time_decay_half_life_days=time_decay_days
         )
         
-        # Convert to service format - OpenSearch client now returns services.models.SearchResult
+        # Convert to canonical service format - OpenSearch client now returns services.models.SearchResult
         results = []
         for result in response.results:
-            # Result is already a services.models.SearchResult, just pass it through
-            # Extract title from metadata if needed for consistency
-            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
-            
+            # Result is already a services.models.SearchResult with canonical schema
+            # Create canonical SearchResult ensuring all required fields are present
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.content,  # Use content field, not body
+                title=result.title,     # Now available in canonical schema
+                url=result.url,         # Now available in canonical schema
                 score=result.score,
-                metadata={
-                    "title": title,  # Extract from metadata
-                    **result.metadata
-                }
+                content=result.content, # Use content field consistently
+                metadata=result.metadata
             )
             results.append(service_result)
         
@@ -122,21 +119,18 @@ async def knn_search(
             ef_search=ef_search
         )
         
-        # Convert to service format - OpenSearch client now returns services.models.SearchResult
+        # Convert to canonical service format - OpenSearch client now returns services.models.SearchResult  
         results = []
         for result in response.results:
-            # Result is already a services.models.SearchResult, just pass it through
-            # Extract title from metadata if needed for consistency
-            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
-            
+            # Result is already a services.models.SearchResult with canonical schema
+            # Create canonical SearchResult ensuring all required fields are present
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.content,  # Use content field, not body
+                title=result.title,     # Now available in canonical schema
+                url=result.url,         # Now available in canonical schema
                 score=result.score,
-                metadata={
-                    "title": title,  # Extract from metadata
-                    **result.metadata
-                }
+                content=result.content, # Use content field consistently
+                metadata=result.metadata
             )
             results.append(service_result)
         
@@ -227,21 +221,18 @@ async def rrf_fuse(
             rrf_k=rrf_k
         )
         
-        # Convert back to service format - RRF fusion returns services.models.SearchResult
+        # Convert back to canonical service format - RRF fusion returns services.models.SearchResult
         results = []
         for result in fused_response.results:
-            # Result is already a services.models.SearchResult from RRF fusion
-            # Extract title from metadata if needed for consistency
-            title = result.metadata.get("title") or result.metadata.get("page_title") or "Unknown"
-            
+            # Result is already a services.models.SearchResult with canonical schema from RRF fusion
+            # Create canonical SearchResult ensuring all required fields are present
             service_result = SearchResult(
                 doc_id=result.doc_id,
-                content=result.content,  # Use content field, not body
+                title=result.title,     # Now available in canonical schema
+                url=result.url,         # Now available in canonical schema
                 score=result.score,
-                metadata={
-                    "title": title,  # Extract from metadata
-                    **result.metadata
-                }
+                content=result.content, # Use content field consistently
+                metadata=result.metadata
             )
             results.append(service_result)
         
@@ -461,6 +452,86 @@ def mmr_diversify(
     return selected, diagnostics
 
 
+def _rrf_with_diversification(
+    bm25_hits: List[Tuple[str, float]],
+    knn_hits: List[Tuple[str, float]], 
+    all_results: Dict[str, Any],
+    query: str,
+    k_final: int,
+    rrf_k: int = 60,
+    lambda_param: float = 0.75
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Single-pass RRF fusion with integrated diversification.
+    
+    Eliminates redundant MMR processing by combining fusion and diversification.
+    """
+    # Build rank maps for RRF
+    bm25_ranks = {doc_id: idx + 1 for idx, (doc_id, _) in enumerate(bm25_hits)}
+    knn_ranks = {doc_id: idx + 1 for idx, (doc_id, _) in enumerate(knn_hits)}
+    
+    # Calculate RRF scores
+    rrf_scores = {}
+    all_doc_ids = set(bm25_ranks.keys()) | set(knn_ranks.keys())
+    
+    for doc_id in all_doc_ids:
+        rrf_score = 0.0
+        if doc_id in bm25_ranks:
+            rrf_score += 1.0 / (rrf_k + bm25_ranks[doc_id])
+        if doc_id in knn_ranks:
+            rrf_score += 1.0 / (rrf_k + knn_ranks[doc_id])
+        rrf_scores[doc_id] = rrf_score
+    
+    # Sort candidates by RRF score
+    candidates = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    # Single-pass diversification with RRF-aware selection
+    selected = []
+    diagnostics = {"removed_docs": [], "similarity_scores": {}, "relevance_scores": {}}
+    
+    for doc_id, rrf_score in candidates:
+        if len(selected) >= k_final:
+            break
+            
+        if doc_id not in all_results:
+            continue
+            
+        result = all_results[doc_id]
+        doc_text = f"{result.metadata.get('title', '')} {result.content}"
+        
+        # Calculate relevance to query
+        relevance = lexical_relevance(query, doc_text)
+        
+        # Calculate maximum similarity to selected documents  
+        max_similarity = 0.0
+        if selected:
+            similarities = []
+            for selected_doc_id in selected:
+                if selected_doc_id in all_results:
+                    selected_result = all_results[selected_doc_id]
+                    selected_text = f"{selected_result.metadata.get('title', '')} {selected_result.content}"
+                    sim = lexical_similarity(doc_text, selected_text)
+                    similarities.append(sim)
+            max_similarity = max(similarities) if similarities else 0.0
+        
+        # MMR score with RRF influence: balance relevance, diversity, and RRF ranking
+        # Weight RRF score more heavily than in traditional MMR
+        mmr_score = (lambda_param * relevance + 
+                     0.3 * rrf_score -  # Include RRF ranking in selection 
+                     (1 - lambda_param) * max_similarity)
+        
+        # Accept if MMR score is positive (considering all factors)
+        if mmr_score > 0 or len(selected) < 3:  # Always take top 3
+            selected.append(doc_id)
+            diagnostics["relevance_scores"][doc_id] = relevance
+            diagnostics["similarity_scores"][doc_id] = max_similarity
+        else:
+            diagnostics["removed_docs"].append(doc_id)
+    
+    logger.info(f"Single-pass RRF+MMR: {len(candidates)} candidates → {len(selected)} selected, {len(diagnostics['removed_docs'])} removed")
+    
+    return selected, diagnostics
+
+
 async def enhanced_rrf_search(
     query: str,
     query_embedding: List[float],
@@ -499,15 +570,9 @@ async def enhanced_rrf_search(
     }
     
     try:
-        # Run BM25 and KNN searches in parallel
-        bm25_result = await bm25_search(
-            query=query,
-            search_client=search_client,
-            index_name=index_name,
-            filters=filters,
-            top_k=50,  # Get more candidates for better fusion
-            time_decay_days=120
-        )
+        # GATE LOGIC: First try KNN search only - skip BM25 if KNN provides sufficient coverage
+        # This can avoid unnecessary 800-900ms BM25 latency as per user requirements
+        import asyncio
         
         knn_result = await knn_search(
             query_embedding=query_embedding,
@@ -518,43 +583,64 @@ async def enhanced_rrf_search(
             ef_search=256
         )
         
-        diagnostics["bm25_count"] = len(bm25_result.results)
         diagnostics["knn_count"] = len(knn_result.results)
+        
+        # Gate logic: Skip BM25 if KNN already provides good coverage
+        skip_bm25 = False
+        if len(knn_result.results) >= top_k and knn_result.results:
+            # Check if KNN results have high scores (good semantic match)
+            avg_knn_score = sum(r.score for r in knn_result.results[:top_k]) / min(len(knn_result.results), top_k)
+            if avg_knn_score > 0.8:  # High semantic similarity threshold
+                skip_bm25 = True
+                diagnostics["bm25_skipped"] = True
+                diagnostics["skip_reason"] = f"KNN sufficient: {len(knn_result.results)} results, avg_score={avg_knn_score:.3f}"
+                logger.info(f"Skipping BM25 search: KNN returned {len(knn_result.results)} results with avg score {avg_knn_score:.3f}")
+        
+        if skip_bm25:
+            # Use only KNN results - no BM25 search needed
+            bm25_result = RetrievalResult(
+                results=[], total_found=0, retrieval_time_ms=0, 
+                method="bm25_skipped", diagnostics={"skipped": True}
+            )
+            diagnostics["bm25_count"] = 0
+        else:
+            # Run BM25 search (either parallel or after KNN based on implementation)
+            bm25_result = await bm25_search(
+                query=query,
+                search_client=search_client,
+                index_name=index_name,
+                filters=filters,
+                top_k=50,  # Get more candidates for better fusion
+                time_decay_days=120
+            )
+            diagnostics["bm25_count"] = len(bm25_result.results)
         
         # Convert to (doc_id, score) tuples for RRF
         bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
         knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
         
-        # Apply RRF fusion
-        fused_hits = rrf_fuse_results(bm25_hits, knn_hits, k_final=top_k*2, rrf_k=rrf_k)
-        diagnostics["rrf_count"] = len(fused_hits)
-        
-        # Create document lookup for MMR
-        doc_lookup = {}
+        # SINGLE-PASS DIVERSIFICATION: Combine RRF fusion with diversification in one step
+        # This eliminates redundant MMR processing after multiple fusion steps
         all_results = {r.doc_id: r for r in bm25_result.results + knn_result.results}
         
-        for doc_id, _ in fused_hits:
-            if doc_id in all_results:
-                result = all_results[doc_id]
-                # Combine title and body for MMR text analysis
-                doc_text = f"{result.metadata.get('title', '')} {result.content}"
-                doc_lookup[doc_id] = doc_text
-        
-        # Apply MMR diversification if enabled
-        final_doc_ids = [doc_id for doc_id, _ in fused_hits]
-        mmr_diagnostics = {}
-        
-        if use_mmr and len(final_doc_ids) > top_k:
-            final_doc_ids, mmr_diagnostics = mmr_diversify(
-                candidates=final_doc_ids,
-                doc_text_lookup=doc_lookup,
+        if use_mmr:
+            # Apply RRF with integrated diversification
+            final_doc_ids, mmr_diagnostics = _rrf_with_diversification(
+                bm25_hits=bm25_hits,
+                knn_hits=knn_hits,
+                all_results=all_results,
                 query=query,
-                k=top_k,
+                k_final=top_k,
+                rrf_k=rrf_k,
                 lambda_param=lambda_param
             )
             diagnostics.update(mmr_diagnostics)
+            diagnostics["rrf_count"] = len(final_doc_ids)
         else:
-            final_doc_ids = final_doc_ids[:top_k]
+            # Traditional RRF without diversification
+            fused_hits = rrf_fuse_results(bm25_hits, knn_hits, k_final=top_k, rrf_k=rrf_k)
+            final_doc_ids = [doc_id for doc_id, _ in fused_hits]
+            diagnostics["rrf_count"] = len(fused_hits)
         
         # Build final results
         final_results = []

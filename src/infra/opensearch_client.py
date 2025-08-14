@@ -399,19 +399,65 @@ class OpenSearchClient:
         )
     
     def _extract_key_terms(self, query_text: str) -> str:
-        """Extract key terms from natural language queries."""
+        """Extract key terms from natural language queries, optimized for BM25-friendly keywords.
+        
+        Strips verbose LLM narrations to compact entities/keywords as per user requirements.
+        """
         import re
-        # Remove question words and common stopwords
-        stopwords = {'what', 'how', 'do', 'i', 'is', 'are', 'the', 'to', 'for', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'by', 'with', 'from', 'me', 'through', 'of'}
         
-        # Remove punctuation and convert to lowercase
-        cleaned = re.sub(r'[^\w\s]', '', query_text.lower())
+        if not query_text or not query_text.strip():
+            return ""
         
-        # Split into words and filter stopwords
-        words = [word for word in cleaned.split() if word not in stopwords and len(word) > 2]
+        # Normalize the text
+        text = query_text.lower().strip()
         
-        # Return key terms as space-separated string
-        return ' '.join(words)
+        # Remove common LLM narration patterns that hurt BM25 performance
+        llm_patterns = [
+            r'\b(tell me about|what is|explain|describe|show me|help me understand|i need to know|can you|please)\b',
+            r'\b(how do i|how to|steps to|process for|way to)\b',
+            r'\b(i want to|i would like to|i need to|let me)\b',
+            r'\b(the user is asking|the question is|this query is about)\b'
+        ]
+        
+        for pattern in llm_patterns:
+            text = re.sub(pattern, '', text)
+        
+        # Enhanced stopwords including verbose terms that don't help BM25
+        expanded_stopwords = {
+            'what', 'how', 'do', 'i', 'is', 'are', 'the', 'to', 'for', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'by', 'with', 'from', 'me', 'through', 'of', 'this', 'that', 'these', 'those',
+            'about', 'can', 'could', 'would', 'should', 'will', 'was', 'were', 'been', 'have', 'has', 'had', 'does', 'did', 'get', 'got', 'use', 'using', 'used',
+            'tell', 'show', 'give', 'find', 'see', 'know', 'help', 'want', 'need', 'like', 'please', 'understand', 'explain', 'describe'
+        }
+        
+        # Clean punctuation but preserve important separators temporarily
+        text = re.sub(r'[^\w\s\-\_]', ' ', text)
+        
+        # Split into words and filter
+        words = []
+        for word in text.split():
+            word = word.strip('-_')  # Clean separators from edges
+            if (len(word) > 2 and 
+                word not in expanded_stopwords and 
+                not word.isdigit() and  # Skip pure numbers
+                re.match(r'^[a-zA-Z][a-zA-Z0-9]*$', word)):  # Keep alphanumeric starting with letter
+                words.append(word)
+        
+        # Prioritize potential business terms and acronyms
+        priority_words = []
+        regular_words = []
+        
+        for word in words:
+            # Prioritize: uppercase terms, compound terms with separators, longer terms
+            if (word.upper() == word and len(word) > 1) or len(word) > 6:
+                priority_words.append(word)
+            else:
+                regular_words.append(word)
+        
+        # Combine priority words first, then regular words
+        result_words = priority_words + regular_words
+        
+        # Return top keywords to avoid over-long queries
+        return ' '.join(result_words[:8])  # Limit to 8 key terms for BM25 performance
 
     def _build_bm25_query(
         self,
@@ -692,14 +738,19 @@ class OpenSearchClient:
         return clauses
     
     def _parse_search_response(self, data: Dict[str, Any]) -> List[ServiceSearchResult]:
-        """Parse OpenSearch response into SearchResult objects - handles nested structure."""
+        """Parse OpenSearch response into SearchResult objects with canonical schema."""
         results = []
         
         for hit in data.get("hits", {}).get("hits", []):
             source = hit.get("_source", {})
             
+            # Extract title with fallbacks - REQUIRED field in canonical schema
+            title = (source.get("api_name") or 
+                    source.get("title") or 
+                    source.get("utility_name") or 
+                    f"Document {len(results)+1}")  # Always provide a title
+            
             # Handle nested structure with inner_hits (like v1 working branch)
-            title = source.get("api_name", "")
             body_parts = []
             
             # Extract content from inner_hits (matched sections)
@@ -714,71 +765,79 @@ class OpenSearchClient:
             
             body = "\n\n".join(body_parts) if body_parts else ""
             
-            # Build metadata from source fields
-            metadata = {
-                "page_url": source.get("page_url", ""),
-                "utility_name": source.get("utility_name", ""),
-                "api_name": source.get("api_name", ""),
-                "sections_matched": len(inner_hits)
-            }
-            
-            # Extract real URL or construct a meaningful one
-            url = source.get("page_url") or metadata.get("url") or metadata.get("page_url")
+            # Extract real URL with fallbacks - REQUIRED field in canonical schema
+            url = source.get("page_url") or source.get("url")
             if not url or url == "#":
-                # Construct a meaningful URL or use doc_id-based placeholder
-                url = f"#doc-{hit['_id']}" if hit.get("_id") else "#"
+                # Construct a meaningful URL using doc_id
+                doc_id = hit.get("_id") or f"doc_{len(results)+1}"
+                url = f"#doc-{doc_id}"
             
             # Ensure doc_id is always valid and non-empty - CRITICAL for TurnResult validation
             doc_id = hit.get("_id") or f"doc_{len(results)+1}"
             if not doc_id or doc_id.strip() == "":
                 doc_id = f"doc_{len(results)+1}"
             
+            # Build metadata from source fields (preserving existing structure)
+            metadata = {
+                "page_url": source.get("page_url", ""),
+                "utility_name": source.get("utility_name", ""),
+                "api_name": source.get("api_name", ""),
+                "sections_matched": len(inner_hits),
+                # Preserve backward compatibility
+                "page_title": title,
+            }
+            
+            # CANONICAL SCHEMA: Always populate required fields
             result = ServiceSearchResult(
-                doc_id=doc_id,  # Ensure doc_id is always populated and non-empty - REQUIRED field
-                score=hit.get("_score", 0.0),  # Handle missing scores
-                content=body,  # Use body as content - REQUIRED field
-                metadata={
-                    **metadata,
-                    "title": title,  # Store title in metadata
-                    "page_title": title,  # Also store as page_title for compatibility
-                    "url": url  # Store real URL in metadata
-                }
+                doc_id=doc_id,      # REQUIRED: Always populated and non-empty
+                title=title,        # REQUIRED: Always populated with fallback
+                url=url,           # REQUIRED: Always populated with fallback  
+                score=hit.get("_score", 0.0),  # REQUIRED: Handle missing scores
+                content=body,       # REQUIRED: Use body as content
+                metadata=metadata   # Additional fields for backward compatibility
             )
             results.append(result)
         
         return results
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
-        """Build BM25 query matching working v1 branch structure."""
-        # Use bool query with must clauses like working v1 branch
+        """Build optimized BM25 query with multi_match, field boosting, and payload reduction."""
+        # Extract key terms for BM25-friendly searching
+        key_terms = self._extract_key_terms(query)
+        
+        # Optimized multi_match query with field boosting as per user requirements
         must_clauses = [
             {
                 "nested": {
-                    "path": "sections",
+                    "path": "sections", 
                     "query": {
-                        "match": {
-                            "sections.content": {
-                                "query": query
-                            }
+                        "multi_match": {
+                            "query": key_terms,  # Use extracted key terms instead of full verbose query
+                            "type": "best_fields",
+                            "fields": [
+                                "sections.heading^4",   # Boost title equivalents heavily
+                                "sections.summary^2",   # Boost summaries moderately  
+                                "sections.content"      # Base content field (no boost)
+                            ],
+                            "tie_breaker": 0.3,
+                            "minimum_should_match": "2<-1 5<-2"  # Reduce off-topic matches on long queries
                         }
                     },
                     "inner_hits": {
                         "name": "matched_sections",
-                        "size": 5,
-                        "highlight": {
-                            "fields": {
-                                "sections.content": {}
-                            }
-                        },
-                        "sort": [{"_score": "desc"}]
+                        "size": 3,  # Reduced from 5 to minimize payload
+                        "sort": [{"_score": "desc"}],
+                        "_source": ["heading", "content"]  # Only fetch needed fields
                     }
                 }
             }
         ]
         
+        # PAYLOAD REDUCTION: Reduced size, minimal _source fields, disabled tracking
         search_body = {
-            "size": k,
-            "_source": ["page_url", "api_name", "utility_name"],
+            "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
+            "_source": ["page_url", "api_name", "utility_name"],  # Only essential fields
+            "track_total_hits": False,  # Disable total hits tracking for performance
             "query": {
                 "bool": {
                     "must": must_clauses
@@ -788,11 +847,12 @@ class OpenSearchClient:
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
-        """Build nested kNN query matching JPMC production index structure."""
-        # Use nested query structure for JPMC production index
+        """Build optimized nested kNN query with reduced payload size."""
+        # Use nested query structure for JPMC production index with optimizations
         search_body = {
-            "size": k,
-            "_source": ["page_url", "api_name", "utility_name"],
+            "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
+            "_source": ["page_url", "api_name", "utility_name"],  # Only essential fields
+            "track_total_hits": False,  # Disable total hits tracking for performance
             "query": {
                 "nested": {
                     "path": "sections",
@@ -806,8 +866,9 @@ class OpenSearchClient:
                     },
                     "inner_hits": {
                         "name": "matched_sections", 
-                        "size": 5,
-                        "sort": [{"_score": "desc"}]
+                        "size": 3,  # Reduced from 5 to minimize payload
+                        "sort": [{"_score": "desc"}],
+                        "_source": ["heading", "content"]  # Only fetch needed fields
                     }
                 }
             }

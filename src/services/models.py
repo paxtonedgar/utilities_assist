@@ -12,10 +12,12 @@ class IntentResult(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """Individual search result."""
+    """Individual search result with canonical schema."""
     doc_id: str
+    title: str
+    url: Optional[str] = None
     score: float
-    content: str
+    content: str  # Main content/snippet
     metadata: Dict[str, Any] = {}
 
 
