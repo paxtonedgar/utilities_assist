@@ -240,7 +240,7 @@ def _load_config_once() -> dict:
             os_section = config['opensearch']
             _cached_config_params.update({
                 'local_opensearch_endpoint': os_section.get('endpoint', 'http://localhost:9200'),
-                'local_index_name': os_section.get('index_name', 'mock_confluence')
+                'local_index_name': os_section.get('index_name', 'khub-opensearch-index')
             })
         
         logger.info(f"Cached {len(_cached_config_params)} config parameters from config.ini")
