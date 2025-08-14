@@ -9,8 +9,26 @@ Contains all routing decisions and conditions.
 from typing import Literal, Dict, Any
 import logging
 
-# Import constants to prevent KeyError issues
+# Import constants
 from agent.constants import NORMALIZED_QUERY
+
+def to_state_dict(state):
+    """
+    Convert any state object (GraphState, Pydantic BaseModel, or dict) to a plain dict.
+    
+    Handles:
+    - Plain dict: return as-is
+    - Pydantic v2: use model_dump()
+    - Pydantic v1: use dict()
+    - Any other object: attempt dict() conversion
+    """
+    if isinstance(state, dict):
+        return state
+    if hasattr(state, "model_dump"):       # pydantic v2
+        return state.model_dump()
+    if hasattr(state, "dict"):             # pydantic v1
+        return state.dict()
+    return dict(state)  # last resort
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +59,11 @@ class IntentRouter:
     MULTI_ENTITY_INDICATORS = ["and", "both", "either", "all"]
     
     @classmethod
-    def route_after_intent(cls, state: Dict[str, Any]) -> RouteDestination:
+    def route_after_intent(cls, state) -> RouteDestination:
         """Route to appropriate search based on intent classification."""
-        intent = state.get("intent")
+        # Convert GraphState to dict for safe access
+        s = to_state_dict(state)
+        intent = s.get("intent")
         if not intent:
             logger.warning("No intent found in state, defaulting to confluence search")
             return "search_confluence"
@@ -57,7 +77,7 @@ class IntentRouter:
             return route
         
         # Check for complex queries needing multi-search
-        if cls._needs_multi_search(state, intent_type):
+        if cls._needs_multi_search(s, intent_type):
             logger.info(f"Routing to multi-search for complex query: {intent_type}")
             return "search_multi"
         
@@ -66,9 +86,10 @@ class IntentRouter:
         return "search_confluence"
     
     @classmethod
-    def route_after_rewrite(cls, state: Dict[str, Any]) -> RewriteRouteDestination:
+    def route_after_rewrite(cls, state) -> RewriteRouteDestination:
         """Route after query rewrite - use same logic as initial routing."""
         # Reuse the same logic but filter to valid rewrite destinations
+        # Note: route_after_intent already handles state normalization
         initial_route = cls.route_after_intent(state)
         
         # Map to valid rewrite destinations
@@ -81,9 +102,9 @@ class IntentRouter:
         return rewrite_routes.get(initial_route, "search_confluence")
     
     @classmethod
-    def _needs_multi_search(cls, state: Dict[str, Any], intent_type: str) -> bool:
+    def _needs_multi_search(cls, state_dict: Dict[str, Any], intent_type: str) -> bool:
         """Determine if query needs multi-search based on complexity indicators."""
-        query = state.get("normalized_query", "").lower()
+        query = state_dict.get("normalized_query", "").lower()
         
         # Check for comparative language
         is_comparative = any(keyword in query for keyword in cls.COMPARATIVE_KEYWORDS)
@@ -103,7 +124,7 @@ class CoverageChecker:
     @classmethod
     def check_coverage(
         cls, 
-        state: Dict[str, Any], 
+        state, 
         coverage_threshold: float = 0.7, 
         min_results: int = 3
     ) -> CoverageRouteDestination:
@@ -111,17 +132,19 @@ class CoverageChecker:
         Check if search results meet coverage requirements.
         
         Args:
-            state: Current graph state
+            state: Current graph state (GraphState or dict)
             coverage_threshold: Minimum coverage score required
             min_results: Minimum number of results required
             
         Returns:
             "rewrite" if coverage is insufficient, "combine" if acceptable
         """
-        search_results = state.get("search_results", [])
-        loop_count = state.get("loop_count", 0) 
-        rewrite_attempts = state.get("rewrite_attempts", 0)
-        normalized_query = state.get(NORMALIZED_QUERY, "")
+        # Convert GraphState to dict for safe access
+        s = to_state_dict(state)
+        search_results = s.get("search_results", [])
+        loop_count = s.get("loop_count", 0) 
+        rewrite_attempts = s.get("rewrite_attempts", 0)
+        normalized_query = s.get(NORMALIZED_QUERY, "")
         
         # Prevent infinite loops with multiple checks
         if loop_count >= 3:
@@ -145,7 +168,7 @@ class CoverageChecker:
         
         # Check coverage score if available
         # This would need to be implemented based on your coverage calculation
-        coverage_score = cls._calculate_coverage_score(state)
+        coverage_score = cls._calculate_coverage_score(s)
         if coverage_score < coverage_threshold:
             logger.info(f"Low coverage score ({coverage_score:.2f} < {coverage_threshold}), rewriting query")
             return "rewrite"
@@ -154,13 +177,13 @@ class CoverageChecker:
         return "combine"
     
     @classmethod
-    def _calculate_coverage_score(cls, state: Dict[str, Any]) -> float:
+    def _calculate_coverage_score(cls, state_dict: Dict[str, Any]) -> float:
         """
         Calculate coverage score based on search results.
         
         This is a placeholder - implement based on your coverage logic.
         """
-        search_results = state.get("search_results", [])
+        search_results = state_dict.get("search_results", [])
         if not search_results:
             return 0.0
         
