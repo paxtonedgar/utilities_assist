@@ -25,8 +25,11 @@ class SummarizeNode(SearchNodeHandler):
     
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute query summarization logic."""
-        # Use existing summarize_node function with proper state passing
-        result = await summarize_node(state)
+        # Use existing summarize_node function with proper config parameter
+        # Note: The original function expects (state, config, store=None)
+        # We provide a minimal config for compatibility
+        config = {"configurable": {}}
+        result = await summarize_node(state, config)
         return result
 
 
@@ -38,8 +41,11 @@ class IntentNode(SearchNodeHandler):
     
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute intent classification logic."""
-        # Use existing intent_node function with proper state passing
-        result = await intent_node(state)
+        # Use existing intent_node function with proper config parameter
+        # Note: The original function expects (state, config, store=None)
+        # We provide a minimal config for compatibility
+        config = {"configurable": {}}
+        result = await intent_node(state, config)
         return result
 
 
@@ -214,11 +220,26 @@ class RewriteQueryNode(SearchNodeHandler):
         search_results = state.get("search_results", [])
         loop_count = state.get("loop_count", 0)
         
-        # Simple rewrite strategy - expand with synonyms or rephrase
-        # This is a placeholder - implement your actual rewriting logic
+        # Handle empty queries - don't rewrite if there's nothing to work with
+        if not normalized_query or normalized_query.strip() == "":
+            logger.warning("Cannot rewrite empty query, using original query")
+            fallback_query = original_query or "general information"
+            return {
+                "normalized_query": fallback_query,
+                "loop_count": loop_count + 1
+            }
+        
+        # Perform query rewriting
         rewritten_query = await self._rewrite_query(
             original_query, normalized_query, search_results
         )
+        
+        # Ensure we don't return an empty query
+        if not rewritten_query or rewritten_query.strip() == "":
+            logger.warning("Rewrite produced empty query, using fallback")
+            rewritten_query = normalized_query or original_query or "general information"
+        
+        logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
         
         return {
             "normalized_query": rewritten_query,
