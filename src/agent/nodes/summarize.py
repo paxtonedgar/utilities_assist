@@ -55,20 +55,24 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
             import os
             
             # Get JPMC-specific headers from the original client and filter out problematic ones
-            raw_headers = getattr(resources.chat_client, 'default_headers', {})
             default_headers = {}
-            for key, value in raw_headers.items():
-                # Filter out openai.Omit objects that LangChain can't handle
-                if hasattr(value, '__class__') and 'Omit' in str(type(value)):
-                    continue
-                if isinstance(value, str):
-                    default_headers[key] = value
+            try:
+                raw_headers = getattr(resources.chat_client, 'default_headers', {})
+                for key, value in raw_headers.items():
+                    # Filter out openai.Omit objects that LangChain can't handle
+                    if hasattr(value, '__class__') and 'Omit' in str(type(value)):
+                        continue
+                    if isinstance(value, str):
+                        default_headers[key] = value
+            except (AttributeError, TypeError):
+                # If resources.chat_client is not an object or doesn't have default_headers, use empty dict
+                pass
             
             langchain_client = AzureChatOpenAI(
                 api_version=resources.settings.chat.api_version,  # api_version from config
                 azure_deployment=resources.settings.chat.model,   # deployment_name from config
                 azure_endpoint=resources.settings.chat.api_base,  # azure_openai_endpoint from config
-                api_key=resources.chat_client.api_key,            # api_key from config
+                api_key=resources.settings.chat.api_key,         # api_key from config
                 default_headers=default_headers,                  # JPMC headers (user_sid, etc.)
                 temperature=0.1,
                 max_tokens=500

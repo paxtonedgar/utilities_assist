@@ -337,6 +337,23 @@ class ApplicationSettings(BaseSettings):
                 self.api_key = azure_config.api_key
         
         return EmbedConfig(self.azure_openai)
+    
+    @property
+    def search(self):
+        """Compatibility property for graph search configuration."""
+        if not self.azure_openai:
+            return None
+        
+        class SearchConfig:
+            def __init__(self, azure_config, settings):
+                self.api_version = azure_config.api_version
+                self.model = azure_config.deployment_name
+                self.api_base = azure_config.azure_openai_endpoint
+                self.api_key = azure_config.api_key
+                self.index_alias = settings.search_index_alias
+                self.opensearch_host = settings.opensearch_host
+        
+        return SearchConfig(self.azure_openai, self)
 
 
 # Singleton instance
