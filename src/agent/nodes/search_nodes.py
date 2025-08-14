@@ -73,7 +73,9 @@ class ConfluenceSearchNode(SearchNodeHandler):
             # Handle empty query to prevent infinite loops
             if not query or query.strip() == "":
                 logger.error("Empty query provided to Confluence search")
+                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
                 return {
+                    **state,  # Preserve all existing state
                     "search_results": [],
                     "workflow_path": state.get("workflow_path", []) + ["search_confluence_error"],
                     "error_messages": state.get("error_messages", []) + ["Empty query provided"]
@@ -95,14 +97,18 @@ class ConfluenceSearchNode(SearchNodeHandler):
                 search_result.metadata["search_method"] = "confluence"
                 search_result.metadata["search_id"] = "confluence"
             
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": result.results,
                 "workflow_path": state.get("workflow_path", []) + ["search_confluence"]
             }
             
         except Exception as e:
             logger.error(f"Confluence search failed: {e}")
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": [],
                 "workflow_path": state.get("workflow_path", []) + ["search_confluence_error"],
                 "error_messages": state.get("error_messages", []) + [f"Confluence search failed: {e}"]
@@ -141,14 +147,18 @@ class SwaggerSearchNode(SearchNodeHandler):
                 search_result.metadata["search_method"] = "swagger"
                 search_result.metadata["search_id"] = "swagger"
             
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": result.results,
                 "workflow_path": state.get("workflow_path", []) + ["search_swagger"]
             }
             
         except Exception as e:
             logger.error(f"Swagger search failed: {e}")
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": [],
                 "workflow_path": state.get("workflow_path", []) + ["search_swagger_error"],
                 "error_messages": state.get("error_messages", []) + [f"Swagger search failed: {e}"]
@@ -198,14 +208,18 @@ class MultiSearchNode(SearchNodeHandler):
             
             logger.info(f"Multi-search found {len(all_results)} results across {len(indices)} indices")
             
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": all_results,
                 "workflow_path": state.get("workflow_path", []) + ["search_multi"]
             }
             
         except Exception as e:
             logger.error(f"Multi-index search failed: {e}")
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "search_results": [],
                 "workflow_path": state.get("workflow_path", []) + ["search_multi_error"],
                 "error_messages": state.get("error_messages", []) + [f"Multi-search failed: {e}"]
@@ -229,7 +243,9 @@ class RewriteQueryNode(SearchNodeHandler):
         if not normalized_query or normalized_query.strip() == "":
             logger.warning("Cannot rewrite empty query, using original query")
             fallback_query = original_query or "general information"
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 NORMALIZED_QUERY: fallback_query,
                 "loop_count": loop_count + 1,
                 "rewrite_attempts": state.get("rewrite_attempts", 0) + 1
@@ -247,7 +263,9 @@ class RewriteQueryNode(SearchNodeHandler):
         
         logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
         
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             NORMALIZED_QUERY: rewritten_query,
             "loop_count": loop_count + 1,
             "rewrite_attempts": state.get("rewrite_attempts", 0) + 1

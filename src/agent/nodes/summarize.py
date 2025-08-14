@@ -50,7 +50,9 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
                 state.get(ORIGINAL_QUERY, None),
                 state.get(NORMALIZED_QUERY, None),
             )
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 NORMALIZED_QUERY: "",
                 "workflow_path": state.get("workflow_path", []) + ["summarize_empty"]
             }
@@ -118,7 +120,9 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
         
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             NORMALIZED_QUERY: normalized,
             "workflow_path": state.get("workflow_path", []) + ["summarize"]
         }
@@ -127,7 +131,9 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         logger.error(f"Summarize node failed: {e}")
         # Fallback to original query with resilient key access
         fallback_query = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             NORMALIZED_QUERY: fallback_query,
             "workflow_path": state.get("workflow_path", []) + ["summarize_error"],
             "error_messages": state.get("error_messages", []) + [f"Summarize failed: {e}"]

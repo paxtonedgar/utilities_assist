@@ -48,7 +48,9 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
         normalized_query = state.get(NORMALIZED_QUERY, "").strip()
         if not normalized_query:
             logger.warning("intent_node: normalized_query missing/empty; setting intent=None and routing to search fallback.")
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 INTENT: IntentResult(intent="confluence", confidence=0.1),  # Default fallback
                 "workflow_path": state.get("workflow_path", []) + ["intent_empty"]
             }
@@ -130,7 +132,9 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
                 confidence=0.5
             )
         
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             INTENT: intent_result,
             "workflow_path": state.get("workflow_path", []) + ["intent"]
         }
@@ -138,7 +142,9 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
     except Exception as e:
         logger.error(f"Intent node failed: {e}")
         # Fallback intent
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             INTENT: IntentResult(intent="error", confidence=0.0),
             "workflow_path": state.get("workflow_path", []) + ["intent_error"],
             "error_messages": state.get("error_messages", []) + [f"Intent classification failed: {e}"]

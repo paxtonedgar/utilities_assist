@@ -32,7 +32,9 @@ async def combine_node(state: dict, config=None, *, store=None) -> dict:
         
         if not all_results:
             logger.warning("No search results to combine")
+            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
             return {
+                **state,  # Preserve all existing state
                 "combined_results": [],
                 "final_context": "No relevant information found.",
                 "workflow_path": state.get("workflow_path", []) + ["combine"]
@@ -68,7 +70,9 @@ async def combine_node(state: dict, config=None, *, store=None) -> dict:
         # Build context from combined results
         final_context = _build_context_from_results(combined_results)
         
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             "combined_results": combined_results,
             "final_context": final_context,
             "workflow_path": state.get("workflow_path", []) + ["combine"],
@@ -83,7 +87,9 @@ async def combine_node(state: dict, config=None, *, store=None) -> dict:
         logger.error(f"Combine node failed: {e}")
         # Fallback - just use raw results
         all_results = state.get("search_results", [])
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
         return {
+            **state,  # Preserve all existing state
             "combined_results": all_results[:10],  # Limit to top 10
             "final_context": _build_context_from_results(all_results[:10]),
             "workflow_path": state.get("workflow_path", []) + ["combine_error"],
