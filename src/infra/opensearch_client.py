@@ -119,21 +119,21 @@ class OpenSearchClient:
             query_length=len(query)
         )
         
-        # Build simple BM25 query (like main branch)
+        # Build BM25 query matching working v1 branch structure
         search_body = self._build_simple_bm25_query(query, k)
         
         try:
             url = f"{self.base_url}/{index}/_search"
             start_time = time.time()
             
-            # Use direct requests with auth (like main branch) instead of session
+            # Use GET request like working v1 branch
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             if aws_auth:
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0)
+                response = requests.get(url, json=search_body, auth=aws_auth, timeout=30.0)
             else:
-                response = self.session.post(url, json=search_body, timeout=30.0)
+                response = self.session.get(url, json=search_body, timeout=30.0)
             
             took_ms = (time.time() - start_time) * 1000
             status_code = response.status_code
@@ -731,12 +731,10 @@ class OpenSearchClient:
         return results
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
-        """Build nested BM25 query matching JPMC production index structure."""
-        # Use nested query structure for JPMC production index
-        search_body = {
-            "size": k,
-            "_source": ["page_url", "api_name", "utility_name"],
-            "query": {
+        """Build BM25 query matching working v1 branch structure."""
+        # Use bool query with must clauses like working v1 branch
+        must_clauses = [
+            {
                 "nested": {
                     "path": "sections",
                     "query": {
@@ -756,6 +754,16 @@ class OpenSearchClient:
                         },
                         "sort": [{"_score": "desc"}]
                     }
+                }
+            }
+        ]
+        
+        search_body = {
+            "size": k,
+            "_source": ["page_url", "api_name", "utility_name"],
+            "query": {
+                "bool": {
+                    "must": must_clauses
                 }
             }
         }

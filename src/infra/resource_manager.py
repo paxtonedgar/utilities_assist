@@ -108,7 +108,7 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
         
         logger.info("Creating embed client...")
         embed_client = None
-        if settings.azure_openai and settings.azure_openai.azure_openai_embedding_model:
+        if settings.azure_openai and settings.azure_openai.azure_openai_embedding_model and settings.embed:
             from src.infra.clients import make_embed_client
             from src.infra.config import EmbedCfg
             
@@ -118,6 +118,9 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
                 dims=1536  # Standard Azure OpenAI embedding dimensions
             )
             embed_client = make_embed_client(embed_cfg, token_provider)
+        else:
+            logger.warning("Embed client not initialized - Azure OpenAI config or embed config missing")
+            logger.warning(f"azure_openai: {settings.azure_openai is not None}, embed: {settings.embed is not None}")
         
         logger.info("Creating search client...")
         from src.infra.opensearch_client import create_search_client
