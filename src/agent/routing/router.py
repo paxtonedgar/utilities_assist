@@ -10,7 +10,7 @@ from typing import Literal, Dict, Any
 import logging
 
 # Import constants to prevent KeyError issues
-from controllers.graph_integration import NORMALIZED_QUERY
+from agent.constants import NORMALIZED_QUERY
 
 logger = logging.getLogger(__name__)
 

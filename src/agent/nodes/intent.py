@@ -12,7 +12,7 @@ from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler
 
 # Import constants to prevent KeyError issues
-from controllers.graph_integration import NORMALIZED_QUERY, INTENT
+from agent.constants import NORMALIZED_QUERY, INTENT
 
 logger = logging.getLogger(__name__)
 

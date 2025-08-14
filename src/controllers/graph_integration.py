@@ -48,10 +48,8 @@ from agent.graph import create_graph, GraphState
 
 logger = logging.getLogger(__name__)
 
-# State key constants - use these across all nodes to prevent KeyError issues
-ORIGINAL_QUERY = "original_query"
-NORMALIZED_QUERY = "normalized_query" 
-INTENT = "intent"
+# Import state key constants from centralized location
+from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
 
 # Environment flag for LangGraph control
 def is_langgraph_enabled() -> bool:

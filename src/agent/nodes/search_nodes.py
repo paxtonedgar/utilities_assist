@@ -15,7 +15,7 @@ from agent.tools.search import adaptive_search_tool, multi_index_search_tool
 from services.models import SearchResult
 
 # Import constants to prevent KeyError issues
-from controllers.graph_integration import ORIGINAL_QUERY, NORMALIZED_QUERY
+from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
 
 logger = logging.getLogger(__name__)
 
