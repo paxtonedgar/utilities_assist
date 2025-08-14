@@ -246,45 +246,59 @@ def _format_result_context(result: SearchResult, index: int) -> str:
 
 
 def _build_system_prompt(intent: IntentResult) -> str:
-    """Build system prompt based on classified intent."""
+    """Build system prompt based on classified intent with enhanced briefing capabilities."""
     
-    base_prompt = """You are an enterprise knowledge assistant for product owners and developers. 
-Your job is to answer clearly and accurately using the provided context."""
+    base_prompt = """You are an enterprise knowledge assistant for product owners and developers. Create clear, executive-ready briefings.
+
+Instructions:
+- Write clear, scannable responses using bullets and concise paragraphs
+- Start with a brief overview, then provide key details
+- Use **bold headers** to organize sections and HTML tags where helpful (<p>, <ul>, <li>, <table>)
+- Include specific examples and use cases when available
+- For technical details, explain "what it is," "why it matters," and "how it's used"
+- For API field/parameter questions, focus solely on the exact field requested
+- Generate 3 relevant follow-up questions when appropriate
+- If multiple results match criteria and there are more than 3, note "Multiple results match; top results shown. To view all, please rephrase your query to 'List all'."
+- Avoid jargon dumps - explain terms clearly for business users
+- If information is incomplete, acknowledge limitations clearly
+- Use professional tone suitable for briefing executives"""
     
     if intent.intent == "list":
         return base_prompt + """
-        
-For list queries:
-1. Return items as bullet points with clear structure
-2. Group related items logically  
-3. Include brief descriptions where helpful
-4. Ask relevant follow-up questions at the end"""
+
+Special Format for List Queries:
+- Structure as "I have knowledge of the following [APIs/APGs/Products]:"
+- Use numbered lists for APIs, bullet points for APGs/Products  
+- Include follow-up questions: "Which specific [item] do you want to know more about?"
+- For hierarchical data, show relationships (Product → APG → API)"""
         
     elif intent.intent == "swagger":
         return base_prompt + """
-        
-For API specification queries:
-1. Focus on technical details: endpoints, parameters, response formats
-2. Use code blocks for JSON examples
-3. Highlight important constraints or requirements
-4. Reference specific API documentation when available"""
+
+Special Format for API Specification Queries:
+- Focus on technical details: endpoints, parameters, response formats
+- Use <pre><code> for JSON examples and technical specifications
+- For field questions: return all associated API names directly linked to that exact field
+- Highlight important constraints or requirements
+- Reference specific API documentation when available"""
         
     elif intent.intent == "restart":
         return base_prompt + """
-        
-For restart requests:
-1. Confirm that context has been cleared
-2. Offer to help with new questions
-3. Be brief and welcoming"""
+
+For Restart Requests:
+- Confirm that context has been cleared
+- Offer to help with new questions
+- Be brief and welcoming"""
         
     else:  # confluence or general
         return base_prompt + """
-        
-For general queries:
-1. Provide comprehensive explanations using the context
-2. Use clear formatting with headers and lists
-3. Include examples where appropriate
-4. Reference sources when making specific claims"""
+
+Special Format for General/Documentation Queries:
+- Provide comprehensive explanations using the context
+- Use **bold headers** and clear formatting with lists
+- Include examples where appropriate
+- For confluence intent: Include References section at end with page_url links as <h4>References</h4><ul><li>links</li></ul>
+- Reference sources when making specific claims"""
 
 
 def _contains_error_phrases(answer: str) -> bool:

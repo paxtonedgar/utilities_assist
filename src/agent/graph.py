@@ -526,16 +526,8 @@ async def _answer_wrapper(state: GraphState, *, config=None, store=None) -> Dict
                 "workflow_path": state.get("workflow_path", []) + ["answer"]
             }
         
-        # Use jinja template for answer generation
+        # Generate streaming response using standard generate_response
         try:
-            template = jinja_env.get_template("answer.jinja")
-            prompt = template.render(
-                query=query,
-                intent=intent or IntentResult(intent="unknown", confidence=0.0),
-                context=context,
-                chat_history=[]  # Could be expanded to include from state
-            )
-            
             # Generate streaming response
             response_chunks = []
             full_answer = ""
@@ -547,19 +539,18 @@ async def _answer_wrapper(state: GraphState, *, config=None, store=None) -> Dict
             async for chunk in generate_response(
                 query,
                 context, 
-                intent,
+                intent or IntentResult(intent="unknown", confidence=0.0),
                 resources.chat_client,
-                [],  # chat_history
+                [],  # chat_history - could be expanded to include from state
                 resources.settings.chat.model,
                 temperature,
-                max_tokens,
-                system_prompt_override=prompt
+                max_tokens
             ):
                 full_answer += chunk
                 response_chunks.append(chunk)
             
         except Exception as e:
-            logger.warning(f"Template-based answer generation failed, using fallback: {e}")
+            logger.warning(f"Standard answer generation failed, using fallback: {e}")
             # Fallback to simple context-based answer
             full_answer = f"Based on the available information:\n\n{context[:1000]}..."
             response_chunks = [full_answer]
