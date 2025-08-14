@@ -44,7 +44,12 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         # Use consistent state keys with fallback
         user_input = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
         if not user_input:
-            logger.warning("summarize_node: empty input; skipping normalization.")
+            logger.warning(
+                "summarize_node: empty input; keys=%s original=%r normalized=%r",
+                list(state.keys()) if hasattr(state, "keys") else type(state),
+                state.get(ORIGINAL_QUERY, None),
+                state.get(NORMALIZED_QUERY, None),
+            )
             return {
                 NORMALIZED_QUERY: "",
                 "workflow_path": state.get("workflow_path", []) + ["summarize_empty"]
@@ -135,9 +140,9 @@ class SummarizeNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("summarize")
     
-    async def execute(self, state: dict) -> dict:
+    async def execute(self, state: dict, config: dict = None) -> dict:
         """Execute the summarize logic using the existing function."""
-        # The existing function expects config parameter, but we don't have it in execute()
-        # We need to call the function directly with a mock config
-        config = {"configurable": {"thread_id": "unknown"}}
+        # The existing function expects config parameter
+        if config is None:
+            config = {"configurable": {"thread_id": "unknown"}}
         return await summarize_node(state, config)

@@ -151,7 +151,8 @@ class IntentNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("intent")
     
-    async def execute(self, state: dict) -> dict:
+    async def execute(self, state: dict, config: dict = None) -> dict:
         """Execute the intent logic using the existing function."""
-        config = {"configurable": {"thread_id": "unknown"}}
+        if config is None:
+            config = {"configurable": {"thread_id": "unknown"}}
         return await intent_node(state, config)

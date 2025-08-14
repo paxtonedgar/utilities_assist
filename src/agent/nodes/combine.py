@@ -8,7 +8,7 @@ from services.retrieve import rrf_fuse_results, mmr_diversify
 logger = logging.getLogger(__name__)
 
 
-async def combine_node(state: dict, config, *, store=None) -> dict:
+async def combine_node(state: dict, config=None, *, store=None) -> dict:
     """
     Combine and merge results from multiple searches.
     

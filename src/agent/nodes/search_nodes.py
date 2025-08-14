@@ -26,12 +26,13 @@ class SummarizeNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("summarize")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute query summarization logic."""
         # Use existing summarize_node function with proper config parameter
         # Note: The original function expects (state, config, store=None)
         # We provide a minimal config for compatibility
-        config = {"configurable": {}}
+        if config is None:
+            config = {"configurable": {}}
         result = await summarize_node(state, config)
         return result
 
@@ -42,12 +43,13 @@ class IntentNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("intent")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute intent classification logic."""
         # Use existing intent_node function with proper config parameter
         # Note: The original function expects (state, config, store=None)
         # We provide a minimal config for compatibility
-        config = {"configurable": {}}
+        if config is None:
+            config = {"configurable": {}}
         result = await intent_node(state, config)
         return result
 
@@ -58,7 +60,7 @@ class ConfluenceSearchNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("search_confluence")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute Confluence search logic - REAL implementation from original."""
         try:
             # Extract resources from global resource manager
@@ -113,7 +115,7 @@ class SwaggerSearchNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("search_swagger")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute Swagger search logic - REAL implementation from original."""
         try:
             # Extract resources from global resource manager
@@ -159,7 +161,7 @@ class MultiSearchNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("search_multi")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute multi-index search logic - REAL implementation from original."""
         try:
             # Extract resources from global resource manager
@@ -216,7 +218,7 @@ class RewriteQueryNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("rewrite_query")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute query rewriting logic."""
         original_query = state.get(ORIGINAL_QUERY, "")
         normalized_query = state.get(NORMALIZED_QUERY, "")

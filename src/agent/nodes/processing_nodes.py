@@ -22,16 +22,18 @@ class CombineNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("combine")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute result combination logic."""
         search_results = state.get("search_results", [])
         intent = state.get("intent")
         
-        # Use existing combine_node function
+        # Use existing combine_node function - MUST pass config
         combined_result = await combine_node({
             "search_results": search_results,
-            "intent": intent
-        })
+            "intent": intent,
+            "normalized_query": state.get("normalized_query", ""),
+            "workflow_path": state.get("workflow_path", [])
+        }, config)
         
         return {
             "combined_results": combined_result.get("combined_results", search_results),
@@ -45,7 +47,7 @@ class AnswerNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("answer")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute answer generation logic."""
         normalized_query = state.get("normalized_query", "")
         final_context = state.get("final_context", "")
@@ -87,7 +89,7 @@ class RestartNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("restart")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute restart logic - clear context and provide fresh start message."""
         return {
             "final_answer": "Context cleared. I'm ready to help with your next question!",
@@ -105,7 +107,7 @@ class ListHandlerNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("list_handler")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute list generation logic."""
         normalized_query = state.get("normalized_query", "")
         
@@ -250,7 +252,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
     def __init__(self):
         super().__init__("workflow_synthesizer")
     
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute workflow synthesis logic."""
         normalized_query = state.get("normalized_query", "")
         

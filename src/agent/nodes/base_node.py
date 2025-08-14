@@ -24,7 +24,7 @@ class BaseNodeHandler(ABC):
         self.logger = logging.getLogger(f"{__name__}.{node_name}")
     
     @abstractmethod
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, state: Dict[str, Any], config: Optional[Dict] = None) -> Dict[str, Any]:
         """Execute the node-specific logic. Must be implemented by subclasses."""
         pass
     
@@ -53,8 +53,8 @@ class BaseNodeHandler(ABC):
                 thread_id=config.get("configurable", {}).get("thread_id") if config else None
             )
             
-            # Execute node-specific logic
-            result = await self.execute(state)
+            # Execute node-specific logic - MUST pass config through
+            result = await self.execute(state, config)
             
             # Ensure result is a dict
             if not isinstance(result, dict):
@@ -117,8 +117,8 @@ class SearchNodeHandler(BaseNodeHandler):
                 thread_id=config.get("configurable", {}).get("thread_id") if config else None
             )
             
-            # Execute search logic
-            result = await self.execute(state)
+            # Execute search logic - MUST pass config through
+            result = await self.execute(state, config)
             
             # Enhanced search logging
             execution_time = (time.time() - start_time) * 1000
