@@ -14,15 +14,34 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from infra.resource_manager import get_resources, RAGResources
 from services.models import TurnResult, IntentResult
 from infra.telemetry import generate_request_id, log_overall_stage
-from infra.persistence import (
-    get_checkpointer_and_store, 
-    extract_user_context, 
-    generate_thread_id,
-    create_langgraph_config
-)
+# Graceful import handling for persistence module
+try:
+    from infra.persistence import (
+        get_checkpointer_and_store, 
+        extract_user_context, 
+        generate_thread_id,
+        create_langgraph_config
+    )
+    PERSISTENCE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Persistence module not available: {e}. Using fallback implementations.")
+    PERSISTENCE_AVAILABLE = False
+    
+    # Fallback implementations
+    def get_checkpointer_and_store():
+        return None, None
+    
+    def extract_user_context(resources):
+        return {"user_id": "fallback_user", "session_metadata": {}}
+    
+    def generate_thread_id(user_id, session_context=None):
+        import time
+        return f"{user_id}_{int(time.time())}"
+    
+    def create_langgraph_config(user_context, thread_id):
+        return {"configurable": {"thread_id": thread_id}}
 
-# Import both traditional and graph-based handlers
-from controllers.turn_controller import handle_turn as handle_turn_traditional
+# Import LangGraph components (traditional handler removed - LangGraph is now the only system)
 from agent.graph import create_graph, GraphState
 
 logger = logging.getLogger(__name__)
@@ -40,11 +59,10 @@ async def handle_turn(
     user_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    Enhanced turn handler with LangGraph integration, authentication, and persistence.
+    LangGraph turn handler with enterprise authentication and persistence.
     
-    This function maintains compatibility with the original handle_turn interface
-    but adds enterprise-ready features like user context, conversation persistence,
-    and thread management.
+    This is now the single, unified turn handler using LangGraph architecture
+    with full enterprise features and conversation persistence.
     
     Args:
         user_input: Raw user input
@@ -57,26 +75,16 @@ async def handle_turn(
     Yields:
         Dict with turn progress updates and final result
     """
-    if LANGGRAPH_ENABLED:
-        # Use LangGraph workflow with authentication and persistence
-        async for update in handle_turn_with_graph(
-            user_input=user_input,
-            resources=resources,
-            chat_history=chat_history,
-            use_mock_corpus=use_mock_corpus,
-            thread_id=thread_id,
-            user_context=user_context
-        ):
-            yield update
-    else:
-        # Use traditional pipeline (no behavior change)
-        async for update in handle_turn_traditional(
-            user_input=user_input,
-            resources=resources,
-            chat_history=chat_history,
-            use_mock_corpus=use_mock_corpus
-        ):
-            yield update
+    # Always use LangGraph (traditional pipeline has been fully migrated)
+    async for update in handle_turn_with_graph(
+        user_input=user_input,
+        resources=resources,
+        chat_history=chat_history,
+        use_mock_corpus=use_mock_corpus,
+        thread_id=thread_id,
+        user_context=user_context
+    ):
+        yield update
 
 
 async def handle_turn_with_graph(
@@ -207,28 +215,22 @@ async def handle_turn_with_graph(
     except Exception as e:
         logger.error(f"LangGraph processing failed: {e}")
         
-        # A4 Requirement: Graceful fallback to traditional processing
-        logger.info("Falling back to traditional pipeline...")
+        # Generate error response (no fallback - LangGraph is the primary system)
+        error_result = TurnResult(
+            answer=f"I encountered an error processing your request: {str(e)}",
+            sources=[],
+            intent=IntentResult(intent="error", confidence=0.0),
+            response_time_ms=(time.time() - start_time) * 1000,
+            error=str(e)
+        )
         
         yield {
-            "type": "status", 
-            "message": "Switching to standard processing...", 
+            "type": "error",
+            "result": error_result.dict(),
             "turn_id": turn_id,
-            "req_id": req_id
+            "req_id": req_id,
+            "message": f"LangGraph processing failed: {str(e)}"
         }
-        
-        # Stream fallback processing
-        async for update in handle_turn_traditional(
-            user_input=user_input,
-            resources=resources,
-            chat_history=chat_history,
-            use_mock_corpus=use_mock_corpus
-        ):
-            # Mark fallback updates
-            if isinstance(update, dict):
-                update["fallback"] = True
-                update["original_error"] = str(e)
-            yield update
 
 
 def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id: str, req_id: str, thread_id: str = None) -> Dict[str, Any]:

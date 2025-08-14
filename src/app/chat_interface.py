@@ -21,11 +21,20 @@ from infra.resource_manager import initialize_resources, get_resources, health_c
 logger = logging.getLogger(__name__)
 
 def _extract_user_context() -> Dict[str, Any]:
-    """Extract user context for the session."""
+    """Extract user context for the session with graceful fallback."""
     try:
         from infra.persistence import extract_user_context
         # Pass None resources to extract from environment 
         return extract_user_context(None)
+    except ImportError:
+        logger.info("Persistence module not available, using local user context")
+        return {
+            "user_id": "streamlit_user",
+            "session_metadata": {
+                "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini")
+            }
+        }
     except Exception as e:
         logger.warning(f"Failed to extract user context: {e}")
         return {
@@ -133,11 +142,17 @@ def initialize_session():
         logger.info(f"Initialized user context: {st.session_state.user_context.get('user_id', 'unknown')}")
     
     if "thread_id" not in st.session_state:
-        from infra.persistence import generate_thread_id
-        st.session_state.thread_id = generate_thread_id(
-            st.session_state.user_context.get("user_id", "unknown"),
-            st.session_state.user_context.get("session_metadata")
-        )
+        try:
+            from infra.persistence import generate_thread_id
+            st.session_state.thread_id = generate_thread_id(
+                st.session_state.user_context.get("user_id", "unknown"),
+                st.session_state.user_context.get("session_metadata")
+            )
+        except ImportError:
+            # Fallback thread ID generation
+            import time
+            user_id = st.session_state.user_context.get("user_id", "unknown")
+            st.session_state.thread_id = f"{user_id}_{int(time.time())}"
         logger.info(f"Generated new thread ID: {st.session_state.thread_id}")
     
     if "conversation_history" not in st.session_state:
@@ -273,11 +288,17 @@ def main():
     with col3:
         if st.button("New Thread"):
             # Start a new conversation thread
-            from infra.persistence import generate_thread_id
-            st.session_state.thread_id = generate_thread_id(
-                st.session_state.user_context.get("user_id", "unknown"),
-                st.session_state.user_context.get("session_metadata")
-            )
+            try:
+                from infra.persistence import generate_thread_id
+                st.session_state.thread_id = generate_thread_id(
+                    st.session_state.user_context.get("user_id", "unknown"),
+                    st.session_state.user_context.get("session_metadata")
+                )
+            except ImportError:
+                # Fallback thread ID generation
+                import time
+                user_id = st.session_state.user_context.get("user_id", "unknown")
+                st.session_state.thread_id = f"{user_id}_{int(time.time())}"
             st.session_state.messages = []
             st.session_state.conversation_history = []
             st.rerun()
