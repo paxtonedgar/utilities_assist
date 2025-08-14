@@ -282,6 +282,20 @@ Special Format for API Specification Queries:
 - Highlight important constraints or requirements
 - Reference specific API documentation when available"""
         
+    elif intent.intent == "workflow":
+        return base_prompt + """
+
+Special Format for Workflow/Procedure Queries:
+- Synthesize information from multiple documents into a coherent sequence
+- Provide numbered step-by-step instructions (1. 2. 3. etc.)
+- Resolve any duplicate or conflicting steps from different sources
+- Order steps logically based on dependencies, not document relevance
+- Group related sub-steps under main steps when appropriate
+- Include prerequisites or setup steps at the beginning
+- Add validation/verification steps where applicable
+- For complex workflows, consider outputting structured format: %%workflow%% JSON for visualization
+- Focus on actionable instructions, not just descriptions"""
+
     elif intent.intent == "restart":
         return base_prompt + """
 

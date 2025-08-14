@@ -99,6 +99,7 @@ def create_graph(
     workflow.add_node("search_swagger", _search_swagger_wrapper) 
     workflow.add_node("search_multi", _search_multi_wrapper)
     workflow.add_node("list_handler", _list_handler_wrapper)  # NEW: Handle list queries
+    workflow.add_node("workflow_synthesizer", _workflow_synthesizer_wrapper)  # NEW: Handle workflow queries
     workflow.add_node("restart", _restart_wrapper)  # MISSING: Restart intent handler
     workflow.add_node("rewrite_query", _rewrite_query_wrapper)
     workflow.add_node("combine", _combine_wrapper)
@@ -117,6 +118,7 @@ def create_graph(
             "search_swagger": "search_swagger", 
             "search_multi": "search_multi",
             "list_handler": "list_handler",  # NEW: Handle list queries
+            "workflow_synthesizer": "workflow_synthesizer",  # NEW: Handle workflow queries
             "restart": "restart"  # MISSING: Handle restart intent
         }
     )
@@ -168,6 +170,7 @@ def create_graph(
     # Final steps
     workflow.add_edge("combine", "answer")
     workflow.add_edge("list_handler", "answer")  # NEW: List handler goes directly to answer (no search needed)
+    workflow.add_edge("workflow_synthesizer", "answer")  # NEW: Workflow synthesizer goes directly to answer
     workflow.add_edge("answer", END)
     workflow.add_edge("restart", END)  # MISSING: Direct restart to end
     
@@ -183,7 +186,7 @@ def create_graph(
     return workflow.compile(**compile_kwargs)
 
 
-def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi", "list_handler", "restart"]:
+def _route_after_intent(state: GraphState) -> Literal["search_confluence", "search_swagger", "search_multi", "list_handler", "workflow_synthesizer", "restart"]:
     """Route to appropriate search based on intent classification."""
     intent = state.get("intent")
     if not intent:
@@ -198,6 +201,10 @@ def _route_after_intent(state: GraphState) -> Literal["search_confluence", "sear
     # Handle list queries specially - use OpenSearch aggregations
     if intent_type == "list":
         return "list_handler"
+    
+    # Handle workflow queries specially - use workflow synthesizer
+    if intent_type == "workflow":
+        return "workflow_synthesizer"
     
     # Check for compound/comparative queries that need multi-search
     query = state.get("normalized_query", "").lower()
@@ -751,6 +758,152 @@ def _format_list_response(items: List[str], list_type: str, original_query: str)
     return response
 
 
+async def _workflow_synthesizer_wrapper(state: GraphState, *, config=None, store=None) -> Dict[str, Any]:
+    """
+    Synthesize multi-document workflows with step sequencing - follows LangGraph pattern.
+    
+    This handles workflow queries like "How do I..." by:
+    1. Multi-document search across relevant sources
+    2. Step sequencing based on logical dependencies
+    3. Conflict resolution between different sources  
+    4. Structured output with MDS format support
+    """
+    try:
+        # Extract resources from global resource manager
+        from infra.resource_manager import get_resources
+        resources = get_resources()
+        
+        query = state.get("normalized_query", "")
+        intent = state.get("intent")
+        
+        logger.info(f"Processing workflow query: {query}")
+        
+        # Phase 1: Multi-document search with workflow focus
+        # Search multiple sources for comprehensive coverage
+        indices = [
+            resources.settings.search_index_alias,  # Main confluence
+            "khub-opensearch-swagger-index"  # Technical procedures
+        ]
+        
+        from agent.tools.search import multi_index_search_tool
+        results_list = await multi_index_search_tool(
+            indices=indices,
+            query=query,
+            search_client=resources.search_client,
+            embed_client=resources.embed_client,
+            embed_model=resources.settings.embed.model,
+            top_k_per_index=8  # Get more results for workflow synthesis
+        )
+        
+        # Phase 2: Collect and analyze all results
+        all_results = []
+        for i, result in enumerate(results_list):
+            index_name = indices[i] if i < len(indices) else f"index_{i}"
+            for search_result in result.results:
+                search_result.metadata["search_method"] = "workflow_synthesis"
+                search_result.metadata["source_index"] = index_name
+                all_results.append(search_result)
+        
+        # Phase 3: Enhanced workflow context building with step analysis
+        workflow_context = _build_workflow_context(all_results, query)
+        
+        logger.info(f"Workflow synthesis found {len(all_results)} relevant sources")
+        
+        return {
+            "final_context": workflow_context,
+            "combined_results": all_results,
+            "workflow_path": state.get("workflow_path", []) + ["workflow_synthesizer"],
+            "workflow_metadata": {
+                "source_count": len(all_results),
+                "synthesis_type": "multi_document_procedure"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Workflow synthesizer failed: {e}")
+        return {
+            "final_context": f"I encountered an error while synthesizing the workflow: {str(e)}",
+            "combined_results": [],
+            "workflow_path": state.get("workflow_path", []) + ["workflow_synthesizer_error"],
+            "error_messages": state.get("error_messages", []) + [f"Workflow synthesis failed: {e}"]
+        }
+
+
+def _build_workflow_context(results: List[SearchResult], query: str) -> str:
+    """Build workflow-optimized context with step prioritization."""
+    if not results:
+        return "No relevant workflow information found."
+    
+    # Group results by source and analyze for step sequences
+    sources = {}
+    for result in results:
+        source_name = result.metadata.get("title", "Unknown Source")
+        if source_name not in sources:
+            sources[source_name] = []
+        sources[source_name].append(result)
+    
+    context_parts = []
+    
+    for source_name, source_results in sources.items():
+        context_parts.append(f"\n**Source: {source_name}**")
+        
+        for result in source_results:
+            content = result.content.strip()
+            
+            # Look for step indicators in content
+            if _contains_step_indicators(content):
+                context_parts.append(f"*[Contains procedural steps]*")
+            
+            # Truncate with workflow awareness
+            if len(content) > 400:
+                content = _smart_workflow_truncate(content, 400)
+            
+            context_parts.append(content)
+            context_parts.append("")  # Spacing between results
+    
+    return "\n".join(context_parts)
+
+
+def _contains_step_indicators(content: str) -> bool:
+    """Check if content contains step/procedure indicators."""
+    step_patterns = [
+        r'\b\d+\.',  # "1.", "2.", etc.
+        r'\bStep \d+',  # "Step 1", "Step 2", etc.
+        r'\b(First|Second|Third|Next|Then|Finally|Lastly)\b',
+        r'^\s*[-*]\s',  # Bullet points at start of lines
+        r'\b(Before|After|Once|When)\b.*\b(complete|finish|done)\b'
+    ]
+    
+    import re
+    for pattern in step_patterns:
+        if re.search(pattern, content, re.IGNORECASE | re.MULTILINE):
+            return True
+    return False
+
+
+def _smart_workflow_truncate(content: str, max_length: int) -> str:
+    """Truncate workflow content at logical step boundaries."""
+    if len(content) <= max_length:
+        return content
+    
+    # Try to break at step boundaries
+    import re
+    
+    # Look for numbered steps
+    step_matches = list(re.finditer(r'\b\d+\.', content))
+    for match in reversed(step_matches):
+        if match.start() < max_length * 0.8:  # Keep at least 80% before truncating
+            truncate_point = match.start()
+            return content[:truncate_point] + f"\n\n*[Additional steps available...]*"
+    
+    # Fallback to sentence boundary
+    sentences = content[:max_length].split('. ')
+    if len(sentences) > 1:
+        return '. '.join(sentences[:-1]) + '.'
+    
+    return content[:max_length - 3] + "..."
+
+
 # Node registry for external access
 NODE_REGISTRY = {
     "summarize": _summarize_wrapper,
@@ -759,6 +912,7 @@ NODE_REGISTRY = {
     "search_swagger": _search_swagger_wrapper,
     "search_multi": _search_multi_wrapper,
     "list_handler": _list_handler_wrapper,  # NEW: List queries handler
+    "workflow_synthesizer": _workflow_synthesizer_wrapper,  # NEW: Workflow synthesis handler
     "restart": _restart_wrapper,  # MISSING: Restart handler
     "rewrite_query": _rewrite_query_wrapper,
     "combine": _combine_wrapper,
