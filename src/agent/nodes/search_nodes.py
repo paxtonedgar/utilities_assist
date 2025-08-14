@@ -288,8 +288,8 @@ class RewriteQueryNode(SearchNodeHandler):
             import os
             
             # Load config for API key (matching clients.py pattern)
-            config = load_config()
-            api_key = config.get('azure_openai', 'api_key', fallback=None)
+            auth_config = load_config()
+            api_key = auth_config.get('azure_openai', 'api_key', fallback=None)
             
             # Get Bearer token from token provider if available
             headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}

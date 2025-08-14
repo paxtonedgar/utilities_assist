@@ -69,7 +69,8 @@ class BaseNodeHandler(ABC):
                 result_count=len(result.get("search_results", [])) if "search_results" in result else 0
             )
             
-            return result
+            # Merge result with existing state to preserve all fields
+            return {**state, **result}
             
         except Exception as e:
             # Log error
@@ -132,7 +133,8 @@ class SearchNodeHandler(BaseNodeHandler):
                 top_score=max(r.score for r in search_results) if search_results else 0
             )
             
-            return result
+            # Merge result with existing state to preserve all fields
+            return {**state, **result}
             
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
