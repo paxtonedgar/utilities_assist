@@ -48,29 +48,35 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
             from infra.resource_manager import get_resources
             resources = get_resources()
             
-            # Use the working Azure OpenAI client from clients.py for authentication
-            from src.infra.clients import make_chat_client
-            from src.infra.config import ChatCfg
+            # Use the working Azure OpenAI client configuration for LangChain
             from langchain_openai import AzureChatOpenAI
             
-            # Create chat config from centralized settings
-            chat_cfg = ChatCfg(
-                provider="azure",
-                model=resources.settings.chat.model,
-                api_base=resources.settings.chat.api_base,
-                api_version=resources.settings.chat.api_version
-            )
+            # Get authentication parameters from working clients.py approach
+            from src.infra.clients import make_chat_client
+            from src.infra.config import ChatCfg
+            from utils import load_config
+            import os
             
-            # Get the working Azure OpenAI client (with proper auth flow)
-            working_azure_client = make_chat_client(chat_cfg, resources.token_provider)
+            # Load config for API key (matching clients.py pattern)
+            config = load_config()
+            api_key = config.get('azure_openai', 'api_key', fallback=None)
             
-            # Extract the authenticated parameters from the working client
+            # Get Bearer token from token provider if available
+            headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
+            if resources.token_provider:
+                try:
+                    bearer_token = resources.token_provider()
+                    headers["Authorization"] = f"Bearer {bearer_token}"
+                except Exception as e:
+                    logger.warning(f"Bearer token failed, using API key only: {e}")
+            
+            # Create LangChain client with same auth pattern as clients.py
             langchain_client = AzureChatOpenAI(
-                api_version=working_azure_client.api_version,
-                azure_deployment=working_azure_client.azure_deployment, 
-                azure_endpoint=working_azure_client.azure_endpoint,
-                api_key=working_azure_client.api_key,
-                default_headers=working_azure_client.default_headers,
+                api_version=resources.settings.chat.api_version,
+                azure_deployment=resources.settings.chat.model,
+                azure_endpoint=resources.settings.chat.api_base,
+                api_key=api_key,
+                default_headers=headers,
                 temperature=0.1,
                 max_tokens=500
             )
