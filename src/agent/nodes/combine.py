@@ -239,7 +239,7 @@ async def _apply_mmr_diversification(results: List[SearchResult], query: str, to
 
 
 def _build_context_from_results(results: List[SearchResult], max_length: int = 6000) -> str:
-    """Build context string from search results."""
+    """Build human-readable briefing context from search results."""
     if not results:
         return "No relevant information found."
     
@@ -247,10 +247,30 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 6
     current_length = 0
     
     for i, result in enumerate(results):
-        title = result.metadata.get("title", f"Document {i+1}")
-        content = result.content[:400]  # Limit individual result length
+        # Extract meaningful title and utility info
+        title = result.metadata.get("title", result.metadata.get("api_name", f"Document {i+1}"))
+        utility_name = result.metadata.get("utility_name", "")
         
-        part = f"\n=== {title} ===\n{content}\n"
+        # Clean and format the content for human consumption
+        content = result.content.strip()
+        if len(content) > 400:
+            # Find a natural break point (sentence end, paragraph break)
+            truncate_at = 400
+            last_sentence = content.rfind('.', 0, truncate_at)
+            last_paragraph = content.rfind('\n\n', 0, truncate_at)
+            
+            if last_sentence > 300:  # Good sentence break found
+                content = content[:last_sentence + 1]
+            elif last_paragraph > 200:  # Good paragraph break found
+                content = content[:last_paragraph]
+            else:
+                content = content[:truncate_at] + "..."
+        
+        # Create a clean, scannable brief entry
+        if utility_name and utility_name != title:
+            part = f"\n**{title}** ({utility_name})\n{content}\n"
+        else:
+            part = f"\n**{title}**\n{content}\n"
         
         if current_length + len(part) > max_length:
             break
@@ -261,6 +281,6 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 6
     context = "".join(context_parts)
     
     if len(results) > len(context_parts):
-        context += f"\n... and {len(results) - len(context_parts)} more documents"
+        context += f"\n*({len(results) - len(context_parts)} additional sources available)*"
     
     return context
