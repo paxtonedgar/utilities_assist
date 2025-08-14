@@ -11,9 +11,11 @@ import logging
 import time
 import os
 from typing import List, Dict, Any, Optional, AsyncGenerator
+from src.infra.settings import get_settings
 from infra.resource_manager import get_resources, RAGResources
 from services.models import TurnResult, IntentResult
 from infra.telemetry import generate_request_id, log_overall_stage
+from src.telemetry.logger import generate_req_id, set_context_var, stage
 # Graceful import handling for persistence module
 try:
     from infra.persistence import (
@@ -47,9 +49,19 @@ from agent.graph import create_graph, GraphState
 logger = logging.getLogger(__name__)
 
 # Environment flag for LangGraph control
-LANGGRAPH_ENABLED = os.getenv("ENABLE_LANGGRAPH", "false").lower() == "true"
+def is_langgraph_enabled() -> bool:
+    """Check if LangGraph is enabled via centralized settings."""
+    try:
+        settings = get_settings()
+        return settings.enable_langgraph_persistence
+    except Exception:
+        # Fallback to environment variable
+        return os.getenv("ENABLE_LANGGRAPH", "false").lower() == "true"
+
+LANGGRAPH_ENABLED = is_langgraph_enabled()
 
 
+@stage("overall")
 async def handle_turn(
     user_input: str,
     resources: Optional[RAGResources] = None,
@@ -75,6 +87,16 @@ async def handle_turn(
     Yields:
         Dict with turn progress updates and final result
     """
+    # Generate request ID and set context at the start
+    req_id = generate_req_id()
+    set_context_var("current_req_id", req_id)
+    
+    # Set user context if available
+    if user_context and user_context.get("user_id"):
+        set_context_var("user_id", user_context["user_id"])
+    if thread_id:
+        set_context_var("thread_id", thread_id)
+    
     # Always use LangGraph (traditional pipeline has been fully migrated)
     async for update in handle_turn_with_graph(
         user_input=user_input,
@@ -84,6 +106,9 @@ async def handle_turn(
         thread_id=thread_id,
         user_context=user_context
     ):
+        # Add request ID to updates
+        if isinstance(update, dict):
+            update["req_id"] = req_id
         yield update
 
 

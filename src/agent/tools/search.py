@@ -8,10 +8,12 @@ from services.retrieve import enhanced_rrf_search, bm25_search, knn_search
 from embedding_creation import create_single_embedding, EmbeddingError
 from infra.opensearch_client import OpenSearchClient
 from services.models import RetrievalResult
+from src.telemetry.logger import stage
 
 logger = logging.getLogger(__name__)
 
 
+@stage("search_execution")
 async def search_index_tool(
     index: str,
     query: str, 

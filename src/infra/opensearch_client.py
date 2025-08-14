@@ -24,8 +24,8 @@ from dataclasses import dataclass
 
 import requests
 
-from src.infra.config import SearchCfg
-from src.infra.clients import make_search_session
+from src.infra.settings import get_settings
+from src.telemetry.logger import log_event, stage
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +62,32 @@ class SearchResponse:
 class OpenSearchClient:
     """Production-ready OpenSearch client with enterprise features."""
     
-    def __init__(self, config: SearchCfg):
-        self.config = config
-        self.session = make_search_session(config)
-        self.base_url = config.host.rstrip('/')
+    def __init__(self, settings: Optional[object] = None):
+        """Initialize OpenSearch client with centralized settings."""
+        if settings is None:
+            settings = get_settings()
         
+        self.settings = settings
+        self.base_url = settings.opensearch_host.rstrip('/')
+        
+        # Create session with proper authentication for the current profile
+        if settings.requires_aws_auth:
+            # Will use AWS authentication via clients module
+            from src.infra.clients import _setup_jpmc_proxy
+            _setup_jpmc_proxy()
+            self.session = None  # Use direct requests with AWS auth
+        else:
+            # Local development - create simple session
+            import requests
+            self.session = requests.Session()
+            self.session.headers.update({'Content-Type': 'application/json'})
+        
+    @stage("bm25")
     def bm25_search(
         self,
         query: str,
         filters: Optional[SearchFilters] = None,
-        index: str = "khub-opensearch-index",
+        index: Optional[str] = None,
         k: int = 50,
         time_decay_half_life_days: int = 120
     ) -> SearchResponse:
@@ -88,49 +104,106 @@ class OpenSearchClient:
         Returns:
             SearchResponse with BM25 results
         """
-        start_time = time.time()
+        # Use configured index alias if not specified
+        if index is None:
+            index = self.settings.search_index_alias
+        
+        # Log search start
+        log_event(
+            stage="bm25",
+            event="start",
+            index=index,
+            query_type="simple_match",
+            k=k,
+            filters_enabled=filters is not None,
+            query_length=len(query)
+        )
         
         # Build simple BM25 query (like main branch)
         search_body = self._build_simple_bm25_query(query, k)
         
-        # Debug: log the exact query being sent
-        logger.info(f"OpenSearch BM25 query: {json.dumps(search_body, indent=2)}")
-        
         try:
             url = f"{self.base_url}/{index}/_search"
+            start_time = time.time()
             
             # Use direct requests with auth (like main branch) instead of session
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             if aws_auth:
-                logger.info("Using direct AWS4Auth for BM25 OpenSearch request")
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=self.config.timeout_s)
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0)
             else:
-                logger.warning("No AWS auth available, using session without auth for BM25")
-                response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+                response = self.session.post(url, json=search_body, timeout=30.0)
             
-            response.raise_for_status()
+            took_ms = (time.time() - start_time) * 1000
+            status_code = response.status_code
+            
+            # Log HTTP response details
+            log_event(
+                stage="bm25", 
+                event="http_response",
+                status=status_code,
+                took_ms=took_ms,
+                index=index
+            )
+            
+            # Handle HTTP errors
+            if not response.ok:
+                error_body = response.text[:500]  # Snippet only
+                log_event(
+                    stage="bm25",
+                    event="error", 
+                    status=status_code,
+                    took_ms=took_ms,
+                    err=True,
+                    error_type="HTTPError",
+                    error_message=f"HTTP {status_code}",
+                    error_body_snippet=error_body,
+                    index=index
+                )
+                response.raise_for_status()
             
             data = response.json()
             results = self._parse_search_response(data)
             
+            # Log successful completion
+            log_event(
+                stage="bm25",
+                event="success",
+                took_ms=took_ms,
+                result_count=len(results),
+                total_hits=data["hits"]["total"]["value"],
+                index=index,
+                elasticsearch_took=data.get("took", 0)
+            )
+            
             return SearchResponse(
                 results=results,
                 total_hits=data["hits"]["total"]["value"],
-                took_ms=int((time.time() - start_time) * 1000),
+                took_ms=int(took_ms),
                 method="bm25"
             )
             
         except Exception as e:
-            logger.error(f"BM25 search failed: {e}")
+            # Log error
+            log_event(
+                stage="bm25",
+                event="error",
+                err=True,
+                error_type=type(e).__name__,
+                error_message=str(e)[:200],
+                index=index,
+                status_code=getattr(response, 'status_code', None) if 'response' in locals() else None
+            )
+            
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
     
+    @stage("knn")
     def knn_search(
         self,
         query_vector: List[float],
         filters: Optional[SearchFilters] = None,
-        index: str = "khub-opensearch-index", 
+        index: Optional[str] = None, 
         k: int = 50,
         ef_search: int = 256,
         time_decay_half_life_days: int = 120
@@ -149,45 +222,99 @@ class OpenSearchClient:
         Returns:
             SearchResponse with kNN results
         """
-        start_time = time.time()
+        # Use configured index alias if not specified
+        if index is None:
+            index = self.settings.search_index_alias
+        
+        # Log search start
+        log_event(
+            stage="knn",
+            event="start",
+            index=index,
+            query_type="vector",
+            k=k,
+            vector_dims=len(query_vector),
+            ef_search=ef_search,
+            filters_enabled=filters is not None
+        )
         
         # Build simple kNN query (like main branch)
         search_body = self._build_simple_knn_query(query_vector, k)
         
-        # Debug: log the exact kNN query being sent
-        logger.info(f"OpenSearch kNN query: {json.dumps(search_body, indent=2)}")
-        
         try:
             url = f"{self.base_url}/{index}/_search"
+            start_time = time.time()
             
             # Use direct requests with auth (like main branch) instead of session
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             if aws_auth:
-                logger.info("Using direct AWS4Auth for kNN OpenSearch request")
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=self.config.timeout_s)
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0)
             else:
-                logger.warning("No AWS auth available, using session without auth for kNN")
-                response = self.session.post(url, json=search_body, timeout=self.config.timeout_s)
+                response = self.session.post(url, json=search_body, timeout=30.0)
             
+            took_ms = (time.time() - start_time) * 1000
+            status_code = response.status_code
+            
+            # Log HTTP response details
+            log_event(
+                stage="knn",
+                event="http_response", 
+                status=status_code,
+                took_ms=took_ms,
+                index=index
+            )
+            
+            # Handle HTTP errors
             if not response.ok:
-                error_body = response.text
-                logger.error(f"kNN search failed with {response.status_code}: {error_body}")
-            response.raise_for_status()
+                error_body = response.text[:500]  # Snippet only
+                log_event(
+                    stage="knn",
+                    event="error",
+                    status=status_code,
+                    took_ms=took_ms,
+                    err=True,
+                    error_type="HTTPError",
+                    error_message=f"HTTP {status_code}",
+                    error_body_snippet=error_body,
+                    index=index
+                )
+                response.raise_for_status()
             
             data = response.json()
             results = self._parse_search_response(data)
             
+            # Log successful completion
+            log_event(
+                stage="knn",
+                event="success",
+                took_ms=took_ms,
+                result_count=len(results),
+                total_hits=data["hits"]["total"]["value"],
+                index=index,
+                elasticsearch_took=data.get("took", 0)
+            )
+            
             return SearchResponse(
                 results=results,
                 total_hits=data["hits"]["total"]["value"],
-                took_ms=int((time.time() - start_time) * 1000),
+                took_ms=int(took_ms),
                 method="knn"
             )
             
         except Exception as e:
-            logger.error(f"kNN search failed: {e}")
+            # Log error
+            log_event(
+                stage="knn",
+                event="error",
+                err=True,
+                error_type=type(e).__name__,
+                error_message=str(e)[:200],
+                index=index,
+                status_code=getattr(response, 'status_code', None) if 'response' in locals() else None
+            )
+            
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
     
     def rrf_fuse(
@@ -622,10 +749,10 @@ class OpenSearchClient:
             aws_auth = _get_aws_auth()
             if aws_auth:
                 logger.info("Using direct AWS4Auth for mapping request")
-                response = requests.get(url, auth=aws_auth, timeout=self.config.timeout_s)
+                response = requests.get(url, auth=aws_auth, timeout=30.0)
             else:
                 logger.warning("No AWS auth available, using session for mapping")
-                response = self.session.get(url, timeout=self.config.timeout_s)
+                response = self.session.get(url, timeout=30.0)
             
             if not response.ok:
                 error_body = response.text
@@ -650,8 +777,9 @@ class OpenSearchClient:
             
             health = response.json()
             
-            # Test index existence
-            alias_url = f"{self.base_url}/khub-opensearch-index"
+            # Test index existence using configured alias
+            index_alias = self.settings.search_index_alias
+            alias_url = f"{self.base_url}/{index_alias}"
             alias_response = self.session.head(alias_url, timeout=5.0)
             index_exists = alias_response.status_code == 200
             
@@ -674,6 +802,6 @@ class OpenSearchClient:
             }
 
 
-def create_search_client(config: SearchCfg) -> OpenSearchClient:
-    """Factory function to create OpenSearch client with proper configuration."""
-    return OpenSearchClient(config)
+def create_search_client(settings=None) -> OpenSearchClient:
+    """Factory function to create OpenSearch client with centralized settings."""
+    return OpenSearchClient(settings)

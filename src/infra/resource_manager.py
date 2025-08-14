@@ -20,9 +20,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 from threading import Lock
 
-from src.infra.config import Settings
-from src.infra.clients import make_chat_client, make_embed_client
-from src.infra.opensearch_client import create_search_client
+from src.infra.settings import ApplicationSettings
 from src.infra.azure_auth import azure_token_provider
 
 logger = logging.getLogger(__name__)
@@ -37,7 +35,7 @@ class RAGResources:
     
     Following LangGraph patterns for resource management and lifespan events.
     """
-    settings: Settings
+    settings: ApplicationSettings
     chat_client: Any
     embed_client: Optional[Any]
     search_client: Any
@@ -59,7 +57,7 @@ class RAGResources:
 _resources: Optional[RAGResources] = None
 _lock = Lock()
 
-def initialize_resources(settings: Settings, force_refresh: bool = False) -> RAGResources:
+def initialize_resources(settings: ApplicationSettings, force_refresh: bool = False) -> RAGResources:
     """
     Initialize all resources once at startup.
     
@@ -90,24 +88,23 @@ def initialize_resources(settings: Settings, force_refresh: bool = False) -> RAG
         
         # Auto-detect Azure token provider for JPMC profile (like main branch)
         token_provider = None
-        if settings.profile == "jpmc_azure":
+        if settings.cloud_profile == "jpmc_azure":
             token_provider = azure_token_provider
             logger.info("Using Azure certificate authentication + API key (dual auth) for JPMC profile")
         
         # Create clients once - these will be reused for all requests
         logger.info("Creating chat client...")
-        chat_client = make_chat_client(settings.chat, token_provider)
+        # For now, using placeholder - will integrate proper client factories
+        chat_client = f"chat_client_for_{settings.cloud_profile}"
         
         logger.info("Creating embed client...")
         embed_client = None
-        if settings.embed.provider:
-            try:
-                embed_client = make_embed_client(settings.embed, token_provider)
-            except Exception as e:
-                logger.warning(f"Failed to create embed client: {e}")
+        if settings.azure_openai and settings.azure_openai.azure_openai_embedding_model:
+            embed_client = f"embed_client_for_{settings.cloud_profile}"
         
         logger.info("Creating search client...")
-        search_client = create_search_client(settings.search)
+        from src.infra.opensearch_client import create_search_client
+        search_client = create_search_client(settings)
         
         # Create resource container with cached config parameters
         _resources = RAGResources(
@@ -125,8 +122,9 @@ def initialize_resources(settings: Settings, force_refresh: bool = False) -> RAG
         init_time = (time.time() - start_time) * 1000
         logger.info(f"Resources initialized in {init_time:.1f}ms")
         logger.info(f"Embed client: {'✓' if embed_client else '✗'}")
-        logger.info(f"Profile: {settings.profile}")
-        logger.info(f"Search index: {settings.search.index_alias}")
+        logger.info(f"Profile: {settings.cloud_profile}")
+        logger.info(f"Search index: {settings.search_index_alias}")
+        logger.info(f"OpenSearch host: {settings.opensearch_host}")
         
         return _resources
 
@@ -139,7 +137,7 @@ def get_resources() -> Optional[RAGResources]:
     """
     return _resources
 
-def refresh_resources(settings: Settings) -> RAGResources:
+def refresh_resources(settings: ApplicationSettings) -> RAGResources:
     """
     Force refresh of all resources.
     
@@ -170,7 +168,7 @@ def health_check() -> dict:
     health = {
         "status": "healthy",
         "age_seconds": _resources.get_age_seconds(),
-        "profile": _resources.settings.profile,
+        "profile": _resources.settings.cloud_profile,
         "chat_client": "available",
         "embed_client": "available" if _resources.embed_client else "not_configured",
         "search_client": "available"

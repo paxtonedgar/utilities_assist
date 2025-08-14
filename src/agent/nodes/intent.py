@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from services.models import IntentResult
 from services.intent import determine_intent  # Keep as fallback
+from src.telemetry.logger import stage
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class IntentAnalysis(BaseModel):
     reasoning: str = Field(description="Brief explanation of the classification")
 
 
+@stage("classify_intent")
 async def intent_node(state: dict, config, *, store=None) -> dict:
     """
     Classify query intent using LLM with jinja template.

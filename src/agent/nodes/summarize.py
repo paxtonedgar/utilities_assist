@@ -6,6 +6,7 @@ from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from services.normalize import normalize_query  # Keep existing logic as fallback
+from src.telemetry.logger import stage
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ template_dir = Path(__file__).parent.parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
+@stage("normalize")
 async def summarize_node(state: dict, config, *, store=None) -> dict:
     """
     Summarize/normalize the user query using LLM with jinja template.

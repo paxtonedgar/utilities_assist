@@ -79,19 +79,37 @@ def _get_azure_access_token() -> str:
     bucket_name = os.getenv("S3_BUCKET_NAME")
     cert_file_name = os.getenv("AZURE_CERT_FILE_NAME", "UtilitiesAssist.pem")
     
-    # Fallback to config.ini if environment variables not available
+    # Fallback to centralized settings if environment variables not available
     if not tenant_id or not client_id:
         try:
-            from utils import load_config
-            config = load_config()
-            tenant_id = tenant_id or config.get('azure_openai', 'azure_tenant_id', fallback=None)
-            client_id = client_id or config.get('azure_openai', 'azure_client_id', fallback=None)
-            scope = scope or config.get('azure_openai', 'scope', fallback="https://cognitiveservices.azure.com/.default")
-            bucket_name = bucket_name or config.get('aws_info', 's3_bucket_name', fallback=None)
-            cert_file_name = cert_file_name or config.get('aws_info', 'azure_cert_file_name', fallback="UtilitiesAssist.pem")
-            logger.info("Using Azure configuration from config.ini")
+            from src.infra.settings import get_settings
+            settings = get_settings()
+            
+            if settings.azure_openai:
+                tenant_id = tenant_id or settings.azure_openai.azure_tenant_id
+                client_id = client_id or settings.azure_openai.azure_client_id
+                scope = scope or settings.azure_openai.scope
+                
+            if settings.aws_info:
+                bucket_name = bucket_name or settings.aws_info.s3_bucket_name
+                cert_file_name = cert_file_name or settings.aws_info.azure_cert_file_name
+                
+            logger.info("Using Azure configuration from centralized settings")
         except Exception as e:
-            logger.warning(f"Failed to load config.ini: {e}")
+            logger.warning(f"Failed to load centralized settings: {e}")
+            
+            # Final fallback to legacy config.ini
+            try:
+                from utils import load_config
+                config = load_config()
+                tenant_id = tenant_id or config.get('azure_openai', 'azure_tenant_id', fallback=None)
+                client_id = client_id or config.get('azure_openai', 'azure_client_id', fallback=None)
+                scope = scope or config.get('azure_openai', 'scope', fallback="https://cognitiveservices.azure.com/.default")
+                bucket_name = bucket_name or config.get('aws_info', 's3_bucket_name', fallback=None)
+                cert_file_name = cert_file_name or config.get('aws_info', 'azure_cert_file_name', fallback="UtilitiesAssist.pem")
+                logger.info("Using Azure configuration from legacy config.ini")
+            except Exception as e2:
+                logger.warning(f"Failed to load legacy config.ini: {e2}")
     
     if not all([tenant_id, client_id, bucket_name]):
         raise ValueError("Missing required Azure configuration: AZURE_TENANT_ID, AZURE_CLIENT_ID, S3_BUCKET_NAME")

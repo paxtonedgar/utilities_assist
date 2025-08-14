@@ -13,10 +13,11 @@ from typing import List, Dict, Any, Optional
 # Import only infra and controllers - no direct SDK imports
 # sys.path already configured by streamlit_app.py
 
-from infra.config import get_settings
+from src.infra.settings import get_settings
 from controllers.graph_integration import handle_turn
 from infra.telemetry import get_telemetry_collector, format_event_for_display
 from infra.resource_manager import initialize_resources, get_resources, health_check
+from src.telemetry.logger import get_stage_logs
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ def initialize_session():
     
     if "settings" not in st.session_state:
         st.session_state.settings = get_settings()
-        logger.info(f"Initialized with {st.session_state.settings.profile} profile")
+        logger.info(f"Initialized with {st.session_state.settings.cloud_profile} profile")
     
     # Removed mock corpus - only use production Confluence and OpenSearch
     
@@ -212,6 +213,82 @@ def render_simple_stats(req_id: str):
         total_time = getattr(overall_event, 'ms', 0)
         if total_time > 0:
             st.caption(f"⏱️ Response time: {total_time:.0f}ms")
+
+def render_stage_logs(req_id: str):
+    """Render structured stage logs for the request."""
+    if not req_id:
+        return
+    
+    try:
+        # Get stage logs for this request
+        stage_logs = get_stage_logs(req_id=req_id, last_n=20)
+        
+        if not stage_logs:
+            return
+        
+        # Group logs by stage for better display
+        stages = {}
+        for log in stage_logs:
+            stage_name = log.get("stage", "unknown")
+            if stage_name not in stages:
+                stages[stage_name] = []
+            stages[stage_name].append(log)
+        
+        # Only show if we have interesting stages to display
+        if stages:
+            with st.expander("🔍 Stage Details", expanded=False):
+                for stage_name, logs in stages.items():
+                    st.subheader(f"📊 {stage_name.title()}")
+                    
+                    # Find the main events (start/end pairs)
+                    start_log = next((log for log in logs if log.get("event") == "start"), None)
+                    end_log = next((log for log in logs if log.get("event") in ["success", "end"]), None)
+                    error_log = next((log for log in logs if log.get("event") == "error"), None)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if end_log and "ms" in end_log:
+                            st.metric("Duration", f"{end_log['ms']:.0f}ms")
+                        elif start_log:
+                            st.metric("Status", "Started")
+                    
+                    with col2:
+                        if end_log and "result_count" in end_log:
+                            st.metric("Results", f"{end_log['result_count']}")
+                        elif end_log and "hits" in end_log:
+                            st.metric("Hits", f"{end_log['hits']}")
+                        elif start_log and "k" in start_log:
+                            st.metric("Requested", f"{start_log['k']}")
+                    
+                    with col3:
+                        if error_log:
+                            st.metric("Status", "❌ Error", delta="Failed")
+                        elif end_log:
+                            st.metric("Status", "✅ Success")
+                        else:
+                            st.metric("Status", "🔄 Running")
+                    
+                    # Show additional details
+                    details = []
+                    if start_log:
+                        if "index" in start_log:
+                            details.append(f"**Index**: {start_log['index']}")
+                        if "query_type" in start_log:
+                            details.append(f"**Type**: {start_log['query_type']}")
+                        if "filters_enabled" in start_log:
+                            details.append(f"**Filters**: {'Yes' if start_log['filters_enabled'] else 'No'}")
+                    
+                    if error_log:
+                        details.append(f"**Error**: {error_log.get('error_message', 'Unknown error')}")
+                    
+                    if details:
+                        st.markdown(" • ".join(details))
+                    
+                    st.divider()
+                        
+    except Exception as e:
+        logger.debug(f"Failed to render stage logs: {e}")
 
 async def process_user_input(user_input: str) -> None:
     """Process user input simply."""
@@ -310,6 +387,7 @@ def main():
                 render_sources(message["sources"])
             if message.get("req_id"):
                 render_simple_stats(message["req_id"])
+                render_stage_logs(message["req_id"])
     
     # Input
     user_input = st.chat_input("Ask about utilities, APIs, or procedures...")
