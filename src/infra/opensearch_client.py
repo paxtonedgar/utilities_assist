@@ -130,7 +130,7 @@ class OpenSearchClient:
         self,
         query_vector: List[float],
         filters: Optional[SearchFilters] = None,
-        index: str = "confluence_current", 
+        index: str = "khub-opensearch-index", 
         k: int = 50,
         ef_search: int = 256,
         time_decay_half_life_days: int = 120
@@ -581,16 +581,17 @@ class OpenSearchClient:
     
     def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
         """Build simple BM25 query exactly like main branch - no complex features."""
-        # Simple multi_match query with correct JPMC field names
+        # Simple multi_match query with multiple field possibilities
         search_body = {
             "size": k,
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["sections.content"],  # Use actual JPMC field names
-                    "boost": 1.0
+                    "fields": ["title", "body", "content", "sections.content", "text"],  # Try multiple field names
+                    "type": "most_fields"
                 }
-            }
+            },
+            "_source": True  # Include all source fields for debugging
         }
         return search_body
     
@@ -650,7 +651,7 @@ class OpenSearchClient:
             health = response.json()
             
             # Test index existence
-            alias_url = f"{self.base_url}/confluence_current"
+            alias_url = f"{self.base_url}/khub-opensearch-index"
             alias_response = self.session.head(alias_url, timeout=5.0)
             index_exists = alias_response.status_code == 200
             
