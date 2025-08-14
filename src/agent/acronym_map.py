@@ -1,42 +1,87 @@
 # src/agent/acronym_map.py
 """
-Acronym expansion mapping for Utilities domain.
+Dynamic acronym expansion using actual corpus data.
 
-This map helps disambiguate common acronyms to their full utility names,
-preventing incorrect matches (e.g., medical "CIU" instead of Customer Interaction Utility).
+Loads acronym mappings from data/synonyms.json and data/swagger_keyword.json
+to ensure consistency with the actual API and utility names in the system.
 """
 
-# Core utility acronyms and their expansions
-UTILITY_ACRONYMS = {
-    # Customer-related utilities
-    "CIU": "Customer Interaction Utility",
-    "CSU": "Customer Summary Utility", 
-    "CAU": "Customer Account Utility",
-    "CTU": "Customer Transaction Utility",
+import json
+import os
+from typing import Dict, List, Optional
+from pathlib import Path
+
+# Cache for loaded data
+_ACRONYM_CACHE = None
+_API_DATA_CACHE = None
+
+
+def _load_acronym_data() -> Dict[str, str]:
+    """Load acronym mappings from data files."""
+    global _ACRONYM_CACHE
     
-    # Transaction and finance utilities
-    "ETU": "Enhanced Transaction Utility",
-    "TSU": "Transaction Summary Utility",
-    "PTU": "Payment Transaction Utility",
-    "FTU": "Financial Transaction Utility",
+    if _ACRONYM_CACHE is not None:
+        return _ACRONYM_CACHE
     
-    # Account and balance utilities  
-    "ABU": "Account Balance Utility",
-    "ASU": "Account Summary Utility",
-    "AAU": "Account Activity Utility",
+    acronyms = {}
     
-    # Other common utilities
-    "APU": "API Platform Utility",
-    "DSU": "Data Service Utility",
-    "RSU": "Reference Service Utility",
-    "NSU": "Notification Service Utility",
+    # Get project root directory
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent  # src/agent -> src -> project_root
     
-    # API Groups (APG)
-    "CAPG": "Customer API Group",
-    "TAPG": "Transaction API Group", 
-    "AAPG": "Account API Group",
-    "PAPG": "Payment API Group"
-}
+    # Load from synonyms.json
+    synonyms_path = project_root / "data" / "synonyms.json"
+    if synonyms_path.exists():
+        with open(synonyms_path, 'r') as f:
+            synonyms = json.load(f)
+            # Convert all keys to uppercase for consistent matching
+            for key, value in synonyms.items():
+                acronyms[key.upper()] = value
+    
+    # Load from swagger_keyword.json for additional mappings
+    swagger_path = project_root / "data" / "swagger_keyword.json"
+    if swagger_path.exists():
+        with open(swagger_path, 'r') as f:
+            swagger_data = json.load(f)
+            if "Product List" in swagger_data and "Utilities" in swagger_data["Product List"]:
+                for apg in swagger_data["Product List"]["Utilities"]:
+                    if "Acronyms" in apg and "APG_Name" in apg:
+                        acronym = apg["Acronyms"].upper()
+                        full_name = apg["APG_Name"]
+                        # Don't override if already exists from synonyms.json
+                        if acronym not in acronyms:
+                            acronyms[acronym] = full_name
+    
+    _ACRONYM_CACHE = acronyms
+    return acronyms
+
+
+def _load_api_data() -> Dict:
+    """Load full API data for detailed lookups."""
+    global _API_DATA_CACHE
+    
+    if _API_DATA_CACHE is not None:
+        return _API_DATA_CACHE
+    
+    api_data = {"utilities": {}, "products": []}
+    
+    # Get project root directory
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent
+    
+    # Load swagger_keyword.json for API listings
+    swagger_path = project_root / "data" / "swagger_keyword.json"
+    if swagger_path.exists():
+        with open(swagger_path, 'r') as f:
+            swagger_data = json.load(f)
+            api_data = swagger_data
+    
+    _API_DATA_CACHE = api_data
+    return api_data
+
+
+# Dynamically loaded acronym map
+UTILITY_ACRONYMS = _load_acronym_data()
 
 def expand_acronym(query: str) -> tuple[str, list[str]]:
     """
@@ -90,10 +135,53 @@ def is_short_acronym_query(query: str) -> bool:
     if len(tokens) > 3:
         return False
     
+    # Reload acronyms if needed
+    acronyms = _load_acronym_data()
+    
     # Check if any token is an uppercase acronym
     has_acronym = any(
-        token.upper() in UTILITY_ACRONYMS 
+        token.upper() in acronyms 
         for token in tokens
     )
     
     return has_acronym
+
+
+def get_apis_for_acronym(acronym: str) -> List[str]:
+    """
+    Get list of API names associated with an acronym.
+    
+    Args:
+        acronym: The acronym to lookup (e.g., "CIU", "ETU")
+        
+    Returns:
+        List of API names for that utility
+    """
+    api_data = _load_api_data()
+    acronym_upper = acronym.upper()
+    
+    if "Product List" in api_data and "Utilities" in api_data["Product List"]:
+        for apg in api_data["Product List"]["Utilities"]:
+            if apg.get("Acronyms", "").upper() == acronym_upper:
+                return apg.get("API-Names-List", [])
+    
+    return []
+
+
+def get_all_utility_apis() -> Dict[str, List[str]]:
+    """
+    Get all utility APIs grouped by their APG name.
+    
+    Returns:
+        Dictionary mapping APG names to lists of API names
+    """
+    api_data = _load_api_data()
+    result = {}
+    
+    if "Product List" in api_data and "Utilities" in api_data["Product List"]:
+        for apg in api_data["Product List"]["Utilities"]:
+            apg_name = apg.get("APG_Name", "Unknown")
+            api_list = apg.get("API-Names-List", [])
+            result[apg_name] = api_list
+    
+    return result

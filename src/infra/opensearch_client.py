@@ -890,6 +890,22 @@ class OpenSearchClient:
                         }
                     }
                 })
+                
+                # Boost documents containing associated API names
+                from agent.acronym_map import get_apis_for_acronym
+                acronym = query.upper().split()[0]  # Get first word as potential acronym
+                api_names = get_apis_for_acronym(acronym)
+                if api_names:
+                    # Boost docs that mention these specific APIs
+                    for api_name in api_names[:5]:  # Limit to top 5 APIs to avoid query bloat
+                        should_clauses.append({
+                            "match_phrase": {
+                                "sections.content": {
+                                    "query": api_name,
+                                    "boost": 3
+                                }
+                            }
+                        })
         
         # Standard multi_match query with field boosting
         should_clauses.append({

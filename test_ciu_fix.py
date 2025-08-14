@@ -19,18 +19,27 @@ from src.infra.settings import get_settings
 
 
 def test_acronym_expansion():
-    """Test that CIU and ETU expand correctly."""
-    print("\n🔍 Testing Acronym Expansion")
+    """Test that CIU and ETU expand correctly using data files."""
+    print("\n🔍 Testing Dynamic Acronym Expansion")
     print("=" * 50)
+    
+    # Show loaded acronyms
+    print(f"Loaded {len(UTILITY_ACRONYMS)} acronyms from data files")
+    print(f"Sample acronyms: {list(UTILITY_ACRONYMS.keys())[:10]}")
     
     # Test CIU expansion
     query = "what is CIU"
     expanded, expansions = expand_acronym(query)
-    print(f"Query: '{query}'")
+    print(f"\nQuery: '{query}'")
     print(f"Expanded: '{expanded}'")
     print(f"Expansions: {expansions}")
     assert "Customer Interaction Utility" in expanded
     assert "Customer Interaction Utility" in expansions
+    
+    # Test CIU APIs
+    from agent.acronym_map import get_apis_for_acronym
+    ciu_apis = get_apis_for_acronym("CIU")
+    print(f"CIU APIs found: {ciu_apis}")
     
     # Test ETU expansion
     query2 = "ETU onboarding"
@@ -40,12 +49,25 @@ def test_acronym_expansion():
     print(f"Expansions: {expansions2}")
     assert "Enhanced Transaction Utility" in expanded2
     
+    # Test ETU APIs
+    etu_apis = get_apis_for_acronym("ETU")
+    print(f"ETU APIs found: {len(etu_apis)} APIs")
+    if etu_apis:
+        print(f"  Sample: {etu_apis[:3]}")
+    
     # Test short acronym detection
     is_short = is_short_acronym_query("CIU")
     print(f"\nIs 'CIU' a short acronym query? {is_short}")
     assert is_short
     
-    print("\n✅ Acronym expansion tests passed!")
+    # Test CSU (Customer Summary Utility)
+    query3 = "CSU"
+    expanded3, expansions3 = expand_acronym(query3)
+    print(f"\nQuery: '{query3}'")
+    print(f"Expanded: '{expanded3}'")
+    assert "Customer Summary Utility" in expanded3
+    
+    print("\n✅ Dynamic acronym expansion tests passed!")
 
 
 def test_bm25_query_structure():
