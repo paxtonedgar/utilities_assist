@@ -315,52 +315,54 @@ def render_stage_logs(req_id: str):
     except Exception as e:
         logger.debug(f"Failed to render stage logs: {e}")
 
-async def process_user_input(user_input: str) -> None:
+def process_user_input(user_input: str) -> None:
     """Process user input with thinking animation."""
-    # Add user message immediately and show it
+    # Add user message to both UI and conversation history
     user_message = {"role": "user", "content": user_input}
     st.session_state.messages.append(user_message)
     st.session_state.conversation_history.append(user_message)
     
-    # Add thinking indicator
-    thinking_message = {"role": "assistant", "content": "", "thinking": True}
-    st.session_state.messages.append(thinking_message)
-    st.rerun()  # Show user message and thinking indicator
+    # Show thinking animation
+    with st.status("🤔 thinking...", expanded=False) as status:
+        assistant_response = {
+            "role": "assistant",
+            "content": "",
+            "sources": [],
+            "req_id": None
+        }
+        
+        try:
+            # Create an async function to handle the streaming
+            async def async_handler():
+                async for chunk in handle_turn(
+                    user_input,
+                    st.session_state.resources,  # Use shared resources instead of settings
+                    chat_history=st.session_state.conversation_history[-10:],  # Last 10 messages
+                    use_mock_corpus=False,  # Always use production Confluence/OpenSearch
+                    thread_id=st.session_state.thread_id,
+                    user_context=st.session_state.user_context
+                ):
+                    if chunk["type"] == "response_chunk":
+                        assistant_response["content"] += chunk["content"]
+                    elif chunk["type"] == "complete":
+                        result = chunk["result"]
+                        assistant_response["sources"] = result.get("sources", [])
+                        assistant_response["req_id"] = chunk.get("req_id")
+                        break
+                    elif chunk["type"] == "error":
+                        assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+                        break
+            
+            # Run the async handler
+            asyncio.run(async_handler())
+            
+        except Exception as e:
+            assistant_response["content"] = f"❌ Error: {str(e)}"
+            logger.error(f"Error in process_user_input: {e}")
+        
+        status.update(label="✅ complete", state="complete")
     
-    # Process the response
-    assistant_response = {
-        "role": "assistant",
-        "content": "",
-        "sources": [],
-        "req_id": None
-    }
-    
-    try:
-        async for chunk in handle_turn(
-            user_input,
-            st.session_state.resources,
-            chat_history=st.session_state.conversation_history[-10:],
-            use_mock_corpus=False,
-            thread_id=st.session_state.thread_id,
-            user_context=st.session_state.user_context
-        ):
-            if chunk["type"] == "response_chunk":
-                assistant_response["content"] += chunk["content"]
-            elif chunk["type"] == "complete":
-                result = chunk["result"]
-                assistant_response["sources"] = result.get("sources", [])
-                assistant_response["req_id"] = chunk.get("req_id")
-                break
-            elif chunk["type"] == "error":
-                assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
-                break
-    
-    except Exception as e:
-        assistant_response["content"] = f"❌ Error: {str(e)}"
-        logger.error(f"Error in process_user_input: {e}")
-    
-    # Remove thinking indicator and add final response
-    st.session_state.messages.pop()  # Remove thinking message
+    # Store response in both UI and conversation history
     st.session_state.messages.append(assistant_response)
     
     # Add to conversation history for context
@@ -405,8 +407,8 @@ def main():
     # Input
     user_input = st.chat_input("Ask about utilities, APIs, or procedures...")
     if user_input:
-        # Run async function synchronously  
-        asyncio.run(process_user_input(user_input))
+        # Process user input (function handles async internally)
+        process_user_input(user_input)
 
 if __name__ == "__main__":
     main()
