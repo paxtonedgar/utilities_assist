@@ -11,10 +11,10 @@ run:
 
 # Local development targets
 run-local:
-	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true USE_LOCAL_AZURE=true streamlit run streamlit_app.py
+	UTILITIES_CONFIG=config.local.ini streamlit run streamlit_app.py
 
 test-local:
-	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true USE_LOCAL_AZURE=true python -m pytest -v --maxfail=1 --disable-warnings
+	UTILITIES_CONFIG=config.local.ini python -m pytest -v --maxfail=1 --disable-warnings
 
 # OpenSearch container management
 start-opensearch:
@@ -29,15 +29,15 @@ index-local:
 
 # Generate embeddings and create FAISS index
 embed-local:
-	UTILITIES_CONFIG=config.local.ini USE_LOCAL_AZURE=true python scripts/embed_mock_docs.py
+	UTILITIES_CONFIG=config.local.ini python scripts/embed_mock_docs.py
 
 # Test vector search
 test-vector:
 	python scripts/test_vector_search.py
 
-# Run with only mock search (useful for testing without Azure OpenAI)
+# Run with local config only
 run-mock:
-	UTILITIES_CONFIG=config.local.ini USE_MOCK_SEARCH=true streamlit run streamlit_app.py
+	UTILITIES_CONFIG=config.local.ini streamlit run streamlit_app.py
 
 # Run demo UI (standalone, no backend dependencies)
 run-demo:
@@ -100,8 +100,8 @@ help:
 	@echo ""
 	@echo "🏃 Running:"
 	@echo "  make run              Run production version"
-	@echo "  make run-local        Run with local mocks + Azure"
-	@echo "  make run-mock         Run with mocks only (no Azure needed)"
+	@echo "  make run-local        Run with local config"
+	@echo "  make run-mock         Run with local config (no Azure needed)"
 	@echo "  make run-demo         Run demo UI (no backend dependencies)"
 	@echo ""
 	@echo "🧪 Testing:"

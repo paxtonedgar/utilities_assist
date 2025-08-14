@@ -53,13 +53,7 @@ def test_search_and_rerank_interface():
     
     # Verify main function exists
     assert hasattr(search_and_rerank, 'adaptive_search_conf')
-    
-    # Check if mock mode is detected
-    print(f"USE_MOCK_SEARCH: {search_and_rerank.USE_MOCK_SEARCH}")
-    
-    if search_and_rerank.USE_MOCK_SEARCH:
-        assert hasattr(search_and_rerank, '_mock_search_client')
-        print("Mock search client is initialized")
+    print("Search and rerank interface verified")
 
 
 def test_client_manager_interface():
@@ -69,20 +63,13 @@ def test_client_manager_interface():
     # Test ClientSingleton class structure
     assert hasattr(ClientSingleton, 'get_instance')
     assert hasattr(ClientSingleton, 'get_awsauth')
-    
-    # Check local Azure mode detection
-    import client_manager
-    print(f"USE_LOCAL_AZURE: {client_manager.USE_LOCAL_AZURE}")
+    print("Client manager interface verified")
 
 
 @pytest.mark.slow
 def test_chat_client_responds():
     """Probe test to verify chat client can respond (requires Azure OpenAI config)."""
     try:
-        # Only run if we have local Azure config or in mock mode
-        if not os.getenv("USE_LOCAL_AZURE") and not os.getenv("USE_MOCK_SEARCH"):
-            pytest.skip("Requires local Azure config or mock mode")
-        
         from client_manager import ClientSingleton
         from token_manager import TokenManager
         
@@ -105,9 +92,6 @@ def test_chat_client_responds():
 def test_embeddings_client_responds():
     """Probe test to verify embeddings client interface."""
     try:
-        if not os.getenv("USE_LOCAL_AZURE") and not os.getenv("USE_MOCK_SEARCH"):
-            pytest.skip("Requires local Azure config or mock mode")
-            
         from client_manager import ClientSingleton
         from token_manager import TokenManager
         
@@ -130,14 +114,8 @@ def test_environment_variables():
     """Probe test to verify environment variable handling."""
     # Test that environment variables are being read
     utilities_config = os.getenv("UTILITIES_CONFIG", "config.ini")
-    use_mock_search = os.getenv("USE_MOCK_SEARCH", "false") 
-    use_local_azure = os.getenv("USE_LOCAL_AZURE", "false")
     
     print(f"UTILITIES_CONFIG: {utilities_config}")
-    print(f"USE_MOCK_SEARCH: {use_mock_search}")
-    print(f"USE_LOCAL_AZURE: {use_local_azure}")
     
     # Verify they are strings
     assert isinstance(utilities_config, str)
-    assert isinstance(use_mock_search, str)
-    assert isinstance(use_local_azure, str)

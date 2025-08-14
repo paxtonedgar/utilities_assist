@@ -20,19 +20,33 @@ def to_state_dict(state: Union[Dict, Any]) -> Dict[str, Any]:
     """
     Convert any state object (GraphState, Pydantic BaseModel, or dict) to a plain dict.
     
+    This prevents "GraphState object has no attribute 'get'" runtime errors
+    by ensuring consistent dict access patterns throughout the LangGraph pipeline.
+    
     Handles:
     - Plain dict: return as-is
     - Pydantic v2: use model_dump()
     - Pydantic v1: use dict()
+    - GraphState instances: convert to dict
     - Any other object: attempt dict() conversion
     """
     if isinstance(state, dict):
         return state
     if hasattr(state, "model_dump"):       # pydantic v2
+        logger.debug("Converting Pydantic v2 model to dict")
         return state.model_dump()
     if hasattr(state, "dict"):             # pydantic v1
+        logger.debug("Converting Pydantic v1 model to dict")
         return state.dict()
-    return dict(state)  # last resort
+    
+    # GraphState instances or other iterables
+    try:
+        result = dict(state)
+        logger.debug(f"Converted {type(state).__name__} to dict with {len(result)} keys")
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to convert {type(state).__name__} to dict: {e}")
+        return {}  # Return empty dict as safe fallback
 
 
 def from_state_dict(state_type: Type, data: Dict[str, Any]) -> Union[Dict, Any]:

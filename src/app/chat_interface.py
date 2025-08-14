@@ -335,7 +335,6 @@ def process_user_input(user_input: str) -> None:
                     user_input,
                     st.session_state.resources,
                     chat_history=st.session_state.conversation_history[-10:],
-                    use_mock_corpus=False,
                     thread_id=st.session_state.thread_id,
                     user_context=st.session_state.user_context
                 ):

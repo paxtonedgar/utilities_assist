@@ -69,7 +69,6 @@ async def handle_turn(
     user_input: str,
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
-    use_mock_corpus: bool = False,
     thread_id: Optional[str] = None,
     user_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -83,7 +82,6 @@ async def handle_turn(
         user_input: Raw user input
         resources: Pre-configured resource container (auto-fetched if None)
         chat_history: Recent conversation history
-        use_mock_corpus: If True, use confluence_mock index instead of confluence_current
         thread_id: Optional thread ID for conversation persistence
         user_context: Optional user context from authentication
         
@@ -132,7 +130,6 @@ async def handle_turn(
         user_input=user_input,
         resources=resources,
         chat_history=chat_history,
-        use_mock_corpus=use_mock_corpus,
         thread_id=thread_id,
         user_context=user_context
     ):
@@ -146,7 +143,6 @@ async def handle_turn_with_graph(
     user_input: str,
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
-    use_mock_corpus: bool = False,
     thread_id: Optional[str] = None,
     user_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -218,9 +214,9 @@ async def handle_turn_with_graph(
         # DEBUG: Log state creation
         logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
         
-        # Initialize graph state with consistent keys and resilient defaults
-        # Use plain dict construction - GraphState provides type hints only
-        initial_state: GraphState = {
+        # Initialize graph state as plain dict - NO GraphState construction
+        # This prevents "GraphState object has no attribute 'get'" errors
+        initial_state = {
             ORIGINAL_QUERY: text,                 # Required by summarize_node 
             NORMALIZED_QUERY: text,               # Start normalized as original
             INTENT: None,
@@ -243,7 +239,7 @@ async def handle_turn_with_graph(
             "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
-            "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
+            "_use_mock_corpus": False  # CRITICAL: Turn mocks OFF - use real OpenSearch
         }
         
         # Guardrails: Verify state is dict-like before passing to LangGraph
