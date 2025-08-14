@@ -219,7 +219,8 @@ async def handle_turn_with_graph(
         logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
         
         # Initialize graph state with consistent keys and resilient defaults
-        initial_state = GraphState({
+        # Use plain dict construction - TypedDict is just for type hints
+        initial_state: GraphState = {
             ORIGINAL_QUERY: text,                 # Required by summarize_node 
             NORMALIZED_QUERY: text,               # Start normalized as original
             INTENT: None,
@@ -243,7 +244,7 @@ async def handle_turn_with_graph(
             "min_results": 3,
             "error_messages": [],
             "_use_mock_corpus": False  # Always use production Confluence/OpenSearch
-        })
+        }
         
         # State sanity log - confirm keys are present
         logger.info(

@@ -39,54 +39,53 @@ template_dir = Path(__file__).parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
-from pydantic import BaseModel, ConfigDict
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypedDict, NotRequired
 
-class GraphState(BaseModel):
+class GraphState(TypedDict, total=False):
     """
     State for the LangGraph workflow with user context and authentication.
     
-    CRITICAL: Uses extra="allow" to prevent schema validation from dropping
-    query fields during state transitions.
+    CRITICAL: Uses TypedDict with total=False to allow extra fields and
+    prevent schema validation from dropping query fields during state transitions.
+    LangGraph works with dict-like objects, not Pydantic models.
     """
-    model_config = ConfigDict(extra="allow")  # <- CRITICAL: do NOT drop unknown keys
-
+    
     # Core query fields - must be preserved
-    original_query: Optional[str] = None
-    normalized_query: Optional[str] = None
-    intent: Optional[Any] = None
+    original_query: NotRequired[str]
+    normalized_query: NotRequired[str] 
+    intent: NotRequired[Any]
     
     # Search and results
-    search_results: List[Any] = []
-    combined_results: List[Any] = []
-    final_context: Optional[str] = None
-    final_answer: Optional[str] = None
-    response_chunks: List[str] = []
+    search_results: NotRequired[List[Any]]
+    combined_results: NotRequired[List[Any]]
+    final_context: NotRequired[str]
+    final_answer: NotRequired[str]
+    response_chunks: NotRequired[List[str]]
     
     # User context and authentication
-    user_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    session_id: Optional[str] = None
-    user_context: Optional[dict] = None
-    user_preferences: Optional[dict] = None
+    user_id: NotRequired[str]
+    thread_id: NotRequired[str]
+    session_id: NotRequired[str]
+    user_context: NotRequired[dict]
+    user_preferences: NotRequired[dict]
     
     # Workflow tracking
-    workflow_path: List[str] = []
-    loop_count: int = 0
-    rewrite_attempts: int = 0
+    workflow_path: NotRequired[List[str]]
+    loop_count: NotRequired[int]
+    rewrite_attempts: NotRequired[int]
     
     # Configuration
-    coverage_threshold: float = 0.7
-    min_results: int = 3
+    coverage_threshold: NotRequired[float]
+    min_results: NotRequired[int]
     
     # Error handling
-    error_messages: List[str] = []
+    error_messages: NotRequired[List[str]]
     
     # Feature flags
-    _use_mock_corpus: bool = False
+    _use_mock_corpus: NotRequired[bool]
     
     # Performance metrics (optional)
-    performance_metrics: Optional[dict] = None
+    performance_metrics: NotRequired[dict]
 
 
 def create_graph(
