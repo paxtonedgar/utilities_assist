@@ -97,15 +97,29 @@ async def handle_turn(
     # DEBUG: Log exactly what we received
     logger.error(f"DEBUG handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
     
-    # Validate user input to prevent empty query issues
+    # Normalize and validate user input to prevent corrupted queries
+    if user_input is None:
+        user_input = ""
+    
+    # Handle escaped/corrupted input - common issue from UI layers
+    if isinstance(user_input, str):
+        # Fix escaped backslashes and other common corruptions
+        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
+        # Remove any null bytes or control characters
+        user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
+    
+    # Validate after normalization
     if not user_input or not user_input.strip():
-        logger.error(f"Empty or whitespace-only user input received: '{repr(user_input)}'")
+        logger.error(f"Empty or invalid user input after normalization: original='{repr(user_input)}'")
         yield {
             "type": "error",
-            "message": "Please provide a valid query. Empty queries are not supported.",
+            "message": "Please provide a valid query. Empty or corrupted queries are not supported.",
             "req_id": req_id
         }
         return
+    
+    # DEBUG: Log normalized input
+    logger.error(f"DEBUG after normalization user_input: '{repr(user_input)}' (len: {len(user_input)})")
     
     # Set user context if available
     if user_context and user_context.get("user_id"):
