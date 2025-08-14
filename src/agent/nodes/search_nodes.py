@@ -56,8 +56,17 @@ class ConfluenceSearchNode(SearchNodeHandler):
             from infra.resource_manager import get_resources
             resources = get_resources()
             
-            query = state["normalized_query"]
+            query = state.get("normalized_query", "")
             intent = state.get("intent")
+            
+            # Handle empty query to prevent infinite loops
+            if not query or query.strip() == "":
+                logger.error("Empty query provided to Confluence search")
+                return {
+                    "search_results": [],
+                    "workflow_path": state.get("workflow_path", []) + ["search_confluence_error"],
+                    "error_messages": state.get("error_messages", []) + ["Empty query provided"]
+                }
             
             result = await adaptive_search_tool(
                 query=query,
@@ -282,11 +291,14 @@ class RewriteQueryNode(SearchNodeHandler):
             )
             
             response = await langchain_client.ainvoke([
-                SystemMessage(content="You are a query optimization expert. Rewrite queries to improve search results."),
+                SystemMessage(content="You are a query optimization expert. Rewrite queries to improve search results. Return ONLY the rewritten query, nothing else."),
                 HumanMessage(content=rewrite_prompt)
             ])
             
-            rewritten_query = response.content.strip()
+            # Extract actual query from LLM response (often contains explanations)
+            raw_response = response.content.strip()
+            rewritten_query = self._extract_query_from_response(raw_response, normalized_query)
+            
             logger.info(f"Query rewritten: '{normalized_query}' -> '{rewritten_query}'")
             
             return rewritten_query
@@ -294,6 +306,46 @@ class RewriteQueryNode(SearchNodeHandler):
         except Exception as e:
             logger.error(f"LLM query rewriting failed: {e}")
             return self._fallback_rewrite(normalized_query)
+    
+    def _extract_query_from_response(self, raw_response: str, original_query: str) -> str:
+        """Extract actual query from LLM response that may contain explanations."""
+        # Handle empty/whitespace responses
+        if not raw_response or raw_response.strip() == "":
+            logger.warning("Empty response from LLM, using fallback")
+            return self._fallback_rewrite(original_query)
+        
+        # Look for patterns that indicate actual queries
+        import re
+        
+        # Pattern 1: Look for "Rewritten query:" followed by actual query
+        rewritten_pattern = r'(?i)rewritten\s+query:?\s*(.+?)(?:\n|$)'
+        match = re.search(rewritten_pattern, raw_response)
+        if match:
+            extracted = match.group(1).strip().strip('"\'')
+            if len(extracted) > 3 and len(extracted) < 200:  # Reasonable query length
+                return extracted
+        
+        # Pattern 2: Look for queries in quotes  
+        quote_pattern = r'["\']([^"\'\n]{10,100})["\']'
+        matches = re.findall(quote_pattern, raw_response)
+        if matches:
+            # Pick the longest reasonable match
+            valid_matches = [m for m in matches if len(m.strip()) > 5 and not m.startswith("Example:")]
+            if valid_matches:
+                return max(valid_matches, key=len).strip()
+        
+        # Pattern 3: Last resort - take first sentence that's reasonable length
+        sentences = raw_response.split('\n')
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if (10 <= len(sentence) <= 150 and 
+                not sentence.startswith(('To ', 'Please ', 'Consider ', 'Here ', 'Original ', 'Since ')) and
+                not sentence.endswith((':',))):
+                return sentence
+        
+        # If all else fails, use fallback
+        logger.warning("Could not extract query from LLM response, using fallback")
+        return self._fallback_rewrite(original_query)
     
     def _fallback_rewrite(self, query: str) -> str:
         """Fallback rewrite strategy when LLM is unavailable - REAL implementation."""

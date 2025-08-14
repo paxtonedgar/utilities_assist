@@ -117,10 +117,16 @@ class CoverageChecker:
         """
         search_results = state.get("search_results", [])
         loop_count = state.get("loop_count", 0)
+        normalized_query = state.get("normalized_query", "")
         
         # Prevent infinite loops
         if loop_count >= 3:
             logger.warning(f"Max loops reached ({loop_count}), proceeding to combine")
+            return "combine"
+        
+        # If query is empty or too short, proceed to combine (don't rewrite)
+        if not normalized_query or len(normalized_query.strip()) < 3:
+            logger.warning("Query is empty or too short, proceeding to combine")
             return "combine"
         
         # Check result count
