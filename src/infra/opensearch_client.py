@@ -777,6 +777,10 @@ class OpenSearchClient:
             
             health = response.json()
             
+            # Check if health data is valid
+            if not health or not isinstance(health, dict):
+                raise ValueError("Invalid health response from OpenSearch")
+            
             # Test index existence using configured alias
             index_alias = self.settings.search_index_alias
             alias_url = f"{self.base_url}/{index_alias}"
@@ -784,11 +788,11 @@ class OpenSearchClient:
             index_exists = alias_response.status_code == 200
             
             return {
-                "status": "healthy" if health["status"] in ["green", "yellow"] else "unhealthy",
-                "cluster_name": health["cluster_name"],
-                "cluster_status": health["status"],
-                "node_count": health["number_of_nodes"],
-                "data_nodes": health["number_of_data_nodes"],
+                "status": "healthy" if health.get("status") in ["green", "yellow"] else "unhealthy",
+                "cluster_name": health.get("cluster_name", "unknown"),
+                "cluster_status": health.get("status", "unknown"),
+                "node_count": health.get("number_of_nodes", 0),
+                "data_nodes": health.get("number_of_data_nodes", 0),
                 "index_exists": index_exists,
                 "authentication": "configured" if self.session.auth else "none"
             }
