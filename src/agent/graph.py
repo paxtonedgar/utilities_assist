@@ -39,10 +39,54 @@ template_dir = Path(__file__).parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
-class GraphState(Dict[str, Any]):
-    """State for the LangGraph workflow with user context and authentication."""
-    # Same state definition as original - preserved for compatibility
-    pass
+from pydantic import BaseModel, ConfigDict
+from typing import Any, List, Optional
+
+class GraphState(BaseModel):
+    """
+    State for the LangGraph workflow with user context and authentication.
+    
+    CRITICAL: Uses extra="allow" to prevent schema validation from dropping
+    query fields during state transitions.
+    """
+    model_config = ConfigDict(extra="allow")  # <- CRITICAL: do NOT drop unknown keys
+
+    # Core query fields - must be preserved
+    original_query: Optional[str] = None
+    normalized_query: Optional[str] = None
+    intent: Optional[Any] = None
+    
+    # Search and results
+    search_results: List[Any] = []
+    combined_results: List[Any] = []
+    final_context: Optional[str] = None
+    final_answer: Optional[str] = None
+    response_chunks: List[str] = []
+    
+    # User context and authentication
+    user_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_context: Optional[dict] = None
+    user_preferences: Optional[dict] = None
+    
+    # Workflow tracking
+    workflow_path: List[str] = []
+    loop_count: int = 0
+    rewrite_attempts: int = 0
+    
+    # Configuration
+    coverage_threshold: float = 0.7
+    min_results: int = 3
+    
+    # Error handling
+    error_messages: List[str] = []
+    
+    # Feature flags
+    _use_mock_corpus: bool = False
+    
+    # Performance metrics (optional)
+    performance_metrics: Optional[dict] = None
 
 
 def create_graph(

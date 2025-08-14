@@ -41,6 +41,20 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
     req_id = getattr(config, 'run_id', 'unknown') if config else 'unknown'
     
     try:
+        # STATE_CHECK: Verify query preservation before processing
+        def assert_keys(stage: str, st: dict):
+            keys = list(st.keys()) if hasattr(st, 'keys') else ['NOT_A_DICT']
+            orig = st.get(ORIGINAL_QUERY) if isinstance(st, dict) else None
+            norm = st.get(NORMALIZED_QUERY) if isinstance(st, dict) else None
+            ok = orig is not None and orig != ""
+            logger.error(
+                "STATE_CHECK %s keys=%s | original=%r | normalized=%r | ok=%s",
+                stage, keys, orig, norm, ok
+            )
+            return ok
+        
+        assert_keys("BEFORE_SUMMARIZE", state)
+        
         # Use consistent state keys with fallback
         user_input = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
         if not user_input:
@@ -120,12 +134,16 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
         
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
+        # STATE_CHECK: Verify result before return
+        result_state = {
             **state,  # Preserve all existing state
             NORMALIZED_QUERY: normalized,
             "workflow_path": state.get("workflow_path", []) + ["summarize"]
         }
+        assert_keys("AFTER_SUMMARIZE", result_state)
+        
+        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
+        return result_state
         
     except Exception as e:
         logger.error(f"Summarize node failed: {e}")

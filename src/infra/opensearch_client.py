@@ -126,6 +126,12 @@ class OpenSearchClient:
             url = f"{self.base_url}/{index}/_search"
             start_time = time.time()
             
+            # EXPLICIT OS QUERY LOG - for debugging query preservation
+            logger.info(
+                "OS_QUERY index=%s strategy=%s q=%r query_len=%d",
+                index, "bm25", query, len(query)
+            )
+            
             # Use GET request like working v1 branch
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
@@ -165,6 +171,13 @@ class OpenSearchClient:
             
             data = response.json()
             results = self._parse_search_response(data)
+            
+            # EXPLICIT OS RESPONSE LOG - for debugging query results
+            top_result_title = results[0].title if results else None
+            logger.info(
+                "OS_RESPONSE index=%s took_ms=%.1f status=%s hits=%d top=%r",
+                index, took_ms, status_code, len(results), top_result_title
+            )
             
             # Log successful completion
             log_event(
