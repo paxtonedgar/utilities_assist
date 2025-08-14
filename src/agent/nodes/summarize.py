@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from services.normalize import normalize_query  # Keep existing logic as fallback
 from src.telemetry.logger import stage
+from .base_node import BaseNodeHandler
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +116,17 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
             "workflow_path": state.get("workflow_path", []) + ["summarize_error"],
             "error_messages": state.get("error_messages", []) + [f"Summarize failed: {e}"]
         }
+
+
+class SummarizeNode(BaseNodeHandler):
+    """Class-based wrapper for summarize functionality."""
+    
+    def __init__(self):
+        super().__init__("summarize")
+    
+    async def execute(self, state: dict) -> dict:
+        """Execute the summarize logic using the existing function."""
+        # The existing function expects config parameter, but we don't have it in execute()
+        # We need to call the function directly with a mock config
+        config = {"configurable": {"thread_id": "unknown"}}
+        return await summarize_node(state, config)

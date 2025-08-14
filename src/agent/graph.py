@@ -20,8 +20,10 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 # Import new modular components
+from agent.nodes.summarize import SummarizeNode
+from agent.nodes.intent import IntentNode
 from agent.nodes.search_nodes import (
-    SummarizeNode, IntentNode, ConfluenceSearchNode, 
+    ConfluenceSearchNode, 
     SwaggerSearchNode, MultiSearchNode, RewriteQueryNode
 )
 from agent.nodes.processing_nodes import (

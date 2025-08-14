@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from services.models import IntentResult
 from services.intent import determine_intent  # Keep as fallback
 from src.telemetry.logger import stage
+from .base_node import BaseNodeHandler
 
 logger = logging.getLogger(__name__)
 
@@ -132,3 +133,15 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
             "workflow_path": state.get("workflow_path", []) + ["intent_error"],
             "error_messages": state.get("error_messages", []) + [f"Intent classification failed: {e}"]
         }
+
+
+class IntentNode(BaseNodeHandler):
+    """Class-based wrapper for intent functionality."""
+    
+    def __init__(self):
+        super().__init__("intent")
+    
+    async def execute(self, state: dict) -> dict:
+        """Execute the intent logic using the existing function."""
+        config = {"configurable": {"thread_id": "unknown"}}
+        return await intent_node(state, config)
