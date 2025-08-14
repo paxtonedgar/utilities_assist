@@ -71,7 +71,7 @@ class OpenSearchClient:
         self,
         query: str,
         filters: Optional[SearchFilters] = None,
-        index: str = "confluence_current",
+        index: str = "khub-opensearch-index",
         k: int = 50,
         time_decay_half_life_days: int = 120
     ) -> SearchResponse:

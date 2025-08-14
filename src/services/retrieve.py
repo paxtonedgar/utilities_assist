@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def bm25_search(
     query: str,
     search_client: OpenSearchClient,
-    index_name: str = "confluence_current",
+    index_name: str = "khub-opensearch-index",
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     time_decay_days: int = 75
@@ -85,7 +85,7 @@ async def bm25_search(
 async def knn_search(
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "confluence_current",
+    index_name: str = "khub-opensearch-index",
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     ef_search: int = 256
@@ -447,7 +447,7 @@ async def enhanced_rrf_search(
     query: str,
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "confluence_current",
+    index_name: str = "khub-opensearch-index",
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 8,
     rrf_k: int = 60,
