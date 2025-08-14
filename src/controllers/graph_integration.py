@@ -381,23 +381,46 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
     if source_chips:
         sources = source_chips  # Use extracted source chips
     else:
-        # Fallback: Build sources from combined results
+        # Fallback: Build sources from combined results with required fields
         sources = []
         for result in combined_results[:10]:  # Limit to top 10
+            # Extract real URL or construct one from metadata
+            url = result.metadata.get("url") or result.metadata.get("page_url") or result.metadata.get("link")
+            if not url or url == "#":
+                # Construct a meaningful URL or use a placeholder
+                url = f"#doc-{result.doc_id}" if result.doc_id else "#"
+            
             sources.append({
-                "title": result.metadata.get("title", "Document"),
-                "url": result.metadata.get("url", "#"),
-                "score": result.score
+                "doc_id": result.doc_id,  # Required field
+                "title": result.metadata.get("title") or result.metadata.get("page_title") or "Document",
+                "url": url,
+                "excerpt": result.content[:200] + "..." if len(result.content) > 200 else result.content
             })
     
     # MISSING: Include verification metrics (from traditional pipeline)
     verification_metrics = state_dict.get("verification_metrics", {})
     
+    # Handle intent - convert dict to IntentResult if needed
+    intent_data = state_dict.get("intent", {"intent": "unknown", "confidence": 0.0})
+    if isinstance(intent_data, dict):
+        intent_result = IntentResult(
+            intent=intent_data.get("intent", "unknown"),
+            confidence=intent_data.get("confidence", 0.0)
+        )
+    else:
+        intent_result = intent_data  # Already an IntentResult
+    
+    # Validate sources before TurnResult construction
+    for i, source in enumerate(sources):
+        if not source.get("doc_id"):
+            logger.warning(f"Source {i} missing doc_id: {source}")
+            source["doc_id"] = f"unknown-{i}"  # Fallback
+    
     # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
         sources=sources,
-        intent=state_dict.get("intent", IntentResult(intent="unknown", confidence=0.0)),
+        intent=intent_result,
         response_time_ms=(time.time() - start_time) * 1000,
         graph_workflow_path=workflow_path,  # Additional field for graph tracking
         graph_loop_count=state_dict.get("loop_count", 0),
@@ -405,7 +428,7 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
     )
     
     # MISSING: Stream verification metrics (from traditional pipeline)
-    result_dict = turn_result.dict()
+    result_dict = turn_result.model_dump()  # Use model_dump instead of deprecated dict()
     if verification_metrics:
         result_dict["verification"] = verification_metrics
     

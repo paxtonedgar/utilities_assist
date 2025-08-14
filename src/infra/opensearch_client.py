@@ -393,8 +393,7 @@ class OpenSearchClient:
                 fused_result = SearchResult(
                     doc_id=result.doc_id,
                     score=rrf_score,
-                    title=result.title,
-                    body=result.body,
+                    content=result.content,  # Use content field
                     metadata=result.metadata
                 )
                 fused_results.append(fused_result)
@@ -735,9 +734,12 @@ class OpenSearchClient:
             result = SearchResult(
                 doc_id=hit["_id"],
                 score=hit["_score"],
-                title=title,
-                body=body,
-                metadata=metadata
+                content=body,  # Use body as content
+                metadata={
+                    **metadata,
+                    "title": title,  # Store title in metadata
+                    "page_title": title  # Also store as page_title for compatibility
+                }
             )
             results.append(result)
         
