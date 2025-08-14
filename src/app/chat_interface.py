@@ -317,12 +317,9 @@ def render_stage_logs(req_id: str):
 
 def process_user_input(user_input: str) -> None:
     """Process user input with thinking animation."""
-    # Add user message
-    user_message = {"role": "user", "content": user_input}
-    st.session_state.messages.append(user_message)
-    st.session_state.conversation_history.append(user_message)
+    # Don't add user message here - it's already added in main()
     
-    # Show thinking animation (this was perfect, don't remove it!)
+    # Show thinking animation 
     with st.status("🤔 thinking...", expanded=False) as status:
         assistant_response = {
             "role": "assistant",
@@ -370,12 +367,8 @@ def process_user_input(user_input: str) -> None:
         if not assistant_response["content"]:
             assistant_response["content"] = "❌ No response generated"
         
-        # DEBUG: Force a rerun to show the new message
         st.session_state.messages.append(assistant_response)
         st.session_state.conversation_history.append({"role": "assistant", "content": assistant_response["content"]})
-        
-        # Force Streamlit to rerun and show the new message
-        st.rerun()
 
 def main():
     """Simple chat interface."""
@@ -408,11 +401,24 @@ def main():
                     render_simple_stats(message["req_id"])
                     render_stage_logs(message["req_id"])
     
+    # Check if we need to process a pending query
+    if st.session_state.get("processing_query"):
+        query = st.session_state.processing_query
+        del st.session_state.processing_query  # Clear it
+        process_user_input(query)
+        st.rerun()  # Show the response
+    
     # Input
     user_input = st.chat_input("Ask about utilities, APIs, or procedures...")
     if user_input:
-        # Process user input (function handles async internally)
-        process_user_input(user_input)
+        # Add user message immediately
+        user_message = {"role": "user", "content": user_input}
+        st.session_state.messages.append(user_message)
+        st.session_state.conversation_history.append(user_message)
+        
+        # Set flag to process on next run
+        st.session_state.processing_query = user_input
+        st.rerun()  # Show user message, then process will happen on next run
 
 if __name__ == "__main__":
     main()
