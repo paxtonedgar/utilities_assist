@@ -211,6 +211,20 @@ async def handle_turn_with_graph(
         # Sanitize input once
         text = (user_input or "").strip()
         
+        # QUERY REWRITE FOR CONTEXT: Condense question when chat history exists
+        if chat_history and len(chat_history) > 0:
+            try:
+                # Simple context condensation - combine last exchange with current question
+                last_exchange = chat_history[-1] if chat_history else {}
+                if last_exchange.get("role") == "user" or last_exchange.get("role") == "assistant":
+                    context_summary = last_exchange.get("content", "")[:200]  # Keep it short
+                    if context_summary.strip():
+                        # Add context prefix for better search
+                        text = f"Given context: {context_summary.strip()}... Current question: {text}"
+                        logger.info(f"Query rewritten with context: {text[:100]}...")
+            except Exception as e:
+                logger.warning(f"Query rewrite failed, using original: {e}")
+        
         # DEBUG: Log state creation
         logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
         

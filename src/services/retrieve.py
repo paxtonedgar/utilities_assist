@@ -4,6 +4,7 @@ import logging
 import time
 import json
 import re
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import Counter  # Fix for MMR diversification
@@ -15,6 +16,56 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 logger = logging.getLogger(__name__)
+
+
+async def bm25_search_with_timeout(
+    query: str,
+    search_client: OpenSearchClient,
+    index_name: str = "khub-opensearch-index",
+    filters: Optional[Dict[str, Any]] = None,
+    top_k: int = 10,
+    time_decay_days: int = 75,
+    timeout_seconds: float = 2.0
+) -> RetrievalResult:
+    """BM25 search with aggressive timeout and fallback.
+    
+    Never propagates exceptions - returns empty results on failure.
+    """
+    try:
+        return await asyncio.wait_for(
+            bm25_search(
+                query=query,
+                search_client=search_client,
+                index_name=index_name,
+                filters=filters,
+                top_k=top_k,
+                time_decay_days=time_decay_days
+            ),
+            timeout=timeout_seconds
+        )
+    except (asyncio.TimeoutError, Exception) as e:
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        error_type = "timeout" if is_timeout else "error"
+        
+        # STRUCTURED LOGGING: Log timeout/error with telemetry details
+        from src.telemetry.logger import log_event
+        log_event(
+            stage="bm25",
+            event=error_type,
+            err=True,
+            timeout=is_timeout,
+            took_ms=timeout_seconds * 1000,
+            error_type=type(e).__name__,
+            error_message=str(e)[:100],
+            index_name=index_name,
+            query_length=len(query)
+        )
+        
+        logger.warning(f"BM25 search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
+        return RetrievalResult(
+            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
+            method="bm25_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
+        )
 
 
 async def bm25_search(
@@ -82,6 +133,56 @@ async def bm25_search(
             retrieval_time_ms=0,
             method="bm25",
             diagnostics={"error": str(e), "query_type": "bm25"}
+        )
+
+
+async def knn_search_with_timeout(
+    query_embedding: List[float],
+    search_client: OpenSearchClient,
+    index_name: str = "khub-opensearch-index",
+    filters: Optional[Dict[str, Any]] = None,
+    top_k: int = 10,
+    ef_search: int = 256,
+    timeout_seconds: float = 2.0
+) -> RetrievalResult:
+    """KNN search with aggressive timeout and fallback.
+    
+    Never propagates exceptions - returns empty results on failure.
+    """
+    try:
+        return await asyncio.wait_for(
+            knn_search(
+                query_embedding=query_embedding,
+                search_client=search_client,
+                index_name=index_name,
+                filters=filters,
+                top_k=top_k,
+                ef_search=ef_search
+            ),
+            timeout=timeout_seconds
+        )
+    except (asyncio.TimeoutError, Exception) as e:
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        error_type = "timeout" if is_timeout else "error"
+        
+        # STRUCTURED LOGGING: Log timeout/error with telemetry details
+        from src.telemetry.logger import log_event
+        log_event(
+            stage="knn",
+            event=error_type,
+            err=True,
+            timeout=is_timeout,
+            took_ms=timeout_seconds * 1000,
+            error_type=type(e).__name__,
+            error_message=str(e)[:100],
+            index_name=index_name,
+            embedding_dims=len(query_embedding)
+        )
+        
+        logger.warning(f"KNN search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
+        return RetrievalResult(
+            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
+            method="knn_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
         )
 
 
@@ -570,17 +671,17 @@ async def enhanced_rrf_search(
     }
     
     try:
-        # GATE LOGIC: First try KNN search only - skip BM25 if KNN provides sufficient coverage
-        # This can avoid unnecessary 800-900ms BM25 latency as per user requirements
-        import asyncio
+        # AGGRESSIVE TIMEOUTS: Use timeout-wrapped search calls that never propagate exceptions
+        # This prevents the 6-7s "Answer" with zero docs scenario
         
-        knn_result = await knn_search(
+        knn_result = await knn_search_with_timeout(
             query_embedding=query_embedding,
             search_client=search_client,
             index_name=index_name,
             filters=filters,
             top_k=50,  # Get more candidates for better fusion
-            ef_search=256
+            ef_search=256,
+            timeout_seconds=1.8  # Aggressive timeout
         )
         
         diagnostics["knn_count"] = len(knn_result.results)
@@ -604,14 +705,15 @@ async def enhanced_rrf_search(
             )
             diagnostics["bm25_count"] = 0
         else:
-            # Run BM25 search (either parallel or after KNN based on implementation)
-            bm25_result = await bm25_search(
+            # Run BM25 search with timeout protection  
+            bm25_result = await bm25_search_with_timeout(
                 query=query,
                 search_client=search_client,
                 index_name=index_name,
                 filters=filters,
                 top_k=50,  # Get more candidates for better fusion
-                time_decay_days=120
+                time_decay_days=120,
+                timeout_seconds=1.8  # Aggressive timeout
             )
             diagnostics["bm25_count"] = len(bm25_result.results)
         
@@ -642,11 +744,53 @@ async def enhanced_rrf_search(
             final_doc_ids = [doc_id for doc_id, _ in fused_hits]
             diagnostics["rrf_count"] = len(fused_hits)
         
+        # NO-ANSWER POLICY: Early exit if no docs or low scores
+        # This prevents 6-7s LLM calls with empty context
+        if not final_doc_ids:
+            logger.info("No documents found - applying no-answer policy")
+            return RetrievalResult(
+                results=[],
+                total_found=0,
+                retrieval_time_ms=bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms,
+                method="enhanced_rrf_no_docs",
+                diagnostics={**diagnostics, "no_answer_reason": "no_documents_found"}
+            ), {**diagnostics, "no_answer_reason": "no_documents_found"}
+        
         # Build final results
         final_results = []
         for doc_id in final_doc_ids:
             if doc_id in all_results:
                 final_results.append(all_results[doc_id])
+        
+        # Check score threshold after building results
+        if final_results:
+            top_score = max(r.score for r in final_results)
+            if top_score < 0.1:  # Low confidence threshold
+                logger.info(f"Top score {top_score:.3f} below threshold - applying no-answer policy")
+                return RetrievalResult(
+                    results=[],
+                    total_found=0,
+                    retrieval_time_ms=bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms,
+                    method="enhanced_rrf_low_score",
+                    diagnostics={**diagnostics, "no_answer_reason": f"low_score_{top_score:.3f}"}
+                ), {**diagnostics, "no_answer_reason": f"low_score_{top_score:.3f}"}
+        
+        # MAX DOCS COMPRESSION: Limit to best 3-5 chunks (~1-2k tokens)
+        MAX_DOCS_FOR_LLM = 5
+        MAX_CONTENT_LENGTH = 400  # ~100 tokens per chunk
+        
+        if len(final_results) > MAX_DOCS_FOR_LLM:
+            logger.info(f"Compressing {len(final_results)} docs to top {MAX_DOCS_FOR_LLM}")
+            final_results = final_results[:MAX_DOCS_FOR_LLM]
+            diagnostics["docs_compressed"] = True
+            diagnostics["original_doc_count"] = len(final_doc_ids)
+        
+        # Compress content length for LLM efficiency
+        for result in final_results:
+            if hasattr(result, 'content') and len(result.content) > MAX_CONTENT_LENGTH:
+                result.content = result.content[:MAX_CONTENT_LENGTH] + "..."
+                diagnostics.setdefault("content_compressed", 0)
+                diagnostics["content_compressed"] += 1
         
         # Count generic penalties (documents with negative function scores)
         for result in final_results:

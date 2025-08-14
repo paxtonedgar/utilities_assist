@@ -60,8 +60,29 @@ class ConfluenceSearchNode(SearchNodeHandler):
     def __init__(self):
         super().__init__("search_confluence")
     
+    def _get_intent_based_index(self, intent: Dict[str, Any], default_index: str) -> str:
+        """Select optimal index based on intent to reduce latency."""
+        from agent.nodes.base_node import get_intent_label
+        intent_type = get_intent_label(intent)
+        
+        # INTENT-BASED ROUTING: Map intent to specific indices
+        index_mapping = {
+            "definition": "confluence-kb-index",       # Concept/definition → confluence only
+            "confluence": "confluence-kb-index",       # General docs → confluence 
+            "swagger": "swagger-api-index",           # API questions → swagger only
+            "api": "swagger-api-index",               # API-related → swagger only
+            "list": default_index,                    # Lists need aggregations → main index
+            "workflow": "confluence-kb-index",        # How-to/processes → confluence
+        }
+        
+        selected_index = index_mapping.get(intent_type, default_index)
+        if selected_index != default_index:
+            logger.info(f"Intent-based routing: {intent_type} → {selected_index}")
+        
+        return selected_index
+
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        """Execute Confluence search logic - REAL implementation from original."""
+        """Execute Confluence search logic with intent-based index routing."""
         try:
             # Extract resources from global resource manager
             from infra.resource_manager import get_resources
@@ -70,6 +91,9 @@ class ConfluenceSearchNode(SearchNodeHandler):
             
             query = state.get(NORMALIZED_QUERY, "")
             intent = state.get("intent")
+            
+            # INTENT-BASED INDEX SELECTION: Pick the right index to cut latency
+            optimal_index = self._get_intent_based_index(intent, resources.settings.search_index_alias)
             
             # Handle empty query to prevent infinite loops
             if not query or query.strip() == "":
@@ -93,7 +117,7 @@ class ConfluenceSearchNode(SearchNodeHandler):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                search_index=resources.settings.search_index_alias,
+                search_index=optimal_index,  # Use intent-optimized index instead of default
                 top_k=10
             )
             
@@ -141,6 +165,10 @@ class SwaggerSearchNode(SearchNodeHandler):
             intent_confidence = get_intent_confidence(intent)
             logger.debug(f"Using intent confidence: {intent_confidence} for swagger search")
             
+            # INTENT-BASED INDEX SELECTION: API questions should use swagger index only
+            optimal_index = "khub-opensearch-swagger-index" 
+            logger.info(f"Using Swagger-specific index: {optimal_index}")
+            
             result = await adaptive_search_tool(
                 query=query,
                 intent_confidence=intent_confidence,
@@ -148,7 +176,7 @@ class SwaggerSearchNode(SearchNodeHandler):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                search_index="khub-opensearch-swagger-index",
+                search_index=optimal_index,  # Explicit swagger index
                 top_k=10
             )
             

@@ -48,11 +48,26 @@ class AnswerNode(BaseNodeHandler):
         super().__init__("answer")
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        """Execute answer generation logic."""
+        """Execute answer generation logic with no-answer policy."""
         normalized_query = state.get("normalized_query", "")
         final_context = state.get("final_context", "")
         combined_results = state.get("combined_results", [])
         intent = state.get("intent")
+        
+        # NO-ANSWER POLICY: Early exit if no documents found
+        # This prevents 6-7s LLM calls with empty context
+        if not combined_results or not final_context or not final_context.strip():
+            logger.info("No-answer policy triggered - no documents or context available")
+            no_answer_msg = (
+                "I couldn't find relevant information for that query. "
+                "Try rephrasing your question or being more specific about the topic you're looking for."
+            )
+            return {
+                "final_answer": no_answer_msg,
+                "response_chunks": [no_answer_msg],
+                "answer_verification": {"has_content": False, "confidence_score": 0.0, "no_docs_reason": "empty_context"},
+                "source_chips": []
+            }
         
         # Get chat client from resources
         from infra.resource_manager import get_resources
