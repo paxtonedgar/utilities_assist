@@ -91,9 +91,12 @@ async def handle_turn(
     req_id = generate_req_id()
     set_context_var("current_req_id", req_id)
     
+    # DEBUG: Log exactly what we received
+    logger.error(f"DEBUG handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
+    
     # Validate user input to prevent empty query issues
     if not user_input or not user_input.strip():
-        logger.warning(f"Empty or whitespace-only user input received: '{repr(user_input)}'")
+        logger.error(f"Empty or whitespace-only user input received: '{repr(user_input)}'")
         yield {
             "type": "error",
             "message": "Please provide a valid query. Empty queries are not supported.",
@@ -191,6 +194,9 @@ async def handle_turn_with_graph(
             checkpointer=checkpointer,
             store=store
         )
+        
+        # DEBUG: Log state creation
+        logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}'")
         
         # Initialize graph state with user context and authentication
         initial_state = GraphState({
