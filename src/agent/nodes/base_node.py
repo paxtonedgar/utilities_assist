@@ -9,11 +9,53 @@ logging, and state management patterns.
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union, Type
 
 from src.telemetry.logger import log_event, stage
 
 logger = logging.getLogger(__name__)
+
+
+def to_state_dict(state: Union[Dict, Any]) -> Dict[str, Any]:
+    """
+    Convert any state object (GraphState, Pydantic BaseModel, or dict) to a plain dict.
+    
+    Handles:
+    - Plain dict: return as-is
+    - Pydantic v2: use model_dump()
+    - Pydantic v1: use dict()
+    - Any other object: attempt dict() conversion
+    """
+    if isinstance(state, dict):
+        return state
+    if hasattr(state, "model_dump"):       # pydantic v2
+        return state.model_dump()
+    if hasattr(state, "dict"):             # pydantic v1
+        return state.dict()
+    return dict(state)  # last resort
+
+
+def from_state_dict(state_type: Type, data: Dict[str, Any]) -> Union[Dict, Any]:
+    """
+    Rewrap dict data into the original GraphState type if needed.
+    
+    Args:
+        state_type: The original type of the state object
+        data: The dict data to wrap
+        
+    Returns:
+        Instance of state_type if it's a Pydantic model, otherwise the dict
+    """
+    try:
+        # If state_type is a pydantic BaseModel class, instantiate it
+        if hasattr(state_type, '__bases__') and any('BaseModel' in str(base) for base in state_type.__mro__):
+            return state_type(**data)
+        # If it's a dict type or the graph accepts dicts, return dict
+        return data
+    except Exception as e:
+        # Fall back to dict if instantiation fails
+        logger.warning(f"Could not instantiate {state_type} with data, falling back to dict: {e}")
+        return data
 
 
 class BaseNodeHandler(ABC):
@@ -28,7 +70,7 @@ class BaseNodeHandler(ABC):
         """Execute the node-specific logic. Must be implemented by subclasses."""
         pass
     
-    async def __call__(self, state: Dict[str, Any], *, config: Optional[Dict] = None, store=None) -> Dict[str, Any]:
+    async def __call__(self, state: Union[Dict, Any], *, config: Optional[Dict] = None, store=None) -> Union[Dict, Any]:
         """
         Common wrapper logic for all nodes - eliminates repetition.
         
@@ -37,24 +79,29 @@ class BaseNodeHandler(ABC):
         - Execution timing
         - State validation
         - Workflow path tracking
+        - State type normalization (Pydantic <-> dict)
         """
         start_time = time.time()
+        incoming_type = type(state)
+        
+        # Convert to dict for processing
+        s = to_state_dict(state)
         
         # Add node to workflow path
-        workflow_path = state.get("workflow_path", [])
-        state = {**state, "workflow_path": workflow_path + [self.node_name]}
+        workflow_path = s.get("workflow_path", [])
+        s = {**s, "workflow_path": workflow_path + [self.node_name]}
         
         try:
             # Log node entry
             log_event(
                 stage=self.node_name,
                 event="start", 
-                query=state.get("normalized_query", ""),
+                query=s.get("normalized_query", ""),
                 thread_id=config.get("configurable", {}).get("thread_id") if config else None
             )
             
-            # Execute node-specific logic - MUST pass config through
-            result = await self.execute(state, config)
+            # Execute node-specific logic - pass normalized dict and config
+            result = await self.execute(s, config)
             
             # Ensure result is a dict
             if not isinstance(result, dict):
@@ -70,7 +117,8 @@ class BaseNodeHandler(ABC):
             )
             
             # Merge result with existing state to preserve all fields
-            return {**state, **result}
+            merged = {**s, **result}
+            return from_state_dict(incoming_type, merged)
             
         except Exception as e:
             # Log error
@@ -85,40 +133,45 @@ class BaseNodeHandler(ABC):
             )
             
             # Add to error messages for debugging
-            error_messages = state.get("error_messages", [])
+            error_messages = s.get("error_messages", [])
             error_message = f"Error in {self.node_name}: {str(e)}"
             
             self.logger.error(error_message, exc_info=True)
             
-            return {
-                **state,
+            merged = {
+                **s,
                 "error_messages": error_messages + [error_message]
             }
+            return from_state_dict(incoming_type, merged)
 
 
 class SearchNodeHandler(BaseNodeHandler):
     """Base class for search-related nodes with search-specific logging."""
     
-    async def __call__(self, state: Dict[str, Any], *, config: Optional[Dict] = None, store=None) -> Dict[str, Any]:
+    async def __call__(self, state: Union[Dict, Any], *, config: Optional[Dict] = None, store=None) -> Union[Dict, Any]:
         """Enhanced wrapper for search nodes with search-specific metrics."""
         start_time = time.time()
+        incoming_type = type(state)
+        
+        # Convert to dict for processing
+        s = to_state_dict(state)
         
         # Add node to workflow path
-        workflow_path = state.get("workflow_path", [])
-        state = {**state, "workflow_path": workflow_path + [self.node_name]}
+        workflow_path = s.get("workflow_path", [])
+        s = {**s, "workflow_path": workflow_path + [self.node_name]}
         
         try:
             # Log search node entry with query details
             log_event(
                 stage=self.node_name,
                 event="start",
-                query=state.get("normalized_query", ""),
-                intent=state.get("intent", {}).get("intent") if state.get("intent") else None,
+                query=s.get("normalized_query", ""),
+                intent=s.get("intent", {}).get("intent") if s.get("intent") else None,
                 thread_id=config.get("configurable", {}).get("thread_id") if config else None
             )
             
-            # Execute search logic - MUST pass config through
-            result = await self.execute(state, config)
+            # Execute search logic - pass normalized dict and config
+            result = await self.execute(s, config)
             
             # Enhanced search logging
             execution_time = (time.time() - start_time) * 1000
@@ -134,7 +187,8 @@ class SearchNodeHandler(BaseNodeHandler):
             )
             
             # Merge result with existing state to preserve all fields
-            return {**state, **result}
+            merged = {**s, **result}
+            return from_state_dict(incoming_type, merged)
             
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
@@ -147,12 +201,13 @@ class SearchNodeHandler(BaseNodeHandler):
                 ms=execution_time
             )
             
-            error_messages = state.get("error_messages", [])
+            error_messages = s.get("error_messages", [])
             error_message = f"Search error in {self.node_name}: {str(e)}"
             self.logger.error(error_message, exc_info=True)
             
-            return {
-                **state,
+            merged = {
+                **s,
                 "error_messages": error_messages + [error_message],
                 "search_results": []  # Provide empty results for search failures
             }
+            return from_state_dict(incoming_type, merged)

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from services.models import IntentResult
 from services.intent import determine_intent  # Keep as fallback
 from src.telemetry.logger import stage
-from .base_node import BaseNodeHandler
+from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
 # Import constants to prevent KeyError issues
 from agent.constants import NORMALIZED_QUERY, INTENT
@@ -29,31 +29,43 @@ class IntentAnalysis(BaseModel):
 
 
 @stage("classify_intent")
-async def intent_node(state: dict, config, *, store=None) -> dict:
+async def intent_node(state, config, *, store=None):
     """
     Classify query intent using LLM with jinja template.
     
     Follows LangGraph pattern with config parameter and optional store injection.
     
     Args:
-        state: Workflow state containing normalized_query
+        state: Workflow state (GraphState or dict) containing normalized_query
         config: RunnableConfig with user context and configuration
         store: Optional BaseStore for cross-thread user memory
         
     Returns:
-        State update with intent classification
+        State update with intent classification (same type as input)
     """
+    incoming_type = type(state)
+    
     try:
+        # Convert to dict for processing
+        s = to_state_dict(state)
+        
+        logger.info(
+            "NODE_START intent | keys=%s | normalized=%r",
+            list(s.keys()),
+            s.get(NORMALIZED_QUERY)
+        )
+        
         # Use consistent state keys with fallback
-        normalized_query = state.get(NORMALIZED_QUERY, "").strip()
+        normalized_query = s.get(NORMALIZED_QUERY, "").strip()
         if not normalized_query:
             logger.warning("intent_node: normalized_query missing/empty; setting intent=None and routing to search fallback.")
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
+            # CRITICAL: Preserve ALL existing state fields and return proper type
+            merged = {
+                **s,  # Preserve all existing state
                 INTENT: IntentResult(intent="confluence", confidence=0.1),  # Default fallback
-                "workflow_path": state.get("workflow_path", []) + ["intent_empty"]
+                "workflow_path": s.get("workflow_path", []) + ["intent_empty"]
             }
+            return from_state_dict(incoming_type, merged)
         
         # Utilities list for context
         utilities_list = [
@@ -85,9 +97,9 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
             from utils import load_config
             import os
             
-            # Load config for API key (matching clients.py pattern)
-            config = load_config()
-            api_key = config.get('azure_openai', 'api_key', fallback=None)
+            # Load auth config for API key (matching clients.py pattern) - renamed to avoid collision
+            auth_config = load_config()
+            api_key = auth_config.get('azure_openai', 'api_key', fallback=None)
             
             # Get Bearer token from token provider if available
             headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
@@ -132,23 +144,33 @@ async def intent_node(state: dict, config, *, store=None) -> dict:
                 confidence=0.5
             )
         
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
+        logger.info(
+            "NODE_END intent | intent=%s | confidence=%.2f",
+            intent_result.intent,
+            intent_result.confidence
+        )
+        
+        # CRITICAL: Preserve ALL existing state fields and return proper type
+        merged = {
+            **s,  # Preserve all existing state
             INTENT: intent_result,
-            "workflow_path": state.get("workflow_path", []) + ["intent"]
+            "workflow_path": s.get("workflow_path", []) + ["intent"]
         }
+        return from_state_dict(incoming_type, merged)
         
     except Exception as e:
         logger.error(f"Intent node failed: {e}")
-        # Fallback intent
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
+        # Convert to dict if not already done (in case exception happened early)
+        s = to_state_dict(state) if 's' not in locals() else s
+        
+        # Fallback intent and return proper type
+        merged = {
+            **s,  # Preserve all existing state
             INTENT: IntentResult(intent="error", confidence=0.0),
-            "workflow_path": state.get("workflow_path", []) + ["intent_error"],
-            "error_messages": state.get("error_messages", []) + [f"Intent classification failed: {e}"]
+            "workflow_path": s.get("workflow_path", []) + ["intent_error"],
+            "error_messages": s.get("error_messages", []) + [f"Intent classification failed: {e}"]
         }
+        return from_state_dict(incoming_type, merged)
 
 
 class IntentNode(BaseNodeHandler):

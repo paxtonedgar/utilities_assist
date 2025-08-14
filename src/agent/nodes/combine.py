@@ -4,11 +4,12 @@ import logging
 from typing import List, Dict, Any
 from services.models import SearchResult, RetrievalResult
 from services.retrieve import rrf_fuse_results, mmr_diversify
+from .base_node import to_state_dict, from_state_dict
 
 logger = logging.getLogger(__name__)
 
 
-async def combine_node(state: dict, config=None, *, store=None) -> dict:
+async def combine_node(state, config=None, *, store=None):
     """
     Combine and merge results from multiple searches.
     
@@ -18,27 +19,39 @@ async def combine_node(state: dict, config=None, *, store=None) -> dict:
     Follows LangGraph pattern with config parameter and optional store injection.
     
     Args:
-        state: Workflow state containing search_results
+        state: Workflow state (GraphState or dict) containing search_results
         config: RunnableConfig with user context and configuration
         store: Optional BaseStore for cross-thread user memory
         
     Returns:
-        State update with combined and ranked results
+        State update with combined and ranked results (same type as input)
     """
+    incoming_type = type(state)
+    
     try:
-        all_results = state.get("search_results", [])
-        query = state.get("normalized_query", state.get("original_query", ""))
-        intent = state.get("intent")
+        # Convert to dict for processing
+        s = to_state_dict(state)
+        
+        logger.info(
+            "NODE_START combine | keys=%s | search_results_count=%d",
+            list(s.keys()),
+            len(s.get("search_results", []))
+        )
+        
+        all_results = s.get("search_results", [])
+        query = s.get("normalized_query", s.get("original_query", ""))
+        intent = s.get("intent")
         
         if not all_results:
             logger.warning("No search results to combine")
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
+            # CRITICAL: Preserve ALL existing state fields and return proper type
+            merged = {
+                **s,  # Preserve all existing state
                 "combined_results": [],
                 "final_context": "No relevant information found.",
-                "workflow_path": state.get("workflow_path", []) + ["combine"]
+                "workflow_path": s.get("workflow_path", []) + ["combine"]
             }
+            return from_state_dict(incoming_type, merged)
         
         # Group results by search source/method for intelligent fusion
         grouped_results = {}
@@ -70,31 +83,41 @@ async def combine_node(state: dict, config=None, *, store=None) -> dict:
         # Build context from combined results
         final_context = _build_context_from_results(combined_results)
         
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
+        logger.info(
+            "NODE_END combine | combined_results=%d | context_length=%d",
+            len(combined_results),
+            len(final_context)
+        )
+        
+        # CRITICAL: Preserve ALL existing state fields and return proper type
+        merged = {
+            **s,  # Preserve all existing state
             "combined_results": combined_results,
             "final_context": final_context,
-            "workflow_path": state.get("workflow_path", []) + ["combine"],
+            "workflow_path": s.get("workflow_path", []) + ["combine"],
             "performance_metrics": {
-                **state.get("performance_metrics", {}),
+                **s.get("performance_metrics", {}),
                 "combined_results_count": len(combined_results),
                 "source_groups": len(grouped_results)
             }
         }
+        return from_state_dict(incoming_type, merged)
         
     except Exception as e:
         logger.error(f"Combine node failed: {e}")
-        # Fallback - just use raw results
-        all_results = state.get("search_results", [])
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
+        # Convert to dict if not already done (in case exception happened early)
+        s = to_state_dict(state) if 's' not in locals() else s
+        
+        # Fallback - just use raw results and return proper type
+        all_results = s.get("search_results", [])
+        merged = {
+            **s,  # Preserve all existing state
             "combined_results": all_results[:10],  # Limit to top 10
             "final_context": _build_context_from_results(all_results[:10]),
-            "workflow_path": state.get("workflow_path", []) + ["combine_error"],
-            "error_messages": state.get("error_messages", []) + [f"Combine failed: {e}"]
+            "workflow_path": s.get("workflow_path", []) + ["combine_error"],
+            "error_messages": s.get("error_messages", []) + [f"Combine failed: {e}"]
         }
+        return from_state_dict(incoming_type, merged)
 
 
 async def _fuse_multiple_search_results(

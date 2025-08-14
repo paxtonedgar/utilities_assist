@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from services.normalize import normalize_query  # Keep existing logic as fallback
 from src.telemetry.logger import stage
-from .base_node import BaseNodeHandler
+from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
 # Import constants to prevent KeyError issues
 from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
@@ -20,56 +20,55 @@ jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
 @stage("normalize")
-async def summarize_node(state: dict, config, *, store=None) -> dict:
+async def summarize_node(state, config, *, store=None):
     """
     Summarize/normalize the user query using LLM with jinja template.
     
     Follows LangGraph pattern with config parameter and optional store injection.
     
     Args:
-        state: Workflow state containing original_query
+        state: Workflow state (GraphState or dict) containing original_query
         config: RunnableConfig with user context and configuration
         store: Optional BaseStore for cross-thread user memory
         
     Returns:
-        State update with normalized_query
+        State update with normalized_query (same type as input)
     """
     import time
     from infra.telemetry import log_normalize_stage
     
     start_time = time.perf_counter()
     req_id = getattr(config, 'run_id', 'unknown') if config else 'unknown'
+    incoming_type = type(state)
     
     try:
-        # STATE_CHECK: Verify query preservation before processing
-        def assert_keys(stage: str, st: dict):
-            keys = list(st.keys()) if hasattr(st, 'keys') else ['NOT_A_DICT']
-            orig = st.get(ORIGINAL_QUERY) if isinstance(st, dict) else None
-            norm = st.get(NORMALIZED_QUERY) if isinstance(st, dict) else None
-            ok = orig is not None and orig != ""
-            logger.error(
-                "STATE_CHECK %s keys=%s | original=%r | normalized=%r | ok=%s",
-                stage, keys, orig, norm, ok
-            )
-            return ok
+        # Convert to dict for processing
+        s = to_state_dict(state)
         
-        assert_keys("BEFORE_SUMMARIZE", state)
+        # STATE_CHECK: Verify query preservation before processing
+        logger.info(
+            "NODE_START summarize | keys=%s | original=%r | normalized=%r",
+            list(s.keys()),
+            s.get(ORIGINAL_QUERY),
+            s.get(NORMALIZED_QUERY)
+        )
         
         # Use consistent state keys with fallback
-        user_input = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
+        user_input = s.get(ORIGINAL_QUERY) or s.get(NORMALIZED_QUERY, "")
         if not user_input:
             logger.warning(
                 "summarize_node: empty input; keys=%s original=%r normalized=%r",
-                list(state.keys()) if hasattr(state, "keys") else type(state),
-                state.get(ORIGINAL_QUERY, None),
-                state.get(NORMALIZED_QUERY, None),
+                list(s.keys()),
+                s.get(ORIGINAL_QUERY, None),
+                s.get(NORMALIZED_QUERY, None),
             )
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
+            # CRITICAL: Preserve ALL existing state fields and return proper type
+            merged = {
+                **s,  # Preserve all existing state
                 NORMALIZED_QUERY: "",
-                "workflow_path": state.get("workflow_path", []) + ["summarize_empty"]
+                "workflow_path": s.get("workflow_path", []) + ["summarize_empty"]
             }
+            return from_state_dict(incoming_type, merged)
         
         # Try LLM-based normalization first
         try:
@@ -135,27 +134,36 @@ async def summarize_node(state: dict, config, *, store=None) -> dict:
         log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
         
         # STATE_CHECK: Verify result before return
-        result_state = {
-            **state,  # Preserve all existing state
+        merged = {
+            **s,  # Preserve all existing state
             NORMALIZED_QUERY: normalized,
-            "workflow_path": state.get("workflow_path", []) + ["summarize"]
+            "workflow_path": s.get("workflow_path", []) + ["summarize"]
         }
-        assert_keys("AFTER_SUMMARIZE", result_state)
         
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return result_state
+        logger.info(
+            "NODE_END summarize | normalized=%r | workflow_path=%s",
+            normalized,
+            merged.get("workflow_path", [])
+        )
+        
+        # CRITICAL: Preserve ALL existing state fields and return proper type
+        return from_state_dict(incoming_type, merged)
         
     except Exception as e:
         logger.error(f"Summarize node failed: {e}")
+        # Convert to dict if not already done (in case exception happened early)
+        s = to_state_dict(state) if 's' not in locals() else s
+        
         # Fallback to original query with resilient key access
-        fallback_query = state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY, "")
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
+        fallback_query = s.get(ORIGINAL_QUERY) or s.get(NORMALIZED_QUERY, "")
+        # CRITICAL: Preserve ALL existing state fields and return proper type
+        merged = {
+            **s,  # Preserve all existing state
             NORMALIZED_QUERY: fallback_query,
-            "workflow_path": state.get("workflow_path", []) + ["summarize_error"],
-            "error_messages": state.get("error_messages", []) + [f"Summarize failed: {e}"]
+            "workflow_path": s.get("workflow_path", []) + ["summarize_error"],
+            "error_messages": s.get("error_messages", []) + [f"Summarize failed: {e}"]
         }
+        return from_state_dict(incoming_type, merged)
 
 
 class SummarizeNode(BaseNodeHandler):
