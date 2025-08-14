@@ -427,30 +427,30 @@ async def _rewrite_query_wrapper(state: GraphState, *, config=None, store=None) 
         Rewritten query:
         """
         
-        # Create LangChain wrapper for Azure OpenAI client using exact config.ini field names
+        # Use the working Azure OpenAI client from clients.py for authentication
+        from src.infra.clients import make_chat_client
+        from src.infra.config import ChatCfg
         from langchain_openai import AzureChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         
-        # Get JPMC-specific headers from the original client and filter out problematic ones
-        default_headers = {}
-        try:
-            raw_headers = getattr(resources.chat_client, 'default_headers', {})
-            for key, value in raw_headers.items():
-                # Filter out openai.Omit objects that LangChain can't handle
-                if hasattr(value, '__class__') and 'Omit' in str(type(value)):
-                    continue
-                if isinstance(value, str):
-                    default_headers[key] = value
-        except (AttributeError, TypeError):
-            # If resources.chat_client is not an object or doesn't have default_headers, use empty dict
-            pass
+        # Create chat config from centralized settings
+        chat_cfg = ChatCfg(
+            provider="azure",
+            model=resources.settings.chat.model,
+            api_base=resources.settings.chat.api_base,
+            api_version=resources.settings.chat.api_version
+        )
         
+        # Get the working Azure OpenAI client (with proper auth flow)
+        working_azure_client = make_chat_client(chat_cfg, resources.token_provider)
+        
+        # Extract the authenticated parameters from the working client
         langchain_client = AzureChatOpenAI(
-            api_version=resources.settings.chat.api_version,  # api_version from config
-            azure_deployment=resources.settings.chat.model,   # deployment_name from config  
-            azure_endpoint=resources.settings.chat.api_base,  # azure_openai_endpoint from config
-            api_key=resources.settings.chat.api_key,         # api_key from config
-            default_headers=default_headers,                  # JPMC headers (user_sid, etc.)
+            api_version=working_azure_client.api_version,
+            azure_deployment=working_azure_client.azure_deployment,
+            azure_endpoint=working_azure_client.azure_endpoint,
+            api_key=working_azure_client.api_key,
+            default_headers=working_azure_client.default_headers,
             temperature=0.1,
             max_tokens=200
         )

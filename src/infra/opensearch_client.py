@@ -772,7 +772,21 @@ class OpenSearchClient:
         try:
             # Test basic connectivity
             url = f"{self.base_url}/_cluster/health"
-            response = self.session.get(url, timeout=5.0)
+            
+            # Handle JPMC authentication (session can be None)
+            if self.session is None:
+                # Use direct requests with AWS auth for JPMC
+                from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+                _setup_jpmc_proxy()
+                aws_auth = _get_aws_auth()
+                if aws_auth:
+                    response = requests.get(url, auth=aws_auth, timeout=5.0)
+                else:
+                    # No auth available
+                    raise ValueError("No authentication available for JPMC profile")
+            else:
+                response = self.session.get(url, timeout=5.0)
+                
             response.raise_for_status()
             
             health = response.json()
@@ -784,8 +798,26 @@ class OpenSearchClient:
             # Test index existence using configured alias
             index_alias = self.settings.search_index_alias
             alias_url = f"{self.base_url}/{index_alias}"
-            alias_response = self.session.head(alias_url, timeout=5.0)
+            
+            # Handle authentication for index check too
+            if self.session is None:
+                from src.infra.clients import _get_aws_auth
+                aws_auth = _get_aws_auth()
+                if aws_auth:
+                    alias_response = requests.head(alias_url, auth=aws_auth, timeout=5.0)
+                else:
+                    alias_response = requests.head(alias_url, timeout=5.0)
+            else:
+                alias_response = self.session.head(alias_url, timeout=5.0)
+                
             index_exists = alias_response.status_code == 200
+            
+            # Determine authentication status safely
+            auth_status = "none"
+            if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
+                auth_status = "session_configured"
+            elif self.settings.requires_aws_auth:
+                auth_status = "aws_auth_configured"
             
             return {
                 "status": "healthy" if health.get("status") in ["green", "yellow"] else "unhealthy",
@@ -794,15 +826,26 @@ class OpenSearchClient:
                 "node_count": health.get("number_of_nodes", 0),
                 "data_nodes": health.get("number_of_data_nodes", 0),
                 "index_exists": index_exists,
-                "authentication": "configured" if self.session.auth else "none"
+                "authentication": auth_status
             }
             
         except Exception as e:
             logger.error(f"Health check failed: {e}")
+            
+            # Safe authentication status for error case
+            auth_status = "none"
+            try:
+                if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
+                    auth_status = "session_configured"
+                elif self.settings.requires_aws_auth:
+                    auth_status = "aws_auth_configured"
+            except:
+                pass
+                
             return {
                 "status": "unhealthy",
                 "error": str(e),
-                "authentication": "configured" if self.session.auth else "none"
+                "authentication": auth_status
             }
 
 

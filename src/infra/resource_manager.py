@@ -94,13 +94,30 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
         
         # Create clients once - these will be reused for all requests
         logger.info("Creating chat client...")
-        # For now, using placeholder - will integrate proper client factories
-        chat_client = f"chat_client_for_{settings.cloud_profile}"
+        from src.infra.clients import make_chat_client
+        from src.infra.config import ChatCfg
+        
+        chat_cfg = ChatCfg(
+            provider="azure",
+            model=settings.chat.model,
+            api_base=settings.chat.api_base,
+            api_version=settings.chat.api_version
+        )
+        chat_client = make_chat_client(chat_cfg, token_provider)
+        logger.info("Created chat client")
         
         logger.info("Creating embed client...")
         embed_client = None
         if settings.azure_openai and settings.azure_openai.azure_openai_embedding_model:
-            embed_client = f"embed_client_for_{settings.cloud_profile}"
+            from src.infra.clients import make_embed_client
+            from src.infra.config import EmbedCfg
+            
+            embed_cfg = EmbedCfg(
+                provider="azure",
+                model=settings.embed.model,
+                dims=1536  # Standard Azure OpenAI embedding dimensions
+            )
+            embed_client = make_embed_client(embed_cfg, token_provider)
         
         logger.info("Creating search client...")
         from src.infra.opensearch_client import create_search_client
