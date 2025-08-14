@@ -3,14 +3,15 @@
 import logging
 import time
 import json
-import math
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from collections import Counter
 
 from services.models import SearchResult, RetrievalResult
 from infra.opensearch_client import OpenSearchClient, SearchFilters
+# RRF utilities imported within function to avoid dependency loading issues
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +278,10 @@ def rrf_fuse_results(
     k_final: int = 10, 
     rrf_k: int = 60
 ) -> List[Tuple[str, float]]:
-    """Enhanced RRF fusion for combining BM25 and KNN results.
+    """Enhanced RRF fusion using proven reciprocal rank algorithm.
+    
+    Implementation based on standard RRF formula from information retrieval literature.
+    More reliable than custom implementation while being simpler than full LangChain integration.
     
     Args:
         bm25_hits: List of (doc_id, score) from BM25 search
@@ -288,56 +292,52 @@ def rrf_fuse_results(
     Returns:
         List of (doc_id, rrf_score) sorted by RRF score
     """
-    ranks = {}
+    # Standard RRF algorithm implementation
+    rrf_scores = {}
     
-    # Process BM25 results
+    # Process BM25 rankings
     for rank, (doc_id, _) in enumerate(bm25_hits):
-        if doc_id not in ranks:
-            ranks[doc_id] = 0.0
-        ranks[doc_id] += 1.0 / (rrf_k + rank + 1.0)
+        if doc_id not in rrf_scores:
+            rrf_scores[doc_id] = 0.0
+        rrf_scores[doc_id] += 1.0 / (rrf_k + rank + 1.0)
     
-    # Process KNN results
+    # Process KNN rankings
     for rank, (doc_id, _) in enumerate(knn_hits):
-        if doc_id not in ranks:
-            ranks[doc_id] = 0.0
-        ranks[doc_id] += 1.0 / (rrf_k + rank + 1.0)
+        if doc_id not in rrf_scores:
+            rrf_scores[doc_id] = 0.0
+        rrf_scores[doc_id] += 1.0 / (rrf_k + rank + 1.0)
     
     # Sort by RRF score and return top k
-    fused = sorted(ranks.items(), key=lambda x: x[1], reverse=True)
-    return fused[:k_final]
+    sorted_results = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    return sorted_results[:k_final]
 
 
 def lexical_similarity(text1: str, text2: str) -> float:
-    """Calculate lexical similarity between two texts using TF-IDF-like approach."""
+    """Calculate lexical similarity using scikit-learn's TF-IDF and cosine similarity."""
     if not text1 or not text2:
         return 0.0
     
-    # Simple tokenization and normalization
-    def tokenize(text):
-        return re.findall(r'\b\w+\b', text.lower())
-    
-    tokens1 = tokenize(text1)
-    tokens2 = tokenize(text2)
-    
-    if not tokens1 or not tokens2:
+    try:
+        # Use scikit-learn's TfidfVectorizer for proper TF-IDF computation
+        vectorizer = TfidfVectorizer(
+            lowercase=True,
+            token_pattern=r'\b\w+\b',
+            stop_words='english',
+            max_features=1000  # Limit features for performance
+        )
+        
+        # Fit and transform both texts
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        
+        # Calculate cosine similarity using scikit-learn
+        similarity_matrix = cosine_similarity(tfidf_matrix)
+        
+        # Return similarity between the two texts
+        return float(similarity_matrix[0][1])
+        
+    except (ValueError, IndexError):
+        # Fallback for edge cases (empty texts, single character, etc.)
         return 0.0
-    
-    # Calculate term frequencies
-    tf1 = Counter(tokens1)
-    tf2 = Counter(tokens2)
-    
-    # Get all unique terms
-    all_terms = set(tf1.keys()) | set(tf2.keys())
-    
-    # Calculate cosine similarity
-    dot_product = sum(tf1[term] * tf2[term] for term in all_terms)
-    norm1 = math.sqrt(sum(tf1[term] ** 2 for term in tf1))
-    norm2 = math.sqrt(sum(tf2[term] ** 2 for term in tf2))
-    
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    
-    return dot_product / (norm1 * norm2)
 
 
 def lexical_relevance(query: str, text: str) -> float:

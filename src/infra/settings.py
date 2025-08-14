@@ -118,8 +118,8 @@ class ApplicationSettings(BaseSettings):
     confluence_directory: str = "data"
     
     def __init__(self, **kwargs):
-        # Load config.ini data first
-        config_ini_data = self._load_config_ini()
+        # Load config.ini data using simplified approach
+        config_ini_data = self._load_config_ini_simplified()
         
         # Merge with kwargs, giving kwargs precedence
         merged_data = {**config_ini_data, **kwargs}
@@ -129,86 +129,68 @@ class ApplicationSettings(BaseSettings):
         # Log effective configuration
         self._log_effective_config()
     
-    def _load_config_ini(self) -> Dict[str, Any]:
-        """Load configuration from config.ini using existing system."""
+    def _load_config_ini_simplified(self) -> Dict[str, Any]:
+        """Simplified config.ini loading using pydantic patterns."""
         try:
             config_file = os.getenv('UTILITIES_CONFIG', 'config.local.ini')
+            config_path = self._resolve_config_path(config_file)
             
-            # Use existing file resolution logic
-            if not os.path.isabs(config_file):
-                if os.path.exists(config_file):
-                    file_path = config_file
-                elif os.path.exists(f'src/{config_file}'):
-                    file_path = f'src/{config_file}'
-                else:
-                    file_path = config_file
-            else:
-                file_path = config_file
+            if not config_path.exists():
+                logger.warning(f"Config file not found: {config_path}")
+                return {}
             
             config = configparser.ConfigParser()
-            config.read(file_path)
+            config.read(config_path)
             
-            # Convert config sections to nested dict
+            # Use pydantic model validation for cleaner loading
             config_data = {}
             
-            # Azure OpenAI section
-            if config.has_section('azure_openai'):
-                section = config['azure_openai']
-                config_data['azure_openai'] = AzureOpenAIConfig(
-                    azure_tenant_id=section.get('azure_tenant_id', ''),
-                    azure_client_id=section.get('azure_client_id', ''),
-                    scope=section.get('scope', 'https://cognitiveservices.azure.com/.default'),
-                    azure_openai_endpoint=section.get('azure_openai_endpoint', ''),
-                    azure_openai_embedding_model=section.get('azure_openai_embedding_model', 'text-embedding-3-small'),
-                    api_key=section.get('api_key', ''),
-                    deployment_name=section.get('deployment_name', ''),
-                    api_version=section.get('api_version', '2024-10-21'),
-                    max_tokens_2k=section.getint('max_tokens_2k', 2000),
-                    max_tokens_500=section.getint('max_tokens_500', 500),
-                    temperature=section.getfloat('temperature', 0.1),
-                    openai_api_type=section.get('openai_api_type', 'azure')
-                )
+            # Load sections using model defaults and validation
+            for section_name, model_class in [
+                ('azure_openai', AzureOpenAIConfig),
+                ('aws_info', AWSConfig), 
+                ('opensearch', OpenSearchConfig)
+            ]:
+                if config.has_section(section_name):
+                    section_data = dict(config[section_name])
+                    config_data[section_name] = model_class(**section_data)
             
-            # AWS section  
-            if config.has_section('aws_info'):
-                section = config['aws_info']
-                config_data['aws_info'] = AWSConfig(
-                    aws_region=section.get('aws_region', 'us-east-1'),
-                    s3_bucket_name=section.get('s3_bucket_name', None),
-                    azure_cert_file_name=section.get('azure_cert_file_name', 'UtilitiesAssist.pem'),
-                    osa_file_name=section.get('osa_file_name', None),
-                    opensearch_endpoint=section.get('opensearch_endpoint', None),
-                    index_name=section.get('index_name', None)
-                )
+            # Load simple settings
+            self._load_simple_settings(config, config_data)
             
-            # OpenSearch section
-            if config.has_section('opensearch'):
-                section = config['opensearch']
-                config_data['opensearch'] = OpenSearchConfig(
-                    endpoint=section.get('endpoint', 'http://localhost:9200'),
-                    index_name=section.get('index_name', 'confluence_current')
-                )
-            
-            # File paths section
-            if config.has_section('file_paths'):
-                section = config['file_paths']
-                config_data.update({
-                    'synonyms_file_path': section.get('synonyms_file_path', 'data/synonyms.json'),
-                    'api_file_path': section.get('api_file_path', 'data/api_description.json'),
-                    'questions_intent_path': section.get('questions_intent', 'data/questions_intent.csv')
-                })
-            
-            # Confluence section
-            if config.has_section('confluence_info'):
-                section = config['confluence_info']
-                config_data['confluence_directory'] = section.get('directory', 'data')
-            
-            logger.debug(f"Loaded config.ini from: {file_path}")
+            logger.debug(f"Loaded config from: {config_path}")
             return config_data
             
         except Exception as e:
             logger.warning(f"Failed to load config.ini: {e}")
             return {}
+    
+    def _resolve_config_path(self, config_file: str) -> Path:
+        """Resolve config file path using standard patterns."""
+        if os.path.isabs(config_file):
+            return Path(config_file)
+        
+        # Try current dir, then src/ directory
+        candidates = [Path(config_file), Path('src') / config_file]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        
+        return Path(config_file)  # Return original for error handling
+    
+    def _load_simple_settings(self, config: configparser.ConfigParser, config_data: dict):
+        """Load simple non-nested settings from config sections."""
+        if config.has_section('file_paths'):
+            section = config['file_paths']
+            config_data.update({
+                'synonyms_file_path': section.get('synonyms_file_path', 'data/synonyms.json'),
+                'api_file_path': section.get('api_file_path', 'data/api_description.json'),
+                'questions_intent_path': section.get('questions_intent', 'data/questions_intent.csv')
+            })
+        
+        if config.has_section('confluence_info'):
+            section = config['confluence_info']
+            config_data['confluence_directory'] = section.get('directory', 'data')
     
     @property
     def search_index_alias(self) -> str:
