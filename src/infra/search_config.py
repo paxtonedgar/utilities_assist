@@ -5,7 +5,7 @@ This centralizes index names, field mappings, query configurations, and search s
 to eliminate scattered configuration across the codebase.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 
@@ -26,6 +26,14 @@ class SearchStrategy:
     description: str
     uses_vector: bool
     timeout_seconds: float
+
+
+@dataclass 
+class FilterConfig:
+    """Configuration for search filters."""
+    name: str
+    field_path: str  # OpenSearch field path (e.g., "content_type", "metadata.space_key")
+    description: str
 
 
 class OpenSearchConfig:
@@ -69,6 +77,22 @@ class OpenSearchConfig:
         "knn": SearchStrategy("knn", "Pure vector similarity search", True, 2.0)
     }
     
+    # === FILTER CONFIGURATIONS ===
+    FILTERS = {
+        "content_type": FilterConfig("content_type", "content_type", "Filter by document content type"),
+        "acl_hash": FilterConfig("acl_hash", "acl_hash", "Filter by access control hash"),
+        "space_key": FilterConfig("space_key", "metadata.space_key", "Filter by Confluence space"),
+        "updated_after": FilterConfig("updated_after", "updated_at", "Filter by minimum update date"),
+        "updated_before": FilterConfig("updated_before", "updated_at", "Filter by maximum update date")
+    }
+    
+    # === INTENT-BASED FILTER VALUES ===
+    INTENT_FILTERS = {
+        "confluence": {"content_type": "confluence"},
+        "swagger": {"content_type": "api_spec"},
+        "api_spec": {"content_type": "api_spec"}  # Alias for swagger
+    }
+    
     # === FIELD CONFIGURATIONS ===
     
     @classmethod
@@ -99,6 +123,30 @@ class OpenSearchConfig:
     def get_search_strategy(cls, strategy_name: str) -> SearchStrategy:
         """Get search strategy configuration."""
         return cls.STRATEGIES.get(strategy_name, cls.STRATEGIES["enhanced_rrf"])
+    
+    @classmethod
+    def get_filter_config(cls, filter_name: str) -> Optional[FilterConfig]:
+        """Get filter configuration by name."""
+        return cls.FILTERS.get(filter_name)
+    
+    @classmethod
+    def get_intent_filters(cls, intent_type: str) -> Dict[str, Any]:
+        """Get default filters for an intent type."""
+        return cls.INTENT_FILTERS.get(intent_type, {}).copy()
+    
+    @classmethod
+    def build_filter_clause(cls, filter_name: str, value: Any) -> Optional[Dict[str, Any]]:
+        """Build a single filter clause for OpenSearch."""
+        filter_config = cls.get_filter_config(filter_name)
+        if not filter_config:
+            return None
+            
+        if filter_name in ["updated_after", "updated_before"]:
+            # Handle date range filters specially
+            return None  # Handled by existing range filter logic
+        else:
+            # Standard term filter
+            return {"term": {filter_config.field_path: value}}
     
     @classmethod
     def get_default_index(cls) -> str:
@@ -235,3 +283,11 @@ def get_content_fields(index_name: str) -> List[str]:
 def get_source_fields(index_name: str) -> List[str]:
     """Get all _source fields to request."""
     return OpenSearchConfig.get_source_fields(index_name)
+
+def get_intent_filters(intent_type: str) -> Dict[str, Any]:
+    """Get default filters for an intent type."""
+    return OpenSearchConfig.get_intent_filters(intent_type)
+
+def build_filter_clause(filter_name: str, value: Any) -> Optional[Dict[str, Any]]:
+    """Build a single filter clause for OpenSearch."""
+    return OpenSearchConfig.build_filter_clause(filter_name, value)

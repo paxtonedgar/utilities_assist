@@ -333,12 +333,8 @@ async def adaptive_search_tool(
         else:
             index_name = search_index or OpenSearchConfig.get_default_index()  # Use provided or default
         
-        # Build filters based on intent
-        filters = {}
-        if intent_type == "confluence":
-            filters["content_type"] = "confluence"
-        elif intent_type == "swagger":
-            filters["content_type"] = "api_spec"
+        # Build filters based on intent using centralized config
+        filters = OpenSearchConfig.get_intent_filters(intent_type)
         
         # Choose strategy based on intent and confidence
         if intent_type == "list":
