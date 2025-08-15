@@ -1,0 +1,200 @@
+"""
+Single source of truth for all OpenSearch configurations.
+
+This centralizes index names, field mappings, query configurations, and search strategies
+to eliminate scattered configuration across the codebase.
+"""
+
+from typing import List, Dict, Any
+from dataclasses import dataclass
+
+
+@dataclass
+class IndexConfig:
+    """Configuration for a specific OpenSearch index."""
+    name: str
+    content_fields: List[str]  # Fields that contain document content
+    metadata_fields: List[str]  # Fields for metadata/filtering
+    vector_field: str  # Field for vector/embedding searches
+    title_fields: List[str]  # Fields to use for document titles
+
+
+@dataclass 
+class SearchStrategy:
+    """Configuration for search strategies."""
+    name: str
+    description: str
+    uses_vector: bool
+    timeout_seconds: float
+
+
+class OpenSearchConfig:
+    """Centralized OpenSearch configuration."""
+    
+    # === INDEX DEFINITIONS ===
+    MAIN_INDEX = IndexConfig(
+        name="khub-opensearch-index",
+        content_fields=["body", "content", "text", "description"],
+        metadata_fields=["title", "api_name", "utility_name", "page_url", "path", "updated_at", "page_id", "canonical_id"],
+        vector_field="embedding",
+        title_fields=["title", "api_name", "utility_name"]
+    )
+    
+    SWAGGER_INDEX = IndexConfig(
+        name="khub-opensearch-swagger-index", 
+        content_fields=["body", "content", "text", "description", "summary"],
+        metadata_fields=["title", "app_name", "utility_name", "api_name", "page_url", "path", "method", "endpoint"],
+        vector_field="embedding",
+        title_fields=["title", "app_name", "api_name"]
+    )
+    
+    # === SEARCH STRATEGIES ===
+    STRATEGIES = {
+        "hybrid": SearchStrategy("hybrid", "BM25 + KNN hybrid search", True, 2.5),
+        "enhanced_rrf": SearchStrategy("enhanced_rrf", "RRF fusion of BM25 and KNN", True, 5.0),
+        "bm25": SearchStrategy("bm25", "Pure BM25 text search", False, 3.0),
+        "knn": SearchStrategy("knn", "Pure vector similarity search", True, 3.0)
+    }
+    
+    # === FIELD CONFIGURATIONS ===
+    
+    @classmethod
+    def get_source_fields(cls, index_name: str) -> List[str]:
+        """Get all fields to request in _source for an index."""
+        index_config = cls._get_index_config(index_name)
+        return index_config.content_fields + index_config.metadata_fields
+    
+    @classmethod
+    def get_content_fields(cls, index_name: str) -> List[str]:
+        """Get content fields for an index (for content extraction)."""
+        index_config = cls._get_index_config(index_name)
+        return index_config.content_fields
+    
+    @classmethod
+    def get_vector_field(cls, index_name: str) -> str:
+        """Get vector field name for an index."""
+        index_config = cls._get_index_config(index_name)
+        return index_config.vector_field
+    
+    @classmethod
+    def get_title_fields(cls, index_name: str) -> List[str]:
+        """Get title fields for an index."""
+        index_config = cls._get_index_config(index_name)
+        return index_config.title_fields
+    
+    @classmethod
+    def get_search_strategy(cls, strategy_name: str) -> SearchStrategy:
+        """Get search strategy configuration."""
+        return cls.STRATEGIES.get(strategy_name, cls.STRATEGIES["enhanced_rrf"])
+    
+    @classmethod
+    def get_default_index(cls) -> str:
+        """Get default index name."""
+        return cls.MAIN_INDEX.name
+    
+    @classmethod
+    def get_swagger_index(cls) -> str:
+        """Get Swagger API index name.""" 
+        return cls.SWAGGER_INDEX.name
+    
+    @classmethod
+    def _get_index_config(cls, index_name: str) -> IndexConfig:
+        """Get index configuration by name."""
+        if index_name == cls.MAIN_INDEX.name:
+            return cls.MAIN_INDEX
+        elif index_name == cls.SWAGGER_INDEX.name:
+            return cls.SWAGGER_INDEX
+        else:
+            # Default to main index config for unknown indices
+            return cls.MAIN_INDEX
+
+
+# === QUERY TEMPLATES ===
+
+class QueryTemplates:
+    """Reusable query templates for different search types."""
+    
+    @staticmethod
+    def build_hybrid_query(
+        text_query: str,
+        vector_query: List[float],
+        index_name: str,
+        k: int = 10
+    ) -> Dict[str, Any]:
+        """Build a hybrid search query."""
+        config = OpenSearchConfig._get_index_config(index_name)
+        
+        return {
+            "size": k,
+            "query": {
+                "bool": {
+                    "should": [
+                        {
+                            "multi_match": {
+                                "query": text_query,
+                                "fields": [f"{field}^3" for field in config.content_fields] + 
+                                         [f"{field}^4" for field in config.title_fields],
+                                "type": "best_fields"
+                            }
+                        },
+                        {
+                            "knn": {
+                                config.vector_field: {
+                                    "vector": vector_query,
+                                    "k": k
+                                }
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            },
+            "_source": OpenSearchConfig.get_source_fields(index_name),
+            "highlight": {
+                "fields": {field: {} for field in config.content_fields}
+            }
+        }
+    
+    @staticmethod 
+    def build_bm25_query(
+        text_query: str,
+        index_name: str,
+        k: int = 10
+    ) -> Dict[str, Any]:
+        """Build a BM25-only search query."""
+        config = OpenSearchConfig._get_index_config(index_name)
+        
+        return {
+            "size": k,
+            "query": {
+                "multi_match": {
+                    "query": text_query,
+                    "fields": [f"{field}^2" for field in config.content_fields] + 
+                             [f"{field}^4" for field in config.title_fields],
+                    "type": "best_fields"
+                }
+            },
+            "_source": OpenSearchConfig.get_source_fields(index_name),
+            "highlight": {
+                "fields": {field: {} for field in config.content_fields}
+            }
+        }
+
+
+# === CONVENIENCE FUNCTIONS ===
+
+def get_main_index() -> str:
+    """Get main index name."""
+    return OpenSearchConfig.get_default_index()
+
+def get_swagger_index() -> str:
+    """Get Swagger index name."""
+    return OpenSearchConfig.get_swagger_index()
+
+def get_content_fields(index_name: str) -> List[str]:
+    """Get content fields for content extraction."""
+    return OpenSearchConfig.get_content_fields(index_name)
+
+def get_source_fields(index_name: str) -> List[str]:
+    """Get all _source fields to request."""
+    return OpenSearchConfig.get_source_fields(index_name)

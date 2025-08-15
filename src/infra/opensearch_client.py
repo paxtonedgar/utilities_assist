@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import requests
 
 from src.infra.settings import get_settings
+from src.infra.search_config import OpenSearchConfig, QueryTemplates
 from src.telemetry.logger import log_event, stage
 from services.models import SearchResult as ServiceSearchResult  # Use service model
 
@@ -290,7 +291,7 @@ class OpenSearchClient:
         )
         
         # Build simple kNN query (like main branch)
-        search_body = self._build_simple_knn_query(query_vector, k)
+        search_body = self._build_simple_knn_query(query_vector, k, index)
         
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -610,6 +611,45 @@ class OpenSearchClient:
                 method="hybrid_error"
             )
     
+    def _get_boosted_fields(self, index: Optional[str], search_type: str) -> List[str]:
+        """Get boosted field list using centralized configuration."""
+        index_name = index or self.settings.search_index_alias
+        config = OpenSearchConfig._get_index_config(index_name)
+        
+        if search_type == "hybrid":
+            # Build hybrid search fields with appropriate boosts
+            fields = []
+            for field in config.content_fields:
+                fields.append(f"{field}^3")
+            for field in config.title_fields:
+                fields.append(f"{field}^4")
+            return fields
+        elif search_type == "acronym":
+            # Higher boosts for acronym queries
+            fields = []
+            for field in config.content_fields:
+                fields.append(f"{field}^3")
+            for field in config.title_fields:
+                fields.append(f"{field}^8")  # Extra boost for titles in acronym queries
+            # Add name field if available
+            if "name" in [f.split("^")[0] for f in config.metadata_fields]:
+                fields.append("name^4")
+            return fields
+        elif search_type == "bm25":
+            # Standard BM25 boosts
+            fields = []
+            for field in config.content_fields:
+                fields.append(f"{field}^2")
+            for field in config.title_fields:
+                fields.append(f"{field}^6")
+            # Add name field if available
+            if "name" in [f.split("^")[0] for f in config.metadata_fields]:
+                fields.append("name^4")
+            return fields
+        else:
+            # Default field configuration
+            return [f"{field}^2" for field in config.content_fields] + [f"{field}^3" for field in config.title_fields]
+
     def _build_hybrid_query(
         self,
         query: str,
@@ -632,13 +672,7 @@ class OpenSearchClient:
         should_clauses.append({
             "multi_match": {
                 "query": expanded_query if expansions else query,
-                "fields": [
-                    "content^3",
-                    "body^3",
-                    "text^2",
-                    "title^4",
-                    "name^2"
-                ],
+                "fields": self._get_boosted_fields(index, "hybrid"),
                 "type": "best_fields"
             }
         })
@@ -647,7 +681,7 @@ class OpenSearchClient:
         if query_vector:
             should_clauses.append({
                 "knn": {
-                    "embedding": {
+                    OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
                         "vector": query_vector,
                         "k": k
                     }
@@ -678,18 +712,9 @@ class OpenSearchClient:
                     # ]
                 }
             },
-            "_source": [
-                "title", "name", "page_url", "path", "api_name", "utility_name", "app_name",
-                "content", "body", "text", "description",
-                # Include sections in case some docs have it  
-                "sections", "sections.heading", "sections.content"
-            ],
+            "_source": OpenSearchConfig.get_source_fields(index),
             "highlight": {
-                "fields": {
-                    "content": {},
-                    "body": {},
-                    "text": {}
-                },
+                "fields": {field: {} for field in OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)},
                 "fragment_size": 160,
                 "number_of_fragments": 2
             }
@@ -1112,8 +1137,8 @@ class OpenSearchClient:
                         if anchor:
                             anchors.append(anchor)
             else:
-                # Fallback: Extract from root-level fields (prioritize 'body' per confluence_v2.json mapping)
-                content_fields = ['body', 'content', 'text', 'description']
+                # Fallback: Extract from root-level fields using centralized config
+                content_fields = OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)
                 logger.info(f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}")
                 found_content = False
                 for field in content_fields:
@@ -1278,13 +1303,7 @@ class OpenSearchClient:
             "multi_match": {
                 "query": multi_match_query,
                 "type": "most_fields",  # Use most_fields for better expansion matching
-                "fields": [
-                    "title^8" if is_acronym else "title^6",  # Extra boost for acronym queries
-                    "name^4",
-                    "content^3",
-                    "body^3",
-                    "text^2"
-                ],
+                "fields": self._get_boosted_fields(index, "bm25" if not is_acronym else "acronym"),
                 "tie_breaker": 0.3,
                 "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
             }
@@ -1302,13 +1321,13 @@ class OpenSearchClient:
         # PAYLOAD REDUCTION: Reduced size, essential fields, enable total tracking for error handling
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": ["page_url", "api_name", "utility_name", "title", "space", "labels", "path"],  # Essential fields + namespace info
+            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable to properly handle empty results
             "query": bool_query
         }
         return search_body
     
-    def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
+    def _build_simple_knn_query(self, query_vector: List[float], k: int, index: Optional[str] = None) -> Dict[str, Any]:
         """Build optimized nested kNN query with namespace filtering and reduced payload size."""
         
         # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
@@ -1328,7 +1347,7 @@ class OpenSearchClient:
         # Use nested query structure for JPMC production index with optimizations
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": ["page_url", "api_name", "utility_name", "title", "space", "labels", "path"],  # Essential fields + namespace
+            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable for proper error handling
             "query": {
                 "bool": {
