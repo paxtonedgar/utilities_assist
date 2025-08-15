@@ -134,7 +134,7 @@ class OpenSearchClient:
         )
         
         # Build BM25 query matching working v1 branch structure
-        search_body = self._build_simple_bm25_query(query, k)
+        search_body = self._build_simple_bm25_query(query, k, index)
         
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -1203,7 +1203,7 @@ class OpenSearchClient:
         
         return results
     
-    def _build_simple_bm25_query(self, query: str, k: int) -> Dict[str, Any]:
+    def _build_simple_bm25_query(self, query: str, k: int, index: Optional[str] = None) -> Dict[str, Any]:
         """Build optimized BM25 query with namespace filtering, acronym expansion, and title boosting."""
         from agent.acronym_map import expand_acronym, is_short_acronym_query
         
