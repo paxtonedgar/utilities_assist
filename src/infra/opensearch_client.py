@@ -553,7 +553,7 @@ class OpenSearchClient:
             )
             
             # Parse results - handle both root and nested content
-            results = self._parse_search_results(data)
+            results = self._parse_search_response(data)
             
             return SearchResponse(
                 results=results,
@@ -1035,22 +1035,42 @@ class OpenSearchClient:
             section_paths = []
             anchors = []
             
-            for section_hit in inner_hits:
-                section_source = section_hit.get("_source", {})
-                heading = section_source.get("heading", "")
-                content = section_source.get("content", "")
-                anchor = section_source.get("anchor", "")  # URL anchor/slug
-                section_path = section_source.get("section_path", "")  # e.g., "CIU > Onboarding > Create Client IDs"
-                
-                if content:
-                    section_text = f"{heading}\n{content}" if heading else content
-                    body_parts.append(section_text)
+            # If we have inner_hits, use nested content structure
+            if inner_hits:
+                for section_hit in inner_hits:
+                    section_source = section_hit.get("_source", {})
+                    heading = section_source.get("heading", "")
+                    content = section_source.get("content", "")
+                    anchor = section_source.get("anchor", "")  # URL anchor/slug
+                    section_path = section_source.get("section_path", "")  # e.g., "CIU > Onboarding > Create Client IDs"
                     
-                    # Track section metadata for actionable answers
-                    if section_path:
-                        section_paths.append(section_path)
-                    if anchor:
-                        anchors.append(anchor)
+                    if content:
+                        section_text = f"{heading}\n{content}" if heading else content
+                        body_parts.append(section_text)
+                        
+                        # Track section metadata for actionable answers
+                        if section_path:
+                            section_paths.append(section_path)
+                        if anchor:
+                            anchors.append(anchor)
+            else:
+                # Fallback: Extract from root-level fields (for hybrid search results)
+                content_fields = ['content', 'body', 'text', 'description']
+                for field in content_fields:
+                    if field in source and source[field]:
+                        body_parts.append(source[field])
+                        break  # Use the first available content field
+                
+                # Also check if there are sections array at root level
+                sections = source.get('sections', [])
+                if sections and isinstance(sections, list):
+                    for section in sections[:3]:  # Limit to first 3 sections
+                        if isinstance(section, dict):
+                            heading = section.get('heading', '')
+                            content = section.get('content', '')
+                            if content:
+                                section_text = f"{heading}\n{content}" if heading else content
+                                body_parts.append(section_text)
             
             body = "\n\n".join(body_parts) if body_parts else ""
             
