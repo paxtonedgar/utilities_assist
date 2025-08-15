@@ -637,13 +637,23 @@ class OpenSearchClient:
             }
         })
         
-        # KNN clause - only if vector is provided
+        # KNN clause - only if vector is provided (use nested structure like working KNN)
         if query_vector:
             should_clauses.append({
-                "knn": {
-                    "embedding": {
-                        "vector": query_vector,
-                        "k": k
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "knn": {
+                            "sections.embedding": {
+                                "vector": query_vector,
+                                "k": k
+                            }
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 3,
+                        "_source": ["heading", "content"]
                     }
                 }
             })
