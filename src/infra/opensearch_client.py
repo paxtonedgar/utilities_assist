@@ -1046,11 +1046,28 @@ class OpenSearchClient:
         """Parse OpenSearch response into SearchResult objects with canonical schema."""
         results = []
         
+        # DEBUG: Log the OpenSearch response structure
+        logger.info(f"OPENSEARCH_RESPONSE_DEBUG: response_keys={list(data.keys())}")
+        hits_section = data.get("hits", {})
+        logger.info(f"HITS_SECTION_DEBUG: hits_keys={list(hits_section.keys())}")
+        
         # Safely extract hits array
         hits = data.get("hits", {}).get("hits", [])
         if not isinstance(hits, list):
             logger.warning("Invalid hits format in OpenSearch response")
             return []
+        
+        # DEBUG: Log first hit structure if available
+        if hits:
+            first_hit = hits[0]
+            logger.info(f"FIRST_HIT_DEBUG: hit_keys={list(first_hit.keys())}")
+            source = first_hit.get("_source", {})
+            logger.info(f"FIRST_SOURCE_DEBUG: source_keys={list(source.keys())}")
+            logger.info(f"INNER_HITS_DEBUG: has_inner_hits={bool(first_hit.get('inner_hits'))}")
+            if first_hit.get('inner_hits'):
+                logger.info(f"INNER_HITS_STRUCTURE: {list(first_hit.get('inner_hits', {}).keys())}")
+        else:
+            logger.info("NO_HITS_DEBUG: Empty hits array")
         
         for hit in hits:
             source = hit.get("_source", {})
@@ -1090,10 +1107,18 @@ class OpenSearchClient:
             else:
                 # Fallback: Extract from root-level fields (for hybrid search results)
                 content_fields = ['content', 'body', 'text', 'description']
+                logger.info(f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}")
+                found_content = False
                 for field in content_fields:
                     if field in source and source[field]:
-                        body_parts.append(source[field])
+                        content_value = source[field]
+                        logger.info(f"FOUND_CONTENT_DEBUG: field={field} content_len={len(str(content_value))} content_preview={str(content_value)[:100]}")
+                        body_parts.append(str(content_value))
+                        found_content = True
                         break  # Use the first available content field
+                
+                if not found_content:
+                    logger.warning(f"NO_CONTENT_FOUND: doc_id={hit.get('_id')} tried_fields={content_fields} available_fields={list(source.keys())}")
                 
                 # Also check if there are sections array at root level
                 sections = source.get('sections', [])
