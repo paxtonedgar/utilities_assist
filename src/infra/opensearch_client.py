@@ -911,7 +911,7 @@ class OpenSearchClient:
             "query": final_query,
             "size": k,
             "sort": [{"_score": {"order": "desc"}}],
-            "_source": OpenSearchConfig.get_source_fields("khub-opensearch-index"),  # Use centralized config
+            "_source": OpenSearchConfig.get_source_fields(OpenSearchConfig.get_default_index()),  # Use centralized config
             "track_scores": True
         }
     
@@ -963,12 +963,12 @@ class OpenSearchClient:
         base_query = {
             "size": k,
             "knn": {
-                "field": OpenSearchConfig.get_vector_field("khub-opensearch-index"),  # Use centralized config
+                "field": OpenSearchConfig.get_vector_field(OpenSearchConfig.get_default_index()),  # Use centralized config
                 "query_vector": query_vector,
                 "k": k,
                 "num_candidates": max(200, k * 4)  # Ensure good candidate pool
             },
-            "_source": OpenSearchConfig.get_source_fields("khub-opensearch-index"),  # Use centralized config
+            "_source": OpenSearchConfig.get_source_fields(OpenSearchConfig.get_default_index()),  # Use centralized config
             "track_scores": True
         }
         
@@ -1357,7 +1357,7 @@ class OpenSearchClient:
                             "path": "sections",
                             "query": {
                                 "knn": {
-                                    f"sections.{OpenSearchConfig.get_vector_field('khub-opensearch-index')}": {
+                                    f"sections.{OpenSearchConfig.get_vector_field(OpenSearchConfig.get_default_index())}": {
                                         "vector": query_vector,
                                         "k": 5
                                     }

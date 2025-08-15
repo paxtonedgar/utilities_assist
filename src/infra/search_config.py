@@ -37,10 +37,20 @@ class OpenSearchConfig:
     
     MAIN_INDEX = IndexConfig(
         name="khub-opensearch-index",
-        content_fields=["body", "content", "text", "description"],
-        metadata_fields=["title", "api_name", "utility_name", "page_url", "path", "updated_at", "page_id", "canonical_id"],
+        # Content fields: From mapping + commonly expected fields
+        content_fields=["body", "content", "text", "description", "section"],
+        # Metadata fields: From mapping + fields actively used in codebase  
+        metadata_fields=[
+            # From actual mapping
+            "title", "updated_at", "page_id", "canonical_id", "acl_hash", "content_type", "source", "section_anchor",
+            # From codebase usage (may be added during indexing)
+            "api_name", "utility_name", "page_url", "path", "space", "url", "app_name",
+            # From metadata object structure
+            "author", "space_key", "version", "labels"
+        ],
         vector_field="embedding",
-        title_fields=["title", "api_name", "utility_name"]
+        # Title fields: Fields used to extract document titles
+        title_fields=["title", "api_name", "utility_name", "app_name"]
     )
     
     SWAGGER_INDEX = IndexConfig(

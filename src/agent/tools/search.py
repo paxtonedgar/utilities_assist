@@ -142,7 +142,7 @@ async def search_index_tool(
                 
                 embedding_query = " ".join(embedding_parts)
                 
-                expected_dims = 1536
+                expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
                 query_embedding = await create_single_embedding(
                     embed_client=embed_client,
                     text=embedding_query,
@@ -199,7 +199,7 @@ async def search_index_tool(
                 
                 embedding_query = " ".join(embedding_parts)
                 
-                expected_dims = 1536
+                expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
                 query_embedding = await create_single_embedding(
                     embed_client=embed_client,
                     text=embedding_query,
