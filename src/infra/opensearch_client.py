@@ -527,22 +527,42 @@ class OpenSearchClient:
                 index, "hybrid", query, len(query), query_vector is not None
             )
             
+            # DEBUG: Log the actual query body for troubleshooting
+            logger.info(f"HYBRID_QUERY_BODY: {json.dumps(search_body, indent=2)}")
+            
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()
             
-            response = requests.get(
-                url,
-                auth=_get_aws_auth() if self.settings.requires_aws_auth else None,
-                json=search_body,
-                timeout=30
-            )
-            response.raise_for_status()
+            try:
+                response = requests.get(
+                    url,
+                    auth=_get_aws_auth() if self.settings.requires_aws_auth else None,
+                    json=search_body,
+                    timeout=30
+                )
+                
+                # Log HTTP response details before raising for status
+                logger.info(f"HYBRID_HTTP_RESPONSE: status={response.status_code} took={time.time() - start_time:.3f}s")
+                
+                response.raise_for_status()
+            except requests.exceptions.RequestException as req_err:
+                logger.error(f"Hybrid search HTTP request failed: {req_err}")
+                logger.error(f"Request URL: {url}")
+                logger.error(f"Response status: {getattr(response, 'status_code', 'N/A')}")
+                logger.error(f"Response text: {getattr(response, 'text', 'N/A')[:500]}")
+                raise
             
             data = response.json()
             took_ms = int((time.time() - start_time) * 1000)
             
-            # Log success
+            # Log success with detailed result info
             total_hits = get_total_hits(data)
+            
+            logger.info(
+                "OS_RESPONSE index=%s strategy=hybrid status=200 hits=%d took_ms=%d",
+                index, total_hits, took_ms
+            )
+            
             log_event(
                 stage="hybrid",
                 event="success",
