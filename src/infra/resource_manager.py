@@ -115,7 +115,7 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
             embed_cfg = EmbedCfg(
                 provider="azure",
                 model=settings.embed.model,
-                dims=1536  # Standard Azure OpenAI embedding dimensions
+                dims=1536  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
             )
             embed_client = make_embed_client(embed_cfg, token_provider)
         else:

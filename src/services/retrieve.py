@@ -11,6 +11,7 @@ from collections import Counter  # Fix for MMR diversification
 
 from services.models import SearchResult, RetrievalResult
 from infra.opensearch_client import OpenSearchClient, SearchFilters
+from src.infra.search_config import OpenSearchConfig
 # RRF utilities imported within function to avoid dependency loading issues
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def bm25_search_with_timeout(
     query: str,
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     time_decay_days: int = 75,
@@ -71,7 +72,7 @@ async def bm25_search_with_timeout(
 async def bm25_search(
     query: str,
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     time_decay_days: int = 75
@@ -97,7 +98,7 @@ async def bm25_search(
         response = search_client.bm25_search(
             query=query,
             filters=search_filters,
-            index=index_name,
+            index=index_name or OpenSearchConfig.get_default_index(),
             k=top_k,
             time_decay_half_life_days=time_decay_days
         )
@@ -139,7 +140,7 @@ async def bm25_search(
 async def knn_search_with_timeout(
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     ef_search: int = 256,
@@ -189,7 +190,7 @@ async def knn_search_with_timeout(
 async def knn_search(
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     ef_search: int = 256
@@ -215,7 +216,7 @@ async def knn_search(
         response = search_client.knn_search(
             query_vector=query_embedding,
             filters=search_filters,
-            index=index_name,
+            index=index_name or OpenSearchConfig.get_default_index(),
             k=top_k,
             ef_search=ef_search
         )
@@ -637,7 +638,7 @@ async def hybrid_search_with_timeout(
     query: str,
     query_embedding: Optional[List[float]],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     timeout_seconds: float = 3.0
@@ -658,7 +659,7 @@ async def hybrid_search_with_timeout(
                 query=query,
                 query_vector=query_embedding,
                 filters=search_filters,
-                index=index_name,
+                index=index_name or OpenSearchConfig.get_default_index(),
                 k=top_k
             ),
             timeout=timeout_seconds
@@ -714,7 +715,7 @@ async def enhanced_rrf_search(
     query: str,
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 8,
     rrf_k: int = 60,

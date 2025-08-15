@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 from services.retrieve import enhanced_rrf_search, bm25_search, knn_search
 from embedding_creation import create_single_embedding, EmbeddingError
 from infra.opensearch_client import OpenSearchClient
+from src.infra.search_config import OpenSearchConfig
 from services.models import RetrievalResult
 from src.telemetry.logger import stage
 
@@ -303,7 +304,7 @@ async def adaptive_search_tool(
     search_client: OpenSearchClient = None,
     embed_client = None,
     embed_model: str = "text-embedding-ada-002",
-    search_index: str = "khub-opensearch-index",
+    search_index: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     top_k: int = 10
 ) -> RetrievalResult:
     """
@@ -326,11 +327,11 @@ async def adaptive_search_tool(
         RetrievalResult with search results
     """
     try:
-        # Determine index based on intent
+        # Determine index based on intent using centralized config
         if intent_type == "swagger":
-            index_name = "khub-opensearch-swagger-index"
+            index_name = OpenSearchConfig.get_swagger_index()
         else:
-            index_name = search_index  # Use provided index
+            index_name = search_index or OpenSearchConfig.get_default_index()  # Use provided or default
         
         # Build filters based on intent
         filters = {}

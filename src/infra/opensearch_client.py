@@ -805,7 +805,7 @@ class OpenSearchClient:
                 "multi_match": {
                     "query": key_terms,  # Use extracted key terms instead of full query
                     "type": "best_fields",
-                    "fields": ["title^5", "section^2", "body^1"],  # Reduced boosts: 10→5, 4→2
+                    "fields": ["title^5", "section^2", "body^1"],  # Legacy hardcoded - TODO: centralize in search_config.py
                     "tie_breaker": 0.3
                 }
             }
@@ -911,7 +911,7 @@ class OpenSearchClient:
             "query": final_query,
             "size": k,
             "sort": [{"_score": {"order": "desc"}}],
-            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id", "section"],
+            "_source": OpenSearchConfig.get_source_fields("khub-opensearch-index"),  # Use centralized config
             "track_scores": True
         }
     
@@ -963,12 +963,12 @@ class OpenSearchClient:
         base_query = {
             "size": k,
             "knn": {
-                "field": "embedding",  # Use root-level embedding field
+                "field": OpenSearchConfig.get_vector_field("khub-opensearch-index"),  # Use centralized config
                 "query_vector": query_vector,
                 "k": k,
                 "num_candidates": max(200, k * 4)  # Ensure good candidate pool
             },
-            "_source": ["title", "body", "metadata", "updated_at", "page_id", "canonical_id", "section"],
+            "_source": OpenSearchConfig.get_source_fields("khub-opensearch-index"),  # Use centralized config
             "track_scores": True
         }
         
@@ -1357,7 +1357,7 @@ class OpenSearchClient:
                             "path": "sections",
                             "query": {
                                 "knn": {
-                                    "sections.embedding": {
+                                    f"sections.{OpenSearchConfig.get_vector_field('khub-opensearch-index')}": {
                                         "vector": query_vector,
                                         "k": 5
                                     }

@@ -43,7 +43,7 @@ def _local() -> Settings:
     return Settings(
         profile="local",
         chat=ChatCfg(provider="openai", model="gpt-4o-mini"),
-        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),
+        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
         search=SearchCfg(host=os.getenv("OS_HOST", "http://localhost:9200"))
     )
 
@@ -85,7 +85,7 @@ def _jpmc() -> Settings:
         embed=EmbedCfg(
             provider="azure", 
             model=embed_deployment, 
-            dims=1536
+            dims=1536  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
         ),
         search=SearchCfg(
             host=opensearch_host, 
@@ -103,7 +103,7 @@ def _tests() -> Settings:
     return Settings(
         profile="tests",
         chat=ChatCfg(provider="openai", model="gpt-3.5-turbo"),
-        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),
+        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
         search=SearchCfg(host="http://localhost:9200")
     )
 

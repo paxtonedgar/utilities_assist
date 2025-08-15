@@ -208,7 +208,8 @@ class SwaggerSearchNode(SearchNodeHandler):
             logger.debug(f"Using intent confidence: {intent_confidence} for swagger search")
             
             # INTENT-BASED INDEX SELECTION: API questions should use swagger index only
-            optimal_index = "khub-opensearch-swagger-index" 
+            from src.infra.search_config import OpenSearchConfig
+            optimal_index = OpenSearchConfig.get_swagger_index() 
             logger.info(f"Using Swagger-specific index: {optimal_index}")
             
             result = await adaptive_search_tool(
@@ -275,9 +276,10 @@ class MultiSearchNode(SearchNodeHandler):
             intent = state.get("intent")
             
             # Define indices to search for compound queries
+            from src.infra.search_config import OpenSearchConfig
             indices = [
-                resources.settings.search_index_alias,  # Use configured index
-                "khub-opensearch-swagger-index"
+                OpenSearchConfig.get_default_index(),  # Use centralized config
+                OpenSearchConfig.get_swagger_index()
             ]
             
             # Search all indices

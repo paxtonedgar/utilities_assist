@@ -32,6 +32,9 @@ class OpenSearchConfig:
     """Centralized OpenSearch configuration."""
     
     # === INDEX DEFINITIONS ===
+    # Standard OpenAI/Azure embedding dimensions
+    EMBEDDING_DIMENSIONS = 1536
+    
     MAIN_INDEX = IndexConfig(
         name="khub-opensearch-index",
         content_fields=["body", "content", "text", "description"],
