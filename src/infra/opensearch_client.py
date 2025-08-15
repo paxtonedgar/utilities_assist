@@ -639,23 +639,13 @@ class OpenSearchClient:
             }
         })
         
-        # KNN clause - only if vector is provided (use nested structure like working KNN)
+        # KNN clause - only if vector is provided (use root-level embedding per mapping)
         if query_vector:
             should_clauses.append({
-                "nested": {
-                    "path": "sections",
-                    "query": {
-                        "knn": {
-                            "sections.embedding": {
-                                "vector": query_vector,
-                                "k": k
-                            }
-                        }
-                    },
-                    "inner_hits": {
-                        "name": "matched_sections",
-                        "size": 3,
-                        "_source": ["heading", "content"]
+                "knn": {
+                    "embedding": {
+                        "vector": query_vector,
+                        "k": k
                     }
                 }
             })
@@ -1105,8 +1095,8 @@ class OpenSearchClient:
                         if anchor:
                             anchors.append(anchor)
             else:
-                # Fallback: Extract from root-level fields (for hybrid search results)
-                content_fields = ['content', 'body', 'text', 'description']
+                # Fallback: Extract from root-level fields (prioritize 'body' per confluence_v2.json mapping)
+                content_fields = ['body', 'content', 'text', 'description']
                 logger.info(f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}")
                 found_content = False
                 for field in content_fields:
