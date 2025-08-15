@@ -1145,21 +1145,21 @@ class OpenSearchClient:
         # Extract key terms for BM25-friendly searching
         key_terms = self._extract_key_terms(expanded_query if expansions else query)
         
-        # Build filter clauses - CRITICAL: Filter to Utilities namespace
+        # Build filter clauses - TEMPORARILY DISABLED FOR DEBUGGING
         filter_clauses = []
         
-        # NAMESPACE FILTER: Only search Utilities docs (prevents medical CIU match)
-        filter_clauses.append({
-            "bool": {
-                "should": [
-                    {"term": {"space.keyword": "Utilities"}},
-                    {"term": {"labels.keyword": "utilities"}},
-                    {"wildcard": {"path.keyword": "*/utilities/*"}},
-                    {"prefix": {"title.keyword": "utilities/"}}
-                ],
-                "minimum_should_match": 1
-            }
-        })
+        # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
+        # filter_clauses.append({
+        #     "bool": {
+        #         "should": [
+        #             {"term": {"space.keyword": "Utilities"}},
+        #             {"term": {"labels.keyword": "utilities"}},
+        #             {"wildcard": {"path.keyword": "*/utilities/*"}},
+        #             {"prefix": {"title.keyword": "utilities/"}}
+        #         ],
+        #         "minimum_should_match": 1
+        #     }
+        # })
         
         # Build should clauses for scoring
         should_clauses = []
@@ -1267,18 +1267,19 @@ class OpenSearchClient:
     def _build_simple_knn_query(self, query_vector: List[float], k: int) -> Dict[str, Any]:
         """Build optimized nested kNN query with namespace filtering and reduced payload size."""
         
-        # NAMESPACE FILTER: Same as BM25 to prevent cross-domain matches
-        filter_clauses = [{
-            "bool": {
-                "should": [
-                    {"term": {"space.keyword": "Utilities"}},
-                    {"term": {"labels.keyword": "utilities"}},
-                    {"wildcard": {"path.keyword": "*/utilities/*"}},
-                    {"prefix": {"title.keyword": "utilities/"}}
-                ],
-                "minimum_should_match": 1
-            }
-        }]
+        # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
+        filter_clauses = []
+        # filter_clauses = [{
+        #     "bool": {
+        #         "should": [
+        #             {"term": {"space.keyword": "Utilities"}},
+        #             {"term": {"labels.keyword": "utilities"}},
+        #             {"wildcard": {"path.keyword": "*/utilities/*"}},
+        #             {"prefix": {"title.keyword": "utilities/"}}
+        #         ],
+        #         "minimum_should_match": 1
+        #     }
+        # }]
         
         # Use nested query structure for JPMC production index with optimizations
         search_body = {
