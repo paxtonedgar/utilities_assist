@@ -293,7 +293,7 @@ async def _apply_mmr_diversification(results: List[SearchResult], query: str, to
         return results[:top_k]  # Simple truncation fallback
 
 
-def _build_context_from_results(results: List[SearchResult], max_length: int = 12000) -> str:
+def _build_context_from_results(results: List[SearchResult], max_length: int = 50000) -> str:
     """Build actionable context with section paths and anchor links."""
     if not results:
         return "No relevant information found."
@@ -322,18 +322,8 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 1
         # DEBUG: Log what content we're getting from search results
         logger.info(f"RESULT_CONTENT doc_id={result.doc_id} title='{title}' content_len={len(content)} content_preview='{content[:100]}...'")
         
-        if len(content) > 1000:
-            # Find a natural break point (sentence end, paragraph break)
-            truncate_at = 1000
-            last_sentence = content.rfind('.', 0, truncate_at)
-            last_paragraph = content.rfind('\n\n', 0, truncate_at)
-            
-            if last_sentence > 500:  # Good sentence break found
-                content = content[:last_sentence + 1]
-            elif last_paragraph > 400:  # Good paragraph break found
-                content = content[:last_paragraph]
-            else:
-                content = content[:truncate_at] + "..."
+        # NO TRUNCATION - Use full document content for accurate answers
+        # The LLM can handle large contexts and we want complete information
         
         # Create an actionable entry with section links
         if utility_name and utility_name != title:

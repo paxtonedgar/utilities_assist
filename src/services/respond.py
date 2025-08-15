@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def build_context(
     retrieval_results: List[SearchResult], 
     intent: IntentResult,
-    max_context_length: int = 8000
+    max_context_length: int = 50000
 ) -> str:
     """Build context string from retrieval results.
     

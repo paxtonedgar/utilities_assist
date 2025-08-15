@@ -75,7 +75,7 @@ class WorkflowConfig:
     enable_cross_index_search: bool = True
     
     # Result synthesis
-    max_context_length: int = 8000
+    max_context_length: int = 50000
     diversity_lambda: float = 0.75  # MMR parameter
     
     # Response generation
