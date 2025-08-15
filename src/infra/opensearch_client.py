@@ -527,8 +527,10 @@ class OpenSearchClient:
                 index, "hybrid", query, len(query), query_vector is not None
             )
             
-            # DEBUG: Log the actual query body for troubleshooting
-            logger.info(f"HYBRID_QUERY_BODY: {json.dumps(search_body, indent=2)}")
+            # DEBUG: Log hybrid query summary for troubleshooting
+            query_json = json.dumps(search_body)
+            vector_dims = len(search_body["query"]["bool"]["should"][1]["nested"]["query"]["knn"]["sections.embedding"]["vector"]) if len(search_body["query"]["bool"]["should"]) > 1 else 0
+            logger.info(f"HYBRID_QUERY size={search_body['size']} json_len={len(query_json)} vector_dims={vector_dims} has_nested={bool(vector_dims)}")
             
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()
