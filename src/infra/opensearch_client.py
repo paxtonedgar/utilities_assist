@@ -679,9 +679,9 @@ class OpenSearchClient:
                 }
             },
             "_source": [
-                "title", "name", "page_url", "path",
-                "content", "body", "text",
-                # Include sections in case some docs have it
+                "title", "name", "page_url", "path", "api_name", "utility_name", "app_name",
+                "content", "body", "text", "description",
+                # Include sections in case some docs have it  
                 "sections", "sections.heading", "sections.content"
             ],
             "highlight": {
