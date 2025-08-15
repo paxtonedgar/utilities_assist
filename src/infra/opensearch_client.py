@@ -648,26 +648,28 @@ class OpenSearchClient:
                 }
             })
         
-        # Build complete query with namespace filter
+        # Build complete query - TEMPORARILY REMOVE NAMESPACE FILTER FOR DEBUGGING
+        # TODO: Re-enable namespace filter once we confirm documents exist
         search_body = {
             "size": k,
             "query": {
                 "bool": {
                     "should": should_clauses,
-                    "minimum_should_match": 1,
-                    "filter": [
-                        {
-                            "bool": {
-                                "should": [
-                                    {"term": {"space.keyword": "Utilities"}},
-                                    {"term": {"labels.keyword": "utilities"}},
-                                    {"wildcard": {"path.keyword": "*/utilities/*"}},
-                                    {"prefix": {"title.keyword": "utilities/"}}
-                                ],
-                                "minimum_should_match": 1
-                            }
-                        }
-                    ]
+                    "minimum_should_match": 1
+                    # DISABLED: Namespace filter may be too restrictive
+                    # "filter": [
+                    #     {
+                    #         "bool": {
+                    #             "should": [
+                    #                 {"term": {"space.keyword": "Utilities"}},
+                    #                 {"term": {"labels.keyword": "utilities"}},
+                    #                 {"wildcard": {"path.keyword": "*/utilities/*"}},
+                    #                 {"prefix": {"title.keyword": "utilities/"}}
+                    #             ],
+                    #             "minimum_should_match": 1
+                    #         }
+                    #     }
+                    # ]
                 }
             },
             "_source": [
