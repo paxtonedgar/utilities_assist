@@ -633,6 +633,83 @@ def _rrf_with_diversification(
     return selected, diagnostics
 
 
+async def hybrid_search_with_timeout(
+    query: str,
+    query_embedding: Optional[List[float]],
+    search_client: OpenSearchClient,
+    index_name: str = "khub-opensearch-index",
+    filters: Optional[Dict[str, Any]] = None,
+    top_k: int = 10,
+    timeout_seconds: float = 3.0
+) -> RetrievalResult:
+    """True hybrid search with aggressive timeout and fallback.
+    
+    Uses the new hybrid_search method that combines BM25 and KNN in a single query.
+    Never propagates exceptions - returns empty results on failure.
+    """
+    try:
+        # Convert filters dict to SearchFilters
+        search_filters = _build_search_filters(filters) if filters else None
+        
+        # Execute hybrid search with timeout
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                search_client.hybrid_search,
+                query=query,
+                query_vector=query_embedding,
+                filters=search_filters,
+                index=index_name,
+                k=top_k
+            ),
+            timeout=timeout_seconds
+        )
+        
+        # Convert to canonical service format
+        results = []
+        for result in response.results:
+            service_result = SearchResult(
+                doc_id=result.doc_id,
+                title=result.title,
+                url=result.url,
+                score=result.score,
+                content=result.content,
+                metadata=result.metadata
+            )
+            results.append(service_result)
+        
+        return RetrievalResult(
+            results=results,
+            total_found=response.total_hits,
+            retrieval_time_ms=response.took_ms,
+            method="hybrid",
+            diagnostics={"query_type": "hybrid", "index": index_name}
+        )
+        
+    except (asyncio.TimeoutError, Exception) as e:
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        error_type = "timeout" if is_timeout else "error"
+        
+        # STRUCTURED LOGGING: Log timeout/error with telemetry details
+        from src.telemetry.logger import log_event
+        log_event(
+            stage="hybrid",
+            event=error_type,
+            err=True,
+            timeout=is_timeout,
+            took_ms=timeout_seconds * 1000,
+            error_type=type(e).__name__,
+            error_message=str(e)[:100],
+            index_name=index_name,
+            query_length=len(query)
+        )
+        
+        logger.warning(f"Hybrid search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
+        return RetrievalResult(
+            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
+            method="hybrid_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
+        )
+
+
 async def enhanced_rrf_search(
     query: str,
     query_embedding: List[float],
@@ -671,6 +748,32 @@ async def enhanced_rrf_search(
     }
     
     try:
+        # OPTION 1: Try true hybrid search first (single query with both BM25 and KNN)
+        # This is more efficient than running separate searches
+        use_single_hybrid = True  # Feature flag - can be configured
+        
+        if use_single_hybrid and query_embedding:
+            logger.info("Using single hybrid search query")
+            hybrid_result = await hybrid_search_with_timeout(
+                query=query,
+                query_embedding=query_embedding,
+                search_client=search_client,
+                index_name=index_name,
+                filters=filters,
+                top_k=top_k,
+                timeout_seconds=2.5  # Slightly longer timeout for hybrid
+            )
+            
+            if hybrid_result.results:
+                # Success with hybrid search - return directly
+                diagnostics["search_method"] = "single_hybrid"
+                diagnostics["result_count"] = len(hybrid_result.results)
+                
+                return hybrid_result, diagnostics
+            else:
+                logger.info("Hybrid search returned no results, falling back to separate searches")
+        
+        # OPTION 2: Fallback to separate BM25 and KNN searches with RRF fusion
         # AGGRESSIVE TIMEOUTS: Use timeout-wrapped search calls that never propagate exceptions
         # This prevents the 6-7s "Answer" with zero docs scenario
         

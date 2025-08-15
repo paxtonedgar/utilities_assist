@@ -470,6 +470,205 @@ class OpenSearchClient:
             method="rrf"
         )
     
+    @stage("hybrid")
+    def hybrid_search(
+        self,
+        query: str,
+        query_vector: Optional[List[float]] = None,
+        filters: Optional[SearchFilters] = None,
+        index: Optional[str] = None,
+        k: int = 50,
+        time_decay_half_life_days: int = 120
+    ) -> SearchResponse:
+        """
+        True hybrid search combining BM25 and KNN in a single query.
+        Falls back to BM25-only if no vector is provided or if KNN fails.
+        
+        Args:
+            query: Search query string
+            query_vector: Optional query embedding vector
+            filters: ACL, space, and time filters
+            index: Index name or alias to search
+            k: Number of results to return
+            time_decay_half_life_days: Half-life for time decay in days
+            
+        Returns:
+            SearchResponse with hybrid search results
+        """
+        # Use configured index alias if not specified
+        if index is None:
+            index = self.settings.search_index_alias
+        
+        # Log search start
+        log_event(
+            stage="hybrid",
+            event="start",
+            index=index,
+            query_type="hybrid" if query_vector else "bm25_fallback",
+            k=k,
+            filters_enabled=filters is not None,
+            query_length=len(query),
+            has_vector=query_vector is not None
+        )
+        
+        # Build hybrid query
+        search_body = self._build_hybrid_query(
+            query=query,
+            query_vector=query_vector,
+            k=k
+        )
+        
+        try:
+            url = f"{self.base_url}/{index}/_search"
+            start_time = time.time()
+            
+            logger.info(
+                "OS_QUERY index=%s strategy=%s q=%r query_len=%d has_vector=%s",
+                index, "hybrid", query, len(query), query_vector is not None
+            )
+            
+            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+            _setup_jpmc_proxy()
+            
+            response = requests.get(
+                url,
+                auth=_get_aws_auth() if self.settings.requires_aws_auth else None,
+                json=search_body,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            took_ms = int((time.time() - start_time) * 1000)
+            
+            # Log success
+            total_hits = get_total_hits(data)
+            log_event(
+                stage="hybrid",
+                event="success",
+                index=index,
+                total_hits=total_hits,
+                took_ms=took_ms,
+                has_vector=query_vector is not None
+            )
+            
+            # Parse results - handle both root and nested content
+            results = self._parse_search_results(data)
+            
+            return SearchResponse(
+                results=results,
+                total_hits=total_hits,
+                took_ms=took_ms,
+                method="hybrid" if query_vector else "bm25_fallback"
+            )
+            
+        except Exception as e:
+            logger.error(f"Hybrid search failed: {e}")
+            log_event(
+                stage="hybrid",
+                event="error",
+                err=True,
+                error_type=type(e).__name__,
+                error_message=str(e)[:100]
+            )
+            
+            # If hybrid fails and we have no vector, fallback to simple BM25
+            if not query_vector:
+                logger.info("Falling back to simple BM25 search")
+                return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            
+            return SearchResponse(
+                results=[],
+                total_hits=0,
+                took_ms=int((time.time() - start_time) * 1000),
+                method="hybrid_error"
+            )
+    
+    def _build_hybrid_query(
+        self,
+        query: str,
+        query_vector: Optional[List[float]] = None,
+        k: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Build a hybrid query combining BM25 and KNN in a single bool.should query.
+        This follows the fix pattern for root-level hybrid search.
+        """
+        from agent.acronym_map import expand_acronym
+        
+        # Expand acronyms if present
+        expanded_query, expansions = expand_acronym(query)
+        
+        # Build should clauses for hybrid search
+        should_clauses = []
+        
+        # BM25 clause - multi_match over root fields
+        should_clauses.append({
+            "multi_match": {
+                "query": expanded_query if expansions else query,
+                "fields": [
+                    "content^3",
+                    "body^3",
+                    "text^2",
+                    "title^4",
+                    "name^2"
+                ],
+                "type": "best_fields"
+            }
+        })
+        
+        # KNN clause - only if vector is provided
+        if query_vector:
+            should_clauses.append({
+                "knn": {
+                    "embedding": {
+                        "vector": query_vector,
+                        "k": k
+                    }
+                }
+            })
+        
+        # Build complete query with namespace filter
+        search_body = {
+            "size": k,
+            "query": {
+                "bool": {
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
+                    "filter": [
+                        {
+                            "bool": {
+                                "should": [
+                                    {"term": {"space.keyword": "Utilities"}},
+                                    {"term": {"labels.keyword": "utilities"}},
+                                    {"wildcard": {"path.keyword": "*/utilities/*"}},
+                                    {"prefix": {"title.keyword": "utilities/"}}
+                                ],
+                                "minimum_should_match": 1
+                            }
+                        }
+                    ]
+                }
+            },
+            "_source": [
+                "title", "name", "page_url", "path",
+                "content", "body", "text",
+                # Include sections in case some docs have it
+                "sections", "sections.heading", "sections.content"
+            ],
+            "highlight": {
+                "fields": {
+                    "content": {},
+                    "body": {},
+                    "text": {}
+                },
+                "fragment_size": 160,
+                "number_of_fragments": 2
+            }
+        }
+        
+        return search_body
+    
     def _extract_key_terms(self, query_text: str) -> str:
         """Extract key terms from natural language queries, optimized for BM25-friendly keywords.
         
@@ -711,7 +910,7 @@ class OpenSearchClient:
         base_query = {
             "size": k,
             "knn": {
-                "field": "sections.embedding",  # Use actual JPMC field name
+                "field": "embedding",  # Use root-level embedding field
                 "query_vector": query_vector,
                 "k": k,
                 "num_candidates": max(200, k * 4)  # Ensure good candidate pool
@@ -969,9 +1168,10 @@ class OpenSearchClient:
                                 }
                             }
                         })
+                        # Use root-level fields instead of nested
                         should_clauses.append({
                             "match_phrase": {
-                                "sections.heading": {
+                                "title": {
                                     "query": api_name,
                                     "boost": 8
                                 }
@@ -979,7 +1179,7 @@ class OpenSearchClient:
                         })
                         should_clauses.append({
                             "match_phrase": {
-                                "sections.content": {
+                                "content": {
                                     "query": api_name,
                                     "boost": 3
                                 }
@@ -989,27 +1189,18 @@ class OpenSearchClient:
         # Enhanced multi_match query with expanded terms from synonyms
         multi_match_query = expanded_query if expansions else key_terms
         should_clauses.append({
-            "nested": {
-                "path": "sections", 
-                "query": {
-                    "multi_match": {
-                        "query": multi_match_query,
-                        "type": "most_fields",  # Use most_fields for better expansion matching
-                        "fields": [
-                            "sections.heading^8" if is_acronym else "sections.heading^6",  # Extra boost for acronym queries
-                            "sections.summary^2",
-                            "sections.content^1"
-                        ],
-                        "tie_breaker": 0.3,
-                        "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
-                    }
-                },
-                "inner_hits": {
-                    "name": "matched_sections",
-                    "size": 3,
-                    "sort": [{"_score": "desc"}],
-                    "_source": ["heading", "content"]
-                }
+            "multi_match": {
+                "query": multi_match_query,
+                "type": "most_fields",  # Use most_fields for better expansion matching
+                "fields": [
+                    "title^8" if is_acronym else "title^6",  # Extra boost for acronym queries
+                    "name^4",
+                    "content^3",
+                    "body^3",
+                    "text^2"
+                ],
+                "tie_breaker": 0.3,
+                "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
             }
         })
         
