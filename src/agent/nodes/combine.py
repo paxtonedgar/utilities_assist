@@ -293,7 +293,7 @@ async def _apply_mmr_diversification(results: List[SearchResult], query: str, to
         return results[:top_k]  # Simple truncation fallback
 
 
-def _build_context_from_results(results: List[SearchResult], max_length: int = 6000) -> str:
+def _build_context_from_results(results: List[SearchResult], max_length: int = 12000) -> str:
     """Build actionable context with section paths and anchor links."""
     if not results:
         return "No relevant information found."
@@ -318,15 +318,19 @@ def _build_context_from_results(results: List[SearchResult], max_length: int = 6
         
         # Clean and format the content for human consumption
         content = result.content.strip()
-        if len(content) > 400:
+        
+        # DEBUG: Log what content we're getting from search results
+        logger.info(f"RESULT_CONTENT doc_id={result.doc_id} title='{title}' content_len={len(content)} content_preview='{content[:100]}...'")
+        
+        if len(content) > 1000:
             # Find a natural break point (sentence end, paragraph break)
-            truncate_at = 400
+            truncate_at = 1000
             last_sentence = content.rfind('.', 0, truncate_at)
             last_paragraph = content.rfind('\n\n', 0, truncate_at)
             
-            if last_sentence > 300:  # Good sentence break found
+            if last_sentence > 500:  # Good sentence break found
                 content = content[:last_sentence + 1]
-            elif last_paragraph > 200:  # Good paragraph break found
+            elif last_paragraph > 400:  # Good paragraph break found
                 content = content[:last_paragraph]
             else:
                 content = content[:truncate_at] + "..."
