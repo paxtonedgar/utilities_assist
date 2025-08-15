@@ -712,7 +712,7 @@ class OpenSearchClient:
                     # ]
                 }
             },
-            "_source": OpenSearchConfig.get_source_fields(index),
+            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "highlight": {
                 "fields": {field: {} for field in OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)},
                 "fragment_size": 160,
@@ -788,7 +788,8 @@ class OpenSearchClient:
         query: str,
         filters: Optional[SearchFilters],
         k: int,
-        time_decay_half_life_days: int
+        time_decay_half_life_days: int,
+        index: Optional[str] = None
     ) -> Dict[str, Any]:
         """Build tuned BM25 query with multi_match, dynamic minimum_should_match, and phrase boosting."""
         
@@ -911,7 +912,7 @@ class OpenSearchClient:
             "query": final_query,
             "size": k,
             "sort": [{"_score": {"order": "desc"}}],
-            "_source": OpenSearchConfig.get_source_fields(OpenSearchConfig.get_default_index()),  # Use centralized config
+            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_scores": True
         }
     
@@ -950,7 +951,8 @@ class OpenSearchClient:
         filters: Optional[SearchFilters],
         k: int,
         ef_search: int,
-        time_decay_half_life_days: int = 120
+        time_decay_half_life_days: int = 120,
+        index: Optional[str] = None
     ) -> Dict[str, Any]:
         """Build kNN query with ACL filtering, time decay, and optimized parameters."""
         
@@ -963,12 +965,12 @@ class OpenSearchClient:
         base_query = {
             "size": k,
             "knn": {
-                "field": OpenSearchConfig.get_vector_field(OpenSearchConfig.get_default_index()),  # Use centralized config
+                "field": OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias),
                 "query_vector": query_vector,
                 "k": k,
                 "num_candidates": max(200, k * 4)  # Ensure good candidate pool
             },
-            "_source": OpenSearchConfig.get_source_fields(OpenSearchConfig.get_default_index()),  # Use centralized config
+            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_scores": True
         }
         
@@ -1357,7 +1359,7 @@ class OpenSearchClient:
                             "path": "sections",
                             "query": {
                                 "knn": {
-                                    f"sections.{OpenSearchConfig.get_vector_field(OpenSearchConfig.get_default_index())}": {
+                                    f"sections.{OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)}": {
                                         "vector": query_vector,
                                         "k": 5
                                     }
