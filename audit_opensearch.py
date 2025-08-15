@@ -79,7 +79,7 @@ def load_settings():
 
 # Load configuration
 config = load_settings()
-ENDPOINT = config['endpoint']
+ENDPOINT = config['endpoint'].rstrip("/")  # Normalize endpoint (strip trailing slash)
 REGION = config['region']
 SEARCH_INDEX = config['search_index']
 
@@ -145,11 +145,11 @@ def safe_request(session, method, path, data=None, params=None):
         return None
 
 def check_index_exists(session, index_name):
-    """Check if an index exists and is accessible."""
+    """Check if an index exists and is accessible using HEAD (faster, fewer logs)."""
     try:
-        r = session.get(f"{ENDPOINT}/{index_name}", timeout=TIMEOUT)
+        r = session.head(f"{ENDPOINT}/{index_name}", timeout=TIMEOUT)
         return r.status_code == 200
-    except:
+    except Exception:
         return False
 
 def pretty_print(title, data, max_length=3000):
@@ -206,6 +206,15 @@ def discover_vector_field(mapping_data):
     
     return vector_fields
 
+def vector_space(settings_json):
+    """Detect vector space type from index settings."""
+    try:
+        settings = list(settings_json.values())[0]["settings"]["index"]
+        # OpenSearch 2.x: 'knn.space_type' OR per-field 'space_type' in mapping
+        return settings.get("knn.space_type") or settings.get("space_type")
+    except Exception:
+        return None
+
 def main():
     """Main discovery function."""
     print("\n" + "🔍" * 20 + " OPENSEARCH DISCOVERY AUDIT " + "🔍" * 20)
@@ -214,6 +223,12 @@ def main():
     print(f"Configured Search Index: {SEARCH_INDEX}")
     
     session = setup_session()
+    
+    # Early auth check
+    pong = safe_request(session, 'GET', '/')
+    if pong is None:
+        print("❌ Could not reach OpenSearch root with current auth/proxy. Fix this first.")
+        sys.exit(2)
     
     # 1. Cluster overview
     print(f"\n{'🏥' * 60}")
@@ -269,58 +284,83 @@ def main():
         field_caps = safe_request(session, 'POST', f'/{idx}/_field_caps?fields=*', {})
         pretty_print(f"{idx} Field Capabilities", field_caps, 2000)
         
-        # Sample documents
+        # Sample documents (deterministic, avoid scoring)
         sample_docs = safe_request(session, 'POST', f'/{idx}/_search', {
-            "size": 3,
-            "_source": ["title", "path", "url", "doc_type", "acronyms", "space", "content"],
+            "size": 5,
+            "sort": ["_doc"],
+            "_source": ["title", "path", "url", "doc_type", "acronyms", "space", "h1", "h2", "content"],
             "query": {"match_all": {}}
         })
         pretty_print(f"{idx} Sample Documents", sample_docs, 2000)
         
-        # Test CIU search (BM25)
+        # Print concise field inventory
+        if field_caps and "fields" in field_caps:
+            fields = sorted(field_caps["fields"].keys())
+            pretty_print(f"{idx} Field Inventory (count={len(fields)})", fields[:300], 2000)
+        
+        # Test CIU search (BM25) - robust field checking
         print(f"\n🎯 Testing CIU Search on {idx}")
+        
+        # Build robust CIU search that doesn't assume .keyword exists
+        ciu_should = [
+            {"term": {"acronyms.keyword": "CIU"}},
+            {"term": {"acronyms.keyword": "ciu"}},
+            {"term": {"acronyms": "CIU"}},                 # if not keyworded
+            {"match_phrase": {"title": "Customer Interaction Utility"}},
+            {"match": {"title": {"query": "CIU", "boost": 3}}},
+            {"match": {"content": {"query": "Customer Interaction Utility", "boost": 2}}}
+        ]
+        
+        # Add wildcard only if title.keyword exists (discovered via field_caps)
+        title_has_keyword = False
+        if field_caps and isinstance(field_caps, dict) and "fields" in field_caps:
+            title_has_keyword = "title.keyword" in field_caps["fields"]
+        
+        if title_has_keyword:
+            ciu_should.append({"wildcard": {"title.keyword": "*CIU*"}})
+        
         ciu_search = safe_request(session, 'POST', f'/{idx}/_search', {
             "size": 5,
             "_source": ["title", "path", "url", "acronyms", "space", "utility_name"],
             "query": {
                 "bool": {
-                    "should": [
-                        {"term": {"acronyms.keyword": "CIU"}},
-                        {"match_phrase": {"title": "Customer Interaction Utility"}},
-                        {"match": {"title": {"query": "CIU", "boost": 2}}},
-                        {"wildcard": {"title.keyword": "*CIU*"}},
-                        {"match": {"content": "Customer Interaction Utility"}}
-                    ],
+                    "should": ciu_should,
                     "minimum_should_match": 1
                 }
             }
         })
         pretty_print(f"{idx} CIU Search Results", ciu_search, 2000)
         
-        # Test vector search if available
+        # Test vector search if available (guard against cosine similarity)
         if mapping:
             vector_fields = discover_vector_field(mapping)
+            
+            # Get vector space type from settings
+            idx_settings = settings or safe_request(session, 'GET', f'/{idx}/_settings') or {}
+            space = vector_space(idx_settings)
+            
             if vector_fields:
-                print(f"\n🧮 Found vector fields in {idx}: {vector_fields}")
+                print(f"\n🧮 Found vector fields in {idx}: {vector_fields} (space: {space or 'unknown'})")
                 
-                for vec_field in vector_fields[:1]:  # Test first vector field only
-                    field_name = vec_field["field"]
-                    dimension = vec_field["dimension"]
-                    
-                    # Create a zero vector of appropriate dimension
-                    zero_vector = [0.0] * dimension
+                # Only probe if space type is safe for dummy vectors
+                if (space or "").lower() in ("l2", "euclidean", "dotproduct", "ip", "innerproduct"):
+                    probe_val = 1.0 if (space or "").lower() in ("dotproduct", "ip", "innerproduct") else 0.0
+                    test_dim = vector_fields[0]["dimension"] or 1536
+                    vec = [probe_val] * test_dim
                     
                     knn_search = safe_request(session, 'POST', f'/{idx}/_search', {
                         "size": 3,
                         "_source": ["title", "path", "url"],
                         "knn": {
-                            "field": field_name,
-                            "query_vector": zero_vector,
+                            "field": vector_fields[0]["field"],
+                            "query_vector": vec,
                             "k": 3,
                             "num_candidates": 100
                         }
                     })
-                    pretty_print(f"{idx} kNN Test on {field_name}", knn_search, 1500)
+                    pretty_print(f"{idx} kNN Test on {vector_fields[0]['field']}", knn_search, 1500)
+                else:
+                    print("ℹ️  Cosine/unknown space detected; skipping dummy-vector probe to avoid invalid-vector errors.")
             else:
                 print(f"ℹ️  No vector fields found in {idx}")
     
