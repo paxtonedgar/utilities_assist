@@ -63,10 +63,10 @@ class OpenSearchConfig:
     
     # === SEARCH STRATEGIES ===
     STRATEGIES = {
-        "hybrid": SearchStrategy("hybrid", "BM25 + KNN hybrid search", True, 2.5),
-        "enhanced_rrf": SearchStrategy("enhanced_rrf", "RRF fusion of BM25 and KNN", True, 5.0),
-        "bm25": SearchStrategy("bm25", "Pure BM25 text search", False, 3.0),
-        "knn": SearchStrategy("knn", "Pure vector similarity search", True, 3.0)
+        "hybrid": SearchStrategy("hybrid", "BM25 + KNN hybrid search", True, 3.0),
+        "enhanced_rrf": SearchStrategy("enhanced_rrf", "RRF fusion of BM25 and KNN", True, 2.5),
+        "bm25": SearchStrategy("bm25", "Pure BM25 text search", False, 2.0),
+        "knn": SearchStrategy("knn", "Pure vector similarity search", True, 2.0)
     }
     
     # === FIELD CONFIGURATIONS ===
@@ -164,7 +164,9 @@ class QueryTemplates:
             },
             "_source": OpenSearchConfig.get_source_fields(index_name),
             "highlight": {
-                "fields": {field: {} for field in config.content_fields}
+                "fields": {field: {} for field in config.content_fields},
+                "fragment_size": 160,
+                "number_of_fragments": 2
             }
         }
     
@@ -183,14 +185,36 @@ class QueryTemplates:
                 "multi_match": {
                     "query": text_query,
                     "fields": [f"{field}^2" for field in config.content_fields] + 
-                             [f"{field}^4" for field in config.title_fields],
+                             [f"{field}^6" for field in config.title_fields],
                     "type": "best_fields"
                 }
             },
             "_source": OpenSearchConfig.get_source_fields(index_name),
             "highlight": {
-                "fields": {field: {} for field in config.content_fields}
+                "fields": {field: {} for field in config.content_fields},
+                "fragment_size": 160,
+                "number_of_fragments": 2
             }
+        }
+    
+    @staticmethod
+    def build_knn_query(
+        vector_query: List[float],
+        index_name: str,
+        k: int = 10
+    ) -> Dict[str, Any]:
+        """Build a KNN-only search query."""
+        config = OpenSearchConfig._get_index_config(index_name)
+        
+        return {
+            "size": k,
+            "knn": {
+                "field": config.vector_field,
+                "query_vector": vector_query,
+                "k": k
+            },
+            "_source": OpenSearchConfig.get_source_fields(index_name),
+            "track_scores": True
         }
 
 
