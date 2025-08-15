@@ -527,10 +527,14 @@ class OpenSearchClient:
                 index, "hybrid", query, len(query), query_vector is not None
             )
             
-            # DEBUG: Log hybrid query summary for troubleshooting
+            # DEBUG: Log hybrid query summary for troubleshooting  
             query_json = json.dumps(search_body)
-            vector_dims = len(search_body["query"]["bool"]["should"][1]["nested"]["query"]["knn"]["sections.embedding"]["vector"]) if len(search_body["query"]["bool"]["should"]) > 1 else 0
-            logger.info(f"HYBRID_QUERY size={search_body['size']} json_len={len(query_json)} vector_dims={vector_dims} has_nested={bool(vector_dims)}")
+            vector_dims = 0
+            if len(search_body["query"]["bool"]["should"]) > 1:
+                knn_clause = search_body["query"]["bool"]["should"][1]
+                if "knn" in knn_clause and "embedding" in knn_clause["knn"]:
+                    vector_dims = len(knn_clause["knn"]["embedding"]["vector"])
+            logger.info(f"HYBRID_QUERY size={search_body['size']} json_len={len(query_json)} vector_dims={vector_dims} has_vector={bool(vector_dims)}")
             
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()
@@ -1055,7 +1059,20 @@ class OpenSearchClient:
             logger.info(f"FIRST_SOURCE_DEBUG: source_keys={list(source.keys())}")
             logger.info(f"INNER_HITS_DEBUG: has_inner_hits={bool(first_hit.get('inner_hits'))}")
             if first_hit.get('inner_hits'):
-                logger.info(f"INNER_HITS_STRUCTURE: {list(first_hit.get('inner_hits', {}).keys())}")
+                inner_hits = first_hit.get('inner_hits', {})
+                logger.info(f"INNER_HITS_STRUCTURE: {list(inner_hits.keys())}")
+                # Log the first inner hit structure
+                for inner_key, inner_data in inner_hits.items():
+                    inner_hits_list = inner_data.get('hits', {}).get('hits', [])
+                    if inner_hits_list:
+                        first_inner = inner_hits_list[0]
+                        inner_source = first_inner.get('_source', {})
+                        logger.info(f"INNER_HIT_{inner_key}_DEBUG: inner_source_keys={list(inner_source.keys())}")
+                        # Check for content in inner hits
+                        if 'content' in inner_source:
+                            content_len = len(str(inner_source['content']))
+                            logger.info(f"INNER_CONTENT_FOUND: {inner_key} content_len={content_len}")
+                        break
         else:
             logger.info("NO_HITS_DEBUG: Empty hits array")
         
