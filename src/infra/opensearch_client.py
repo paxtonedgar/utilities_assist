@@ -954,13 +954,29 @@ class OpenSearchClient:
                     }
                 })
                 
-                # Boost documents containing associated API names
+                # Boost documents containing associated API names from swagger_keyword.json
                 from agent.acronym_map import get_apis_for_acronym
                 acronym = query.upper().split()[0]  # Get first word as potential acronym
                 api_names = get_apis_for_acronym(acronym)
                 if api_names:
-                    # Boost docs that mention these specific APIs
+                    # High boost for exact API name matches in title/headings
                     for api_name in api_names[:5]:  # Limit to top 5 APIs to avoid query bloat
+                        should_clauses.append({
+                            "match_phrase": {
+                                "title": {
+                                    "query": api_name,
+                                    "boost": 12
+                                }
+                            }
+                        })
+                        should_clauses.append({
+                            "match_phrase": {
+                                "sections.heading": {
+                                    "query": api_name,
+                                    "boost": 8
+                                }
+                            }
+                        })
                         should_clauses.append({
                             "match_phrase": {
                                 "sections.content": {
@@ -970,21 +986,22 @@ class OpenSearchClient:
                             }
                         })
         
-        # Standard multi_match query with field boosting
+        # Enhanced multi_match query with expanded terms from synonyms
+        multi_match_query = expanded_query if expansions else key_terms
         should_clauses.append({
             "nested": {
                 "path": "sections", 
                 "query": {
                     "multi_match": {
-                        "query": key_terms,
-                        "type": "best_fields",
+                        "query": multi_match_query,
+                        "type": "most_fields",  # Use most_fields for better expansion matching
                         "fields": [
-                            "sections.heading^8" if is_acronym else "sections.heading^4",  # Extra boost for acronym queries
+                            "sections.heading^8" if is_acronym else "sections.heading^6",  # Extra boost for acronym queries
                             "sections.summary^2",
-                            "sections.content"
+                            "sections.content^1"
                         ],
                         "tie_breaker": 0.3,
-                        "minimum_should_match": "2<-1 5<-2" if len(key_terms.split()) > 4 else "1"
+                        "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
                     }
                 },
                 "inner_hits": {

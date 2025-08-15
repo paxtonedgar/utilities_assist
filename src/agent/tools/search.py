@@ -111,14 +111,35 @@ async def search_index_tool(
         if strategy == "enhanced_rrf" and embed_client:
             # Enhanced RRF with vector search
             try:
-                # Expand acronyms for embedding query
-                from agent.acronym_map import expand_acronym
+                # Enhanced embedding text with API keywords and domain context
+                from agent.acronym_map import expand_acronym, get_apis_for_acronym
                 expanded_query, expansions = expand_acronym(query)
-                embedding_query = expanded_query if expansions else query
                 
-                # Add domain context for better embedding
+                # Build rich embedding text: "{user_query} ({expanded_full_name}) {api_keywords_joined} site:Utilities"
+                embedding_parts = [query]
+                
                 if expansions:
-                    embedding_query += " Utility onboarding API JPMC"
+                    # Add expanded name in parentheses
+                    embedding_parts.append(f"({expansions[0]})")
+                    
+                    # Add associated API names as keywords
+                    acronym = query.upper().split()[0]
+                    api_names = get_apis_for_acronym(acronym)
+                    if api_names:
+                        # Extract key terms from API names for embedding
+                        api_keywords = []
+                        for api_name in api_names[:3]:  # Limit to top 3 APIs
+                            # Extract meaningful keywords from API names
+                            words = api_name.replace("API", "").replace("Service", "").split()
+                            api_keywords.extend([w for w in words if len(w) > 2])
+                        
+                        if api_keywords:
+                            embedding_parts.append(" ".join(api_keywords[:5]))  # Top 5 keywords
+                
+                # Add domain and context hints
+                embedding_parts.append("site:Utilities onboarding runbook documentation")
+                
+                embedding_query = " ".join(embedding_parts)
                 
                 expected_dims = 1536
                 query_embedding = await create_single_embedding(
@@ -147,14 +168,35 @@ async def search_index_tool(
         if strategy == "knn" and embed_client:
             # Vector search only
             try:
-                # Expand acronyms for embedding query
-                from agent.acronym_map import expand_acronym
+                # Enhanced embedding text with API keywords and domain context
+                from agent.acronym_map import expand_acronym, get_apis_for_acronym
                 expanded_query, expansions = expand_acronym(query)
-                embedding_query = expanded_query if expansions else query
                 
-                # Add domain context for better embedding
+                # Build rich embedding text: "{user_query} ({expanded_full_name}) {api_keywords_joined} site:Utilities"
+                embedding_parts = [query]
+                
                 if expansions:
-                    embedding_query += " Utility onboarding API JPMC"
+                    # Add expanded name in parentheses
+                    embedding_parts.append(f"({expansions[0]})")
+                    
+                    # Add associated API names as keywords
+                    acronym = query.upper().split()[0]
+                    api_names = get_apis_for_acronym(acronym)
+                    if api_names:
+                        # Extract key terms from API names for embedding
+                        api_keywords = []
+                        for api_name in api_names[:3]:  # Limit to top 3 APIs
+                            # Extract meaningful keywords from API names
+                            words = api_name.replace("API", "").replace("Service", "").split()
+                            api_keywords.extend([w for w in words if len(w) > 2])
+                        
+                        if api_keywords:
+                            embedding_parts.append(" ".join(api_keywords[:5]))  # Top 5 keywords
+                
+                # Add domain and context hints
+                embedding_parts.append("site:Utilities onboarding runbook documentation")
+                
+                embedding_query = " ".join(embedding_parts)
                 
                 expected_dims = 1536
                 query_embedding = await create_single_embedding(

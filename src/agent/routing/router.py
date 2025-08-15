@@ -65,6 +65,14 @@ class IntentRouter:
         
         # Convert GraphState to dict for safe access
         s = to_state_dict(state)
+        
+        # ACRONYM GUARDRAIL: Pin domain to Utilities for short acronym queries
+        query = s.get(NORMALIZED_QUERY, s.get("original_query", ""))
+        if cls._is_utilities_acronym_query(query):
+            logger.info(f"Acronym guardrail: pinning '{query}' to Utilities domain")
+            # Force utilities search regardless of intent
+            return "search_confluence"
+        
         intent = s.get("intent")
         if not intent:
             logger.warning("No intent found in state, defaulting to confluence search")
@@ -108,6 +116,37 @@ class IntentRouter:
         }
         
         return rewrite_routes.get(initial_route, "search_confluence")
+    
+    @classmethod
+    def _is_utilities_acronym_query(cls, query: str) -> bool:
+        """
+        Check if query is a short acronym that should be pinned to Utilities domain.
+        
+        Uses loaded synonyms.json to detect known utility acronyms.
+        Short (≤3 tokens) + matches acronym key → pin to Utilities.
+        """
+        if not query or len(query.strip()) == 0:
+            return False
+        
+        tokens = query.strip().split()
+        
+        # Must be short query (≤3 tokens)
+        if len(tokens) > 3:
+            return False
+        
+        # Check if any token is a known utilities acronym
+        try:
+            from agent.acronym_map import _load_acronym_data
+            utilities_acronyms = _load_acronym_data()
+            
+            for token in tokens:
+                if token.upper() in utilities_acronyms:
+                    logger.info(f"Found utilities acronym: {token.upper()} → {utilities_acronyms[token.upper()]}")
+                    return True
+        except Exception as e:
+            logger.warning(f"Could not load acronym data for guardrail: {e}")
+        
+        return False
     
     @classmethod
     def _needs_multi_search(cls, state_dict: Dict[str, Any], intent_type: str) -> bool:
