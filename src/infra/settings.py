@@ -99,7 +99,7 @@ class ApplicationSettings(BaseSettings):
     
     # Production verbosity control
     reduce_log_verbosity: bool = Field(
-        default=False,
+        default=True,  # Enable by default to reduce log spam
         validation_alias="REDUCE_LOG_VERBOSITY",
         description="Reduce log verbosity for production environments"
     )

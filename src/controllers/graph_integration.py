@@ -93,7 +93,7 @@ async def handle_turn(
     set_context_var("current_req_id", req_id)
     
     # DEBUG: Log exactly what we received
-    logger.error(f"DEBUG handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
+    logger.debug(f"handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
     
     # Normalize and validate user input to prevent corrupted queries
     if user_input is None:
@@ -117,7 +117,7 @@ async def handle_turn(
         return
     
     # DEBUG: Log normalized input
-    logger.error(f"DEBUG after normalization user_input: '{repr(user_input)}' (len: {len(user_input)})")
+    logger.debug(f"after normalization user_input: '{repr(user_input)}' (len: {len(user_input)})")
     
     # Set user context if available
     if user_context and user_context.get("user_id"):
@@ -226,7 +226,7 @@ async def handle_turn_with_graph(
                 logger.warning(f"Query rewrite failed, using original: {e}")
         
         # DEBUG: Log state creation
-        logger.error(f"DEBUG creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
+        logger.debug(f"creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
         
         # Initialize graph state as plain dict - NO GraphState construction
         # This prevents "GraphState object has no attribute 'get'" errors
