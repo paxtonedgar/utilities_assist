@@ -26,7 +26,7 @@ class EmbedCfg(BaseModel):
 class SearchCfg(BaseModel):
     """Configuration for OpenSearch/Elasticsearch"""
     host: str
-    index_alias: str = "khub-opensearch-index"  # Production JPMC index
+    index_alias: str = OpenSearchConfig.get_default_index()  # Use centralized configuration
     username: str | None = None
     password: str | None = None
     timeout_s: float = 2.5
@@ -45,7 +45,7 @@ def _local() -> Settings:
     return Settings(
         profile="local",
         chat=ChatCfg(provider="openai", model="gpt-4o-mini"),
-        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
+        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=OpenSearchConfig.EMBEDDING_DIMENSIONS)
         search=SearchCfg(host=os.getenv("OS_HOST", "http://localhost:9200"))
     )
 
@@ -87,7 +87,7 @@ def _jpmc() -> Settings:
         embed=EmbedCfg(
             provider="azure", 
             model=embed_deployment, 
-            dims=1536  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
+            dims=OpenSearchConfig.EMBEDDING_DIMENSIONS
         ),
         search=SearchCfg(
             host=opensearch_host, 

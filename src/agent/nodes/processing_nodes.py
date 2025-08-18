@@ -210,7 +210,9 @@ class ListHandlerNode(BaseNodeHandler):
             
             # Execute aggregation query using OpenSearch client
             search_client = resources.search_client
-            index_name = resources.settings.search_index_alias
+            # Use centralized configuration for index name
+            from src.infra.search_config import OpenSearchConfig
+            index_name = resources.settings.search_index_alias or OpenSearchConfig.get_default_index()
             
             url = f"{search_client.base_url}/{index_name}/_search"
             

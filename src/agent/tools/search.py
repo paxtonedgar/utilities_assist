@@ -91,7 +91,7 @@ async def search_index_tool(
     be used as a LangGraph tool for searching different indices.
     
     Args:
-        index: Index name to search (e.g., "confluence_current", "swagger", etc.)
+        index: Index name to search (e.g., OpenSearchConfig.get_default_index())
         query: Search query text
         filters: Optional filters for search
         search_client: OpenSearch client instance
