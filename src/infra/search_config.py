@@ -258,10 +258,13 @@ class QueryTemplates:
         return {
             "size": k,
             "query": {
-                "knn": {
-                    config.vector_field: {
-                        "vector": vector_query,
-                        "k": k
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{config.vector_field}') + 1.0",
+                        "params": {
+                            "query_vector": vector_query
+                        }
                     }
                 }
             },

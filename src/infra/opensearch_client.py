@@ -877,28 +877,25 @@ class OpenSearchClient:
         
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
-        # Base query using native knn for knn_vector compatibility
-        knn_query = {
-            vector_field: {
-                "vector": query_vector,
-                "k": k
-            }
-        }
-        
-        # Add filters if present
-        if filter_clauses:
-            knn_query[vector_field]["filter"] = {
-                "bool": {
-                    "filter": filter_clauses
-                }
-            }
-        
+        # Base query using script_score for compatibility with actual cluster field type
         base_query = {
             "size": k,
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_scores": True,
             "query": {
-                "knn": knn_query
+                "script_score": {
+                    "query": {
+                        "bool": {
+                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
+                        }
+                    },
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "params": {
+                            "query_vector": query_vector
+                        }
+                    }
+                }
             }
         }
         
@@ -1261,16 +1258,19 @@ class OpenSearchClient:
         
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
-        # Use native knn query for knn_vector field compatibility
+        # Use script_score for compatibility with actual cluster field type
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable for proper error handling
             "query": {
-                "knn": {
-                    vector_field: {
-                        "vector": query_vector,
-                        "k": min(k, 20)
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "params": {
+                            "query_vector": query_vector
+                        }
                     }
                 }
             }
