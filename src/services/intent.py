@@ -3,7 +3,7 @@
 import logging
 import re
 from typing import List, Any
-from services.models import IntentResult
+from src.services.models import IntentResult
 
 logger = logging.getLogger(__name__)
 

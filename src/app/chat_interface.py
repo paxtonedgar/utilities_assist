@@ -15,8 +15,8 @@ from typing import List, Dict, Any, Optional
 
 from src.infra.settings import get_settings
 from controllers.graph_integration import handle_turn
-from infra.telemetry import get_telemetry_collector, format_event_for_display
-from infra.resource_manager import initialize_resources, get_resources, health_check
+from src.infra.telemetry import get_telemetry_collector, format_event_for_display
+from src.infra.resource_manager import initialize_resources, get_resources, health_check
 from src.telemetry.logger import get_stage_logs
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def _extract_user_context() -> Dict[str, Any]:
     """Extract user context for the session with graceful fallback."""
     try:
-        from infra.persistence import extract_user_context
+        from src.infra.persistence import extract_user_context
         # Pass None resources to extract from environment 
         return extract_user_context(None)
     except ImportError:
@@ -168,7 +168,7 @@ def initialize_session():
     
     if "thread_id" not in st.session_state:
         try:
-            from infra.persistence import generate_thread_id
+            from src.infra.persistence import generate_thread_id
             st.session_state.thread_id = generate_thread_id(
                 st.session_state.user_context.get("user_id", "unknown"),
                 st.session_state.user_context.get("session_metadata")

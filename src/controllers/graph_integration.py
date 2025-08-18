@@ -12,13 +12,13 @@ import time
 import os
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from src.infra.settings import get_settings
-from infra.resource_manager import get_resources, RAGResources
-from services.models import TurnResult, IntentResult
-from infra.telemetry import generate_request_id, log_overall_stage
+from src.infra.resource_manager import get_resources, RAGResources
+from src.services.models import TurnResult, IntentResult
+from src.infra.telemetry import generate_request_id, log_overall_stage
 from src.telemetry.logger import generate_req_id, set_context_var, stage
 # Graceful import handling for persistence module
 try:
-    from infra.persistence import (
+    from src.infra.persistence import (
         get_checkpointer_and_store, 
         extract_user_context, 
         generate_thread_id,
@@ -44,12 +44,12 @@ except ImportError as e:
         return {"configurable": {"thread_id": thread_id}}
 
 # Import LangGraph components (traditional handler removed - LangGraph is now the only system)
-from agent.graph import create_graph, GraphState
+from src.agent.graph import create_graph, GraphState
 
 logger = logging.getLogger(__name__)
 
 # Import state key constants from centralized location
-from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
+from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
 
 # Environment flag for LangGraph control
 def is_langgraph_enabled() -> bool:

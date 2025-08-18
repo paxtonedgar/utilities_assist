@@ -12,7 +12,7 @@ from .base_node import SearchNodeHandler
 from agent.nodes.summarize import summarize_node
 from agent.nodes.intent import intent_node
 from agent.tools.search import adaptive_search_tool, multi_index_search_tool
-from services.models import SearchResult
+from src.services.models import SearchResult
 
 # Import constants to prevent KeyError issues
 from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
@@ -86,7 +86,7 @@ class ConfluenceSearchNode(SearchNodeHandler):
         """Execute Confluence search logic with intent-based index routing."""
         try:
             # Extract resources from global resource manager
-            from infra.resource_manager import get_resources
+            from src.infra.resource_manager import get_resources
             from agent.nodes.base_node import get_intent_confidence
             resources = get_resources()
             
@@ -196,7 +196,7 @@ class SwaggerSearchNode(SearchNodeHandler):
         """Execute Swagger search logic - REAL implementation from original."""
         try:
             # Extract resources from global resource manager
-            from infra.resource_manager import get_resources
+            from src.infra.resource_manager import get_resources
             from agent.nodes.base_node import get_intent_confidence
             resources = get_resources()
             
@@ -269,7 +269,7 @@ class MultiSearchNode(SearchNodeHandler):
         """Execute multi-index search logic - REAL implementation from original."""
         try:
             # Extract resources from global resource manager
-            from infra.resource_manager import get_resources
+            from src.infra.resource_manager import get_resources
             resources = get_resources()
             
             query = state["normalized_query"]

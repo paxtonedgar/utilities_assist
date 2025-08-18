@@ -6,8 +6,8 @@ from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from services.models import IntentResult
-from services.intent import determine_intent  # Keep as fallback
+from src.services.models import IntentResult
+from src.services.intent import determine_intent  # Keep as fallback
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
@@ -87,7 +87,7 @@ async def intent_node(state, config, *, store=None):
             )
             
             # Extract resources from config
-            from infra.resource_manager import get_resources
+            from src.infra.resource_manager import get_resources
             resources = get_resources()
             
             # Use the working Azure OpenAI client configuration for LangChain

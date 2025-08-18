@@ -10,8 +10,8 @@ import logging
 
 from .base_node import BaseNodeHandler
 from agent.nodes.combine import combine_node
-from services.respond import generate_response, extract_source_chips, verify_answer
-from services.models import SearchResult
+from src.services.respond import generate_response, extract_source_chips, verify_answer
+from src.services.models import SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class AnswerNode(BaseNodeHandler):
             }
         
         # Get chat client from resources
-        from infra.resource_manager import get_resources
+        from src.infra.resource_manager import get_resources
         resources = get_resources()
         if not resources or not resources.chat_client:
             logger.error("Chat client not available for answer generation")
@@ -175,7 +175,7 @@ class ListHandlerNode(BaseNodeHandler):
     
     async def _get_list_from_opensearch(self, list_type: str) -> List[str]:
         """Get unique values using OpenSearch aggregations - REAL implementation."""
-        from infra.resource_manager import get_resources
+        from src.infra.resource_manager import get_resources
         
         try:
             resources = get_resources()
@@ -299,7 +299,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
     
     async def _synthesize_workflow(self, query: str) -> str:
         """Synthesize multi-document workflows with step sequencing - REAL implementation."""
-        from infra.resource_manager import get_resources
+        from src.infra.resource_manager import get_resources
         
         try:
             resources = get_resources()
@@ -308,7 +308,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
                 return "Unable to synthesize workflow - resources unavailable"
             
             # Phase 1: Multi-document search with workflow focus
-            from infra.search_config import OpenSearchConfig
+            from src.infra.search_config import OpenSearchConfig
             indices = [
                 resources.settings.search_index_alias,  # Main confluence
                 OpenSearchConfig.get_swagger_index()  # Technical procedures

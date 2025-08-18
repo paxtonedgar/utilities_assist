@@ -5,7 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from services.normalize import normalize_query  # Keep existing logic as fallback
+from src.services.normalize import normalize_query  # Keep existing logic as fallback
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
@@ -35,7 +35,7 @@ async def summarize_node(state, config, *, store=None):
         State update with normalized_query (same type as input)
     """
     import time
-    from infra.telemetry import log_normalize_stage
+    from src.infra.telemetry import log_normalize_stage
     
     start_time = time.perf_counter()
     req_id = getattr(config, 'run_id', 'unknown') if config else 'unknown'
@@ -76,7 +76,7 @@ async def summarize_node(state, config, *, store=None):
             prompt = template.render(user_input=user_input)
             
             # Extract resources from config
-            from infra.resource_manager import get_resources
+            from src.infra.resource_manager import get_resources
             resources = get_resources()
             
             # Use the working Azure OpenAI client configuration for LangChain

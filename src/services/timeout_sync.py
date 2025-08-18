@@ -12,7 +12,7 @@ import time
 from contextlib import contextmanager
 from typing import List, Dict, Any, Optional
 
-from services.models import RetrievalResult, SearchResult
+from src.services.models import RetrievalResult, SearchResult
 from src.infra.opensearch_client import OpenSearchClient, SearchFilters
 from src.infra.search_config import OpenSearchConfig
 from src.telemetry.logger import log_event

@@ -9,8 +9,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import Counter  # Fix for MMR diversification
 
-from services.models import SearchResult, RetrievalResult
-from infra.opensearch_client import OpenSearchClient, SearchFilters
+from src.services.models import SearchResult, RetrievalResult
+from src.infra.opensearch_client import OpenSearchClient, SearchFilters
 from src.infra.search_config import OpenSearchConfig
 # RRF utilities imported within function to avoid dependency loading issues
 from sklearn.feature_extraction.text import TfidfVectorizer

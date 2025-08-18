@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from typing import List, Dict, Any, Optional, AsyncGenerator
-from services.models import SearchResult, SourceChip, IntentResult
+from src.services.models import SearchResult, SourceChip, IntentResult
 
 logger = logging.getLogger(__name__)
 
