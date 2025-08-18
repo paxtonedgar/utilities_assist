@@ -37,3 +37,4 @@ opensearch-py
 faiss-cpu
 boto3
 python-dotenv
+orjson

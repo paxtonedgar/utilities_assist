@@ -875,28 +875,29 @@ class OpenSearchClient:
         if filters:
             filter_clauses = self._build_filter_clauses(filters)
         
-        # Base kNN query structure
+        vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
+        
+        # Base query using script_score for dense_vector compatibility
         base_query = {
             "size": k,
-            "knn": {
-                "field": OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias),
-                "query_vector": query_vector,
-                "k": k,
-                "num_candidates": max(200, k * 4)  # Ensure good candidate pool
-            },
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
-            "track_scores": True
-        }
-        
-        # Apply filters if present
-        if filter_clauses:
-            base_query["query"] = {
-                "bool": {
-                    "filter": filter_clauses
+            "track_scores": True,
+            "query": {
+                "script_score": {
+                    "query": {
+                        "bool": {
+                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
+                        }
+                    },
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "params": {
+                            "query_vector": query_vector
+                        }
+                    }
                 }
             }
-        else:
-            base_query["query"] = {"match_all": {}}
+        }
         
         # Apply time decay function score (uniform with BM25)
         if time_decay_half_life_days > 0:
@@ -1256,7 +1257,7 @@ class OpenSearchClient:
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int, index: Optional[str] = None) -> Dict[str, Any]:
-        """Build optimized nested kNN query with namespace filtering and reduced payload size."""
+        """Build optimized kNN query compatible with both dense_vector and knn_vector field types."""
         
         # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
         filter_clauses = []
@@ -1272,22 +1273,26 @@ class OpenSearchClient:
         #     }
         # }]
         
-        # Use root-level kNN query structure matching the actual mapping
+        vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
+        
+        # Use script_score query for dense_vector compatibility (works with both ES and OS)
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable for proper error handling
             "query": {
-                "bool": {
-                    "filter": filter_clauses,  # Apply namespace filter
-                    "must": [{
-                        "knn": {
-                            OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
-                                "vector": query_vector,
-                                "k": k
-                            }
+                "script_score": {
+                    "query": {
+                        "bool": {
+                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
                         }
-                    }]
+                    },
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "params": {
+                            "query_vector": query_vector
+                        }
+                    }
                 }
             }
         }
