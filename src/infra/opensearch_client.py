@@ -486,8 +486,8 @@ class OpenSearchClient:
         time_decay_half_life_days: int = 120
     ) -> SearchResponse:
         """
-        True hybrid search combining BM25 and KNN in a single query.
-        Falls back to BM25-only if no vector is provided or if KNN fails.
+        Hybrid search using RRF fusion of separate BM25 and kNN searches.
+        This approach avoids OpenSearch parsing issues with nested knn queries.
         
         Args:
             query: Search query string
@@ -509,113 +509,42 @@ class OpenSearchClient:
             stage="hybrid",
             event="start",
             index=index,
-            query_type="hybrid" if query_vector else "bm25_fallback",
+            query_type="hybrid_rrf" if query_vector else "bm25_only",
             k=k,
             filters_enabled=filters is not None,
             query_length=len(query),
             has_vector=query_vector is not None
         )
         
-        # Build hybrid query
-        search_body = self._build_hybrid_query(
-            query=query,
-            query_vector=query_vector,
-            k=k,
-            index=index
-        )
+        # If no vector provided, fall back to BM25 search
+        if not query_vector:
+            logger.info("Hybrid search falling back to BM25 (no vector provided)")
+            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
         
         try:
-            url = f"{self.base_url}/{index}/_search"
-            start_time = time.time()
+            # Perform separate BM25 and kNN searches
+            logger.info("Performing separate BM25 and kNN searches for RRF fusion")
+            
+            # BM25 search
+            bm25_response = self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            
+            # kNN search
+            knn_response = self.knn_search(query_vector, filters, index, k, time_decay_half_life_days)
+            
+            # RRF fusion
+            hybrid_response = self.rrf_fuse(bm25_response, knn_response, k=k, rrf_k=60)
+            hybrid_response.method = "hybrid_rrf"
             
             logger.info(
-                "OS_QUERY index=%s strategy=%s q=%r query_len=%d has_vector=%s",
-                index, "hybrid", query, len(query), query_vector is not None
+                "Hybrid RRF fusion completed: BM25=%d hits, kNN=%d hits, fused=%d hits",
+                bm25_response.total_hits, knn_response.total_hits, hybrid_response.total_hits
             )
             
-            # DEBUG: Log hybrid query summary for troubleshooting  
-            query_json = json.dumps(search_body)
-            vector_dims = 0
-            if len(search_body["query"]["bool"]["should"]) > 1:
-                knn_clause = search_body["query"]["bool"]["should"][1]
-                if "knn" in knn_clause and "embedding" in knn_clause["knn"]:
-                    vector_dims = len(knn_clause["knn"]["embedding"]["vector"])
-            logger.info(f"HYBRID_QUERY size={search_body['size']} json_len={len(query_json)} vector_dims={vector_dims} has_vector={bool(vector_dims)}")
-            
-            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-            _setup_jpmc_proxy()
-            
-            try:
-                response = requests.post(
-                    url,
-                    auth=_get_aws_auth() if self.settings.requires_aws_auth else None,
-                    json=search_body,
-                    timeout=30,
-                    headers={'Content-Type': 'application/json'}
-                )
-                
-                # Log HTTP response details before raising for status
-                logger.info(f"HYBRID_HTTP_RESPONSE: status={response.status_code} took={time.time() - start_time:.3f}s")
-                
-                response.raise_for_status()
-            except requests.exceptions.RequestException as req_err:
-                logger.error(f"Hybrid search HTTP request failed: {req_err}")
-                logger.error(f"Request URL: {url}")
-                logger.error(f"Response status: {getattr(response, 'status_code', 'N/A')}")
-                logger.error(f"Response text: {getattr(response, 'text', 'N/A')[:500]}")
-                raise
-            
-            data = response.json()
-            took_ms = int((time.time() - start_time) * 1000)
-            
-            # Log success with detailed result info
-            total_hits = get_total_hits(data)
-            
-            logger.info(
-                "OS_RESPONSE index=%s strategy=hybrid status=200 hits=%d took_ms=%d",
-                index, total_hits, took_ms
-            )
-            
-            log_event(
-                stage="hybrid",
-                event="success",
-                index=index,
-                total_hits=total_hits,
-                took_ms=took_ms,
-                has_vector=query_vector is not None
-            )
-            
-            # Parse results - handle both root and nested content
-            results = self._parse_search_response(data)
-            
-            return SearchResponse(
-                results=results,
-                total_hits=total_hits,
-                took_ms=took_ms,
-                method="hybrid" if query_vector else "bm25_fallback"
-            )
+            return hybrid_response
             
         except Exception as e:
-            logger.error(f"Hybrid search failed: {e}")
-            log_event(
-                stage="hybrid",
-                event="error",
-                err=True,
-                error_type=type(e).__name__,
-                error_message=str(e)[:100]
-            )
-            
-            # If hybrid fails and we have no vector, fallback to simple BM25
-            if not query_vector:
-                logger.info("Falling back to simple BM25 search")
-                return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
-            
-            return SearchResponse(
-                results=[],
-                total_hits=0,
-                took_ms=int((time.time() - start_time) * 1000),
-                method="hybrid_error"
-            )
+            logger.error(f"Hybrid search failed, falling back to BM25: {e}")
+            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
     
     def _get_boosted_fields(self, index: Optional[str], search_type: str) -> List[str]:
         """Get boosted field list using centralized configuration."""
@@ -666,56 +595,34 @@ class OpenSearchClient:
         index: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Build a hybrid query combining BM25 and KNN in a single bool.should query.
-        Uses nested structure for kNN to match the working kNN implementation.
+        Build a hybrid query using separate BM25 and kNN searches with RRF fusion.
+        This avoids OpenSearch parsing issues with knn inside bool queries.
         """
         from src.agent.acronym_map import expand_acronym
         
         # Expand acronyms if present
         expanded_query, expansions = expand_acronym(query)
         
-        # Build should clauses for hybrid search
-        should_clauses = []
-        
-        # BM25 clause - dis_max with tie_breaker for MVRS field boosting
+        # For hybrid search, we'll use a simple multi_match query
+        # and let the application handle RRF fusion of separate searches
         boosted_fields = self._get_boosted_fields(index, "mvrs")
-        dis_max_queries = []
-        for field in boosted_fields:
-            dis_max_queries.append({
-                "match": {
-                    field.split("^")[0]: {
-                        "query": expanded_query if expansions else query,
-                        "boost": float(field.split("^")[1]) if "^" in field else 1.0
-                    }
-                }
-            })
         
-        should_clauses.append({
-            "dis_max": {
-                "queries": dis_max_queries,
-                "tie_breaker": 0.3  # Small tie_breaker as recommended by MVRS
-            }
-        })
-        
-        # KNN clause - only if vector is provided (use root-level embedding field)
-        if query_vector:
-            should_clauses.append({
-                "knn": {
-                    OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
-                        "vector": query_vector,
-                        "k": min(k, 50),  # Use reasonable k value
-                        "ef_search": 256  # Add ef_search for better recall
-                    }
-                }
-            })
-        
-        # Build complete query structure
+        # Build BM25-only query for hybrid (vector search will be separate)
         search_body = {
             "size": min(k, 50),
             "query": {
-                "bool": {
-                    "should": should_clauses,
-                    "minimum_should_match": 1
+                "dis_max": {
+                    "queries": [
+                        {
+                            "match": {
+                                field.split("^")[0]: {
+                                    "query": expanded_query if expansions else query,
+                                    "boost": float(field.split("^")[1]) if "^" in field else 1.0
+                                }
+                            }
+                        } for field in boosted_fields
+                    ],
+                    "tie_breaker": 0.3
                 }
             },
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
