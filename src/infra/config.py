@@ -45,7 +45,7 @@ def _local() -> Settings:
     return Settings(
         profile="local",
         chat=ChatCfg(provider="openai", model="gpt-4o-mini"),
-        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=OpenSearchConfig.EMBEDDING_DIMENSIONS)
+        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=OpenSearchConfig.EMBEDDING_DIMENSIONS),
         search=SearchCfg(host=os.getenv("OS_HOST", "http://localhost:9200"))
     )
 
