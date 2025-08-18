@@ -182,11 +182,11 @@ class QueryTemplates:
         index_name: str,
         k: int = 10
     ) -> Dict[str, Any]:
-        """Build a hybrid search query."""
+        """Build a hybrid search query with nested structure for kNN."""
         config = OpenSearchConfig._get_index_config(index_name)
         
         return {
-            "size": k,
+            "size": min(k, 20),  # Limit size to reduce over-fetching
             "query": {
                 "bool": {
                     "should": [
@@ -199,10 +199,21 @@ class QueryTemplates:
                             }
                         },
                         {
-                            "knn": {
-                                config.vector_field: {
-                                    "vector": vector_query,
-                                    "k": k
+                            "nested": {
+                                "path": "sections",
+                                "query": {
+                                    "knn": {
+                                        f"sections.{config.vector_field}": {
+                                            "vector": vector_query,
+                                            "k": min(k, 20)  # Limit to reduce payload
+                                        }
+                                    }
+                                },
+                                "inner_hits": {
+                                    "name": "matched_sections", 
+                                    "size": 3,  # Reduced to minimize payload
+                                    "sort": [{"_score": "desc"}],
+                                    "_source": ["heading", "content"]  # Only fetch needed fields
                                 }
                             }
                         }
@@ -211,6 +222,7 @@ class QueryTemplates:
                 }
             },
             "_source": OpenSearchConfig.get_source_fields(index_name),
+            "track_total_hits": True,  # Enable for proper error handling
             "highlight": {
                 "fields": {field: {} for field in config.content_fields},
                 "fragment_size": 160,

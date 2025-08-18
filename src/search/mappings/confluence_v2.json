@@ -30,14 +30,16 @@
   "mappings": {
     "properties": {
       "embedding": {
-        "type": "dense_vector",
-        "dims": 1536,
-        "index": true,
-        "similarity": "cosine",
-        "index_options": {
-          "type": "hnsw",
-          "m": 16,
-          "ef_construction": 100
+        "type": "knn_vector",
+        "dimension": 1536,
+        "space_type": "cosinesimil",
+        "method": {
+          "name": "hnsw",
+          "engine": "lucene",
+          "parameters": {
+            "ef_construction": 100,
+            "m": 16
+          }
         }
       },
       "title": {

@@ -619,13 +619,17 @@ class OpenSearchClient:
         index_name = index or self.settings.search_index_alias
         config = OpenSearchConfig._get_index_config(index_name)
         
-        if search_type == "hybrid":
-            # Build hybrid search fields with appropriate boosts
+        if search_type == "hybrid" or search_type == "mvrs":
+            # MVRS boosting strategy: title^4, headings^2, body^1
             fields = []
-            for field in config.content_fields:
-                fields.append(f"{field}^3")
+            # Title fields with boost 4
             for field in config.title_fields:
                 fields.append(f"{field}^4")
+            # Section field as headings with boost 2
+            fields.append("section^2")
+            fields.append("section.text^2")  # Also search the analyzed version
+            # Body field with boost 1 (default)
+            fields.append("body^1")
             return fields
         elif search_type == "acronym":
             # Higher boosts for acronym queries
@@ -639,15 +643,13 @@ class OpenSearchClient:
                 fields.append("name^4")
             return fields
         elif search_type == "bm25":
-            # Standard BM25 boosts
+            # MVRS boosting strategy for BM25: title^4, headings^2, body^1
             fields = []
-            for field in config.content_fields:
-                fields.append(f"{field}^2")
             for field in config.title_fields:
-                fields.append(f"{field}^6")
-            # Add name field if available
-            if "name" in [f.split("^")[0] for f in config.metadata_fields]:
-                fields.append("name^4")
+                fields.append(f"{field}^4")
+            fields.append("section^2")
+            fields.append("section.text^2")
+            fields.append("body^1")
             return fields
         else:
             # Default field configuration
@@ -662,7 +664,7 @@ class OpenSearchClient:
     ) -> Dict[str, Any]:
         """
         Build a hybrid query combining BM25 and KNN in a single bool.should query.
-        This follows the fix pattern for root-level hybrid search.
+        Uses nested structure for kNN to match the working kNN implementation.
         """
         from agent.acronym_map import expand_acronym
         
@@ -672,22 +674,33 @@ class OpenSearchClient:
         # Build should clauses for hybrid search
         should_clauses = []
         
-        # BM25 clause - multi_match over root fields
+        # BM25 clause - dis_max with tie_breaker for MVRS field boosting
+        boosted_fields = self._get_boosted_fields(index, "mvrs")
+        dis_max_queries = []
+        for field in boosted_fields:
+            dis_max_queries.append({
+                "match": {
+                    field.split("^")[0]: {
+                        "query": expanded_query if expansions else query,
+                        "boost": float(field.split("^")[1]) if "^" in field else 1.0
+                    }
+                }
+            })
+        
         should_clauses.append({
-            "multi_match": {
-                "query": expanded_query if expansions else query,
-                "fields": self._get_boosted_fields(index, "hybrid"),
-                "type": "best_fields"
+            "dis_max": {
+                "queries": dis_max_queries,
+                "tie_breaker": 0.3  # Small tie_breaker as recommended by MVRS
             }
         })
         
-        # KNN clause - only if vector is provided (use root-level embedding per mapping)
+        # KNN clause - only if vector is provided (use root-level embedding field)
         if query_vector:
             should_clauses.append({
                 "knn": {
                     OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
                         "vector": query_vector,
-                        "k": k
+                        "k": min(k, 20)  # Limit to reduce payload
                     }
                 }
             })
@@ -695,7 +708,7 @@ class OpenSearchClient:
         # Build complete query - TEMPORARILY REMOVE NAMESPACE FILTER FOR DEBUGGING
         # TODO: Re-enable namespace filter once we confirm documents exist
         search_body = {
-            "size": k,
+            "size": min(k, 20),  # Limit size like working kNN to reduce over-fetching
             "query": {
                 "bool": {
                     "should": should_clauses,
@@ -717,6 +730,7 @@ class OpenSearchClient:
                 }
             },
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
+            "track_total_hits": True,  # Enable for proper error handling like working kNN
             "highlight": {
                 "fields": {field: {} for field in OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)},
                 "fragment_size": 160,
@@ -1303,15 +1317,27 @@ class OpenSearchClient:
                             }
                         })
         
-        # Enhanced multi_match query with expanded terms from synonyms
+        # MVRS boosting strategy with dis_max for better field scoring
         multi_match_query = expanded_query if expansions else key_terms
+        boosted_fields = self._get_boosted_fields(index, "bm25" if not is_acronym else "acronym")
+        
+        # Build dis_max queries for MVRS field boosting
+        dis_max_queries = []
+        for field in boosted_fields:
+            dis_max_queries.append({
+                "match": {
+                    field.split("^")[0]: {
+                        "query": multi_match_query,
+                        "boost": float(field.split("^")[1]) if "^" in field else 1.0,
+                        "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
+                    }
+                }
+            })
+        
         should_clauses.append({
-            "multi_match": {
-                "query": multi_match_query,
-                "type": "most_fields",  # Use most_fields for better expansion matching
-                "fields": self._get_boosted_fields(index, "bm25" if not is_acronym else "acronym"),
-                "tie_breaker": 0.3,
-                "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
+            "dis_max": {
+                "queries": dis_max_queries,
+                "tie_breaker": 0.3  # Small tie_breaker as recommended by MVRS
             }
         })
         
@@ -1350,7 +1376,7 @@ class OpenSearchClient:
         #     }
         # }]
         
-        # Use nested query structure for JPMC production index with optimizations
+        # Use root-level kNN query structure matching the actual mapping
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
@@ -1359,21 +1385,10 @@ class OpenSearchClient:
                 "bool": {
                     "filter": filter_clauses,  # Apply namespace filter
                     "must": [{
-                        "nested": {
-                            "path": "sections",
-                            "query": {
-                                "knn": {
-                                    f"sections.{OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)}": {
-                                        "vector": query_vector,
-                                        "k": 5
-                                    }
-                                }
-                            },
-                            "inner_hits": {
-                                "name": "matched_sections", 
-                                "size": 3,  # Reduced from 5 to minimize payload
-                                "sort": [{"_score": "desc"}],
-                                "_source": ["heading", "content"]  # Only fetch needed fields
+                        "knn": {
+                            OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
+                                "vector": query_vector,
+                                "k": k
                             }
                         }
                     }]
