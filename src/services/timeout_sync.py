@@ -349,7 +349,7 @@ def enhanced_rrf_search_sync(
     query: str,
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     rrf_k: int = 60,
@@ -405,7 +405,7 @@ def enhanced_rrf_search_sync(
         bm25_result = bm25_search_sync_with_timeout(
             query=query,
             search_client=search_client,
-            index_name=index_name,
+            index_name=index_name or OpenSearchConfig.get_default_index(),
             filters=filters,
             top_k=50,  # Get more candidates for fusion
             timeout_seconds=timeout_seconds
@@ -416,7 +416,7 @@ def enhanced_rrf_search_sync(
         knn_result = knn_search_sync_with_timeout(
             query_embedding=query_embedding,
             search_client=search_client,
-            index_name=index_name, 
+            index_name=index_name or OpenSearchConfig.get_default_index(), 
             filters=filters,
             top_k=50,  # Get more candidates for fusion
             timeout_seconds=timeout_seconds
