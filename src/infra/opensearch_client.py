@@ -878,26 +878,29 @@ class OpenSearchClient:
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
         # Base query using native knn for knn_vector compatibility
+        knn_query = {
+            vector_field: {
+                "vector": query_vector,
+                "k": k
+            }
+        }
+        
+        # Add filters if present
+        if filter_clauses:
+            knn_query[vector_field]["filter"] = {
+                "bool": {
+                    "filter": filter_clauses
+                }
+            }
+        
         base_query = {
             "size": k,
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_scores": True,
-            "knn": {
-                "field": vector_field,
-                "query_vector": query_vector,
-                "k": k,
-                "num_candidates": min(k * 5, 100),  # Optimize search quality vs performance
-                "filter": {
-                    "bool": {
-                        "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
-                    }
-                } if filter_clauses else None
+            "query": {
+                "knn": knn_query
             }
         }
-        
-        # Remove None filter if no filters applied
-        if not filter_clauses:
-            del base_query["knn"]["filter"]
         
         # Apply time decay function score (uniform with BM25)
         if time_decay_half_life_days > 0:
@@ -1263,11 +1266,13 @@ class OpenSearchClient:
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable for proper error handling
-            "knn": {
-                "field": vector_field,
-                "query_vector": query_vector,
-                "k": min(k, 20),
-                "num_candidates": min(k * 5, 100)  # Optimize search quality vs performance
+            "query": {
+                "knn": {
+                    vector_field: {
+                        "vector": query_vector,
+                        "k": min(k, 20)
+                    }
+                }
             }
         }
         return search_body

@@ -257,10 +257,13 @@ class QueryTemplates:
         
         return {
             "size": k,
-            "knn": {
-                "field": config.vector_field,
-                "query_vector": vector_query,
-                "k": k
+            "query": {
+                "knn": {
+                    config.vector_field: {
+                        "vector": vector_query,
+                        "k": k
+                    }
+                }
             },
             "_source": OpenSearchConfig.get_source_fields(index_name),
             "track_scores": True
