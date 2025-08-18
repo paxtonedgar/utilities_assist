@@ -518,7 +518,8 @@ class OpenSearchClient:
         search_body = self._build_hybrid_query(
             query=query,
             query_vector=query_vector,
-            k=k
+            k=k,
+            index=index
         )
         
         try:
@@ -656,7 +657,8 @@ class OpenSearchClient:
         self,
         query: str,
         query_vector: Optional[List[float]] = None,
-        k: int = 50
+        k: int = 50,
+        index: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Build a hybrid query combining BM25 and KNN in a single bool.should query.
