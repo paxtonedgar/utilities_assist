@@ -29,7 +29,7 @@ import requests
 from src.infra.settings import get_settings
 from src.infra.search_config import OpenSearchConfig, QueryTemplates
 from src.telemetry.logger import log_event, stage
-from services.models import SearchResult as ServiceSearchResult  # Use service model
+from src.services.models import SearchResult as ServiceSearchResult  # Use service model
 
 logger = logging.getLogger(__name__)
 
@@ -148,14 +148,15 @@ class OpenSearchClient:
                 index, "bm25", query, len(query)
             )
             
-            # Use GET request like working v1 branch
+            # Use POST request for search with body
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
+            headers = {'Content-Type': 'application/json'}
             if aws_auth:
-                response = requests.get(url, json=search_body, auth=aws_auth, timeout=30.0)
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
             else:
-                response = self.session.get(url, json=search_body, timeout=30.0)
+                response = self.session.post(url, json=search_body, timeout=30.0, headers=headers)
             
             took_ms = (time.time() - start_time) * 1000
             status_code = response.status_code
@@ -303,10 +304,11 @@ class OpenSearchClient:
             from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
+            headers = {'Content-Type': 'application/json'}
             if aws_auth:
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0)
+                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
             else:
-                response = self.session.post(url, json=search_body, timeout=30.0)
+                response = self.session.post(url, json=search_body, timeout=30.0, headers=headers)
             
             took_ms = (time.time() - start_time) * 1000
             status_code = response.status_code
@@ -544,11 +546,12 @@ class OpenSearchClient:
             _setup_jpmc_proxy()
             
             try:
-                response = requests.get(
+                response = requests.post(
                     url,
                     auth=_get_aws_auth() if self.settings.requires_aws_auth else None,
                     json=search_body,
-                    timeout=30
+                    timeout=30,
+                    headers={'Content-Type': 'application/json'}
                 )
                 
                 # Log HTTP response details before raising for status
@@ -666,7 +669,7 @@ class OpenSearchClient:
         Build a hybrid query combining BM25 and KNN in a single bool.should query.
         Uses nested structure for kNN to match the working kNN implementation.
         """
-        from agent.acronym_map import expand_acronym
+        from src.agent.acronym_map import expand_acronym
         
         # Expand acronyms if present
         expanded_query, expansions = expand_acronym(query)
@@ -700,37 +703,23 @@ class OpenSearchClient:
                 "knn": {
                     OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias): {
                         "vector": query_vector,
-                        "k": min(k, 20)  # Limit to reduce payload
+                        "k": min(k, 50),  # Use reasonable k value
+                        "ef_search": 256  # Add ef_search for better recall
                     }
                 }
             })
         
-        # Build complete query - TEMPORARILY REMOVE NAMESPACE FILTER FOR DEBUGGING
-        # TODO: Re-enable namespace filter once we confirm documents exist
+        # Build complete query structure
         search_body = {
-            "size": min(k, 20),  # Limit size like working kNN to reduce over-fetching
+            "size": min(k, 50),
             "query": {
                 "bool": {
                     "should": should_clauses,
                     "minimum_should_match": 1
-                    # DISABLED: Namespace filter may be too restrictive
-                    # "filter": [
-                    #     {
-                    #         "bool": {
-                    #             "should": [
-                    #                 {"term": {"space.keyword": "Utilities"}},
-                    #                 {"term": {"labels.keyword": "utilities"}},
-                    #                 {"wildcard": {"path.keyword": "*/utilities/*"}},
-                    #                 {"prefix": {"title.keyword": "utilities/"}}
-                    #             ],
-                    #             "minimum_should_match": 1
-                    #         }
-                    #     }
-                    # ]
                 }
             },
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
-            "track_total_hits": True,  # Enable for proper error handling like working kNN
+            "track_total_hits": True,
             "highlight": {
                 "fields": {field: {} for field in OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)},
                 "fragment_size": 160,
@@ -1225,7 +1214,7 @@ class OpenSearchClient:
     
     def _build_simple_bm25_query(self, query: str, k: int, index: Optional[str] = None) -> Dict[str, Any]:
         """Build optimized BM25 query with namespace filtering, acronym expansion, and title boosting."""
-        from agent.acronym_map import expand_acronym, is_short_acronym_query
+        from src.agent.acronym_map import expand_acronym, is_short_acronym_query
         
         # Expand acronyms if present (e.g., "CIU" -> "Customer Interaction Utility CIU")
         expanded_query, expansions = expand_acronym(query)
@@ -1285,7 +1274,7 @@ class OpenSearchClient:
                 })
                 
                 # Boost documents containing associated API names from swagger_keyword.json
-                from agent.acronym_map import get_apis_for_acronym
+                from src.agent.acronym_map import get_apis_for_acronym
                 acronym = query.upper().split()[0]  # Get first word as potential acronym
                 api_names = get_apis_for_acronym(acronym)
                 if api_names:
