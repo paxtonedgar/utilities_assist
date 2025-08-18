@@ -214,7 +214,7 @@ def knn_search_sync_with_timeout(
     Never propagates exceptions - returns empty results on failure.
     
     Args:
-        query_embedding: Query vector (1536 dims)
+        query_embedding: Query vector (OpenSearchConfig.EMBEDDING_DIMENSIONS dims)
         search_client: OpenSearchClient instance (synchronous methods)
         index_name: Index to search
         filters: Optional search filters

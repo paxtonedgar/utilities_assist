@@ -308,9 +308,10 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
                 return "Unable to synthesize workflow - resources unavailable"
             
             # Phase 1: Multi-document search with workflow focus
+            from infra.search_config import OpenSearchConfig
             indices = [
                 resources.settings.search_index_alias,  # Main confluence
-                "khub-opensearch-swagger-index"  # Technical procedures
+                OpenSearchConfig.get_swagger_index()  # Technical procedures
             ]
             
             from agent.tools.search import multi_index_search_tool

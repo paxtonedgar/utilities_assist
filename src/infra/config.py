@@ -105,7 +105,7 @@ def _tests() -> Settings:
     return Settings(
         profile="tests",
         chat=ChatCfg(provider="openai", model="gpt-3.5-turbo"),
-        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=1536),  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
+        embed=EmbedCfg(provider="openai", model="text-embedding-3-small", dims=OpenSearchConfig.EMBEDDING_DIMENSIONS),
         search=SearchCfg(host="http://localhost:9200")
     )
 

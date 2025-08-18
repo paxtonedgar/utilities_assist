@@ -320,7 +320,7 @@ async def adaptive_search_tool(
         search_client: OpenSearch client instance
         embed_client: Embedding client for vector search
         embed_model: Embedding model to use
-        search_index: Index name to search (e.g., "khub-opensearch-index")
+        search_index: Index name to search (use OpenSearchConfig.get_default_index() for main index)
         top_k: Number of results to return
         
     Returns:
