@@ -31,11 +31,11 @@
     "properties": {
       "embedding": {
         "type": "knn_vector",
-        "dimension": 1536,
-        "space_type": "cosinesimil",
+        "dimension": 1024,
         "method": {
           "name": "hnsw",
           "engine": "lucene",
+          "space_type": "cosinesimil",
           "parameters": {
             "ef_construction": 100,
             "m": 16

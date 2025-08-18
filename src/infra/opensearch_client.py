@@ -187,7 +187,7 @@ class OpenSearchClient:
                 response.raise_for_status()
             
             data = response.json()
-            results = self._parse_search_response(data)
+            results = self._parse_search_response(data, index)
             
             # EXPLICIT OS RESPONSE LOG - for debugging query results
             top_result_title = results[0].title if results else None
@@ -339,7 +339,7 @@ class OpenSearchClient:
                 response.raise_for_status()
             
             data = response.json()
-            results = self._parse_search_response(data)
+            results = self._parse_search_response(data, index)
             
             # Log successful completion
             total_hits = get_total_hits(data)
@@ -977,7 +977,7 @@ class OpenSearchClient:
         
         return clauses
     
-    def _parse_search_response(self, data: Dict[str, Any]) -> List[ServiceSearchResult]:
+    def _parse_search_response(self, data: Dict[str, Any], index: Optional[str] = None) -> List[ServiceSearchResult]:
         """Parse OpenSearch response into SearchResult objects with canonical schema."""
         results = []
         

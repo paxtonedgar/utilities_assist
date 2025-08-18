@@ -199,21 +199,10 @@ class QueryTemplates:
                             }
                         },
                         {
-                            "nested": {
-                                "path": "sections",
-                                "query": {
-                                    "knn": {
-                                        f"sections.{config.vector_field}": {
-                                            "vector": vector_query,
-                                            "k": min(k, 20)  # Limit to reduce payload
-                                        }
-                                    }
-                                },
-                                "inner_hits": {
-                                    "name": "matched_sections", 
-                                    "size": 3,  # Reduced to minimize payload
-                                    "sort": [{"_score": "desc"}],
-                                    "_source": ["heading", "content"]  # Only fetch needed fields
+                            "knn": {
+                                config.vector_field: {
+                                    "vector": vector_query,
+                                    "k": min(k, 20)  # Limit to reduce payload
                                 }
                             }
                         }
