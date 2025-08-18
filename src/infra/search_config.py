@@ -40,8 +40,8 @@ class OpenSearchConfig:
     """Centralized OpenSearch configuration."""
     
     # === INDEX DEFINITIONS ===
-    # Standard OpenAI/Azure embedding dimensions
-    EMBEDDING_DIMENSIONS = 1536
+    # Khub cluster embedding dimensions (reduced from 1536/3072 using dimensions parameter)
+    EMBEDDING_DIMENSIONS = 1024
     
     MAIN_INDEX = IndexConfig(
         name="khub-opensearch-index",

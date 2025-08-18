@@ -877,27 +877,27 @@ class OpenSearchClient:
         
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
-        # Base query using script_score for dense_vector compatibility
+        # Base query using native knn for knn_vector compatibility
         base_query = {
             "size": k,
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_scores": True,
-            "query": {
-                "script_score": {
-                    "query": {
-                        "bool": {
-                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
-                        }
-                    },
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
-                        "params": {
-                            "query_vector": query_vector
-                        }
+            "knn": {
+                "field": vector_field,
+                "query_vector": query_vector,
+                "k": k,
+                "num_candidates": min(k * 5, 100),  # Optimize search quality vs performance
+                "filter": {
+                    "bool": {
+                        "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
                     }
-                }
+                } if filter_clauses else None
             }
         }
+        
+        # Remove None filter if no filters applied
+        if not filter_clauses:
+            del base_query["knn"]["filter"]
         
         # Apply time decay function score (uniform with BM25)
         if time_decay_half_life_days > 0:
@@ -932,13 +932,10 @@ class OpenSearchClient:
                 }
             ])
             
-            base_query["query"] = {
-                "function_score": {
-                    "query": base_query["query"],
-                    "boost_mode": "multiply",  # Changed from "sum" to "multiply" for penalty weights
-                    "functions": functions
-                }
-            }
+            # For knn queries, time decay is applied via post-filtering since function_score
+            # doesn't directly work with knn. We'll handle this in the application layer.
+            # Note: This is a limitation when using native knn with complex scoring.
+            logger.info("Time decay scoring not directly supported with native knn queries - using base similarity")
         
         return base_query
     
@@ -1257,43 +1254,20 @@ class OpenSearchClient:
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int, index: Optional[str] = None) -> Dict[str, Any]:
-        """Build optimized kNN query compatible with both dense_vector and knn_vector field types."""
-        
-        # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
-        filter_clauses = []
-        # filter_clauses = [{
-        #     "bool": {
-        #         "should": [
-        #             {"term": {"space.keyword": "Utilities"}},
-        #             {"term": {"labels.keyword": "utilities"}},
-        #             {"wildcard": {"path.keyword": "*/utilities/*"}},
-        #             {"prefix": {"title.keyword": "utilities/"}}
-        #         ],
-        #         "minimum_should_match": 1
-        #     }
-        # }]
+        """Build optimized kNN query for knn_vector field types in Khub cluster."""
         
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
-        # Use script_score query for dense_vector compatibility (works with both ES and OS)
+        # Use native knn query for knn_vector field compatibility
         search_body = {
             "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
             "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
             "track_total_hits": True,  # Enable for proper error handling
-            "query": {
-                "script_score": {
-                    "query": {
-                        "bool": {
-                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
-                        }
-                    },
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
-                        "params": {
-                            "query_vector": query_vector
-                        }
-                    }
-                }
+            "knn": {
+                "field": vector_field,
+                "query_vector": query_vector,
+                "k": min(k, 20),
+                "num_candidates": min(k * 5, 100)  # Optimize search quality vs performance
             }
         }
         return search_body

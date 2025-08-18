@@ -139,7 +139,7 @@ def test_vector_field_configuration():
         # Test embedding dimensions
         dimensions = OpenSearchConfig.EMBEDDING_DIMENSIONS
         print(f"Embedding dimensions: {dimensions}")
-        assert dimensions == 1536, f"Expected 1536, got {dimensions}"
+        assert dimensions == 1024, f"Expected 1536, got {dimensions}"
         
         print("✅ Vector field configuration is correct")
         return True

@@ -39,9 +39,9 @@ class TestEmbeddingCreation:
         """Mock valid embedding API response."""
         response = Mock()
         response.data = [
-            Mock(embedding=[0.1] * 1536),
-            Mock(embedding=[0.2] * 1536),
-            Mock(embedding=[0.3] * 1536)
+            Mock(embedding=[0.1] * 1024),
+            Mock(embedding=[0.2] * 1024),
+            Mock(embedding=[0.3] * 1024)
         ]
         return response
     
@@ -117,11 +117,11 @@ class TestEmbeddingCreation:
             embed_client=mock_embed_client,
             texts=texts,
             model="text-embedding-ada-002",
-            expected_dims=1536
+            expected_dims=1024
         )
         
         assert len(embeddings) == 3
-        assert all(len(emb) == 1536 for emb in embeddings)
+        assert all(len(emb) == 1024 for emb in embeddings)
         mock_embed_client.embeddings.create.assert_called_once()
     
     @pytest.mark.asyncio
@@ -137,7 +137,7 @@ class TestEmbeddingCreation:
                 embed_client=mock_embed_client,
                 texts=["test"],
                 model="text-embedding-ada-002",
-                expected_dims=1536
+                expected_dims=1024
             )
     
     @pytest.mark.asyncio
@@ -150,7 +150,7 @@ class TestEmbeddingCreation:
                 embed_client=mock_embed_client,
                 texts=["test"],
                 model="text-embedding-ada-002",
-                expected_dims=1536
+                expected_dims=1024
             )
     
     @pytest.mark.asyncio
@@ -159,7 +159,7 @@ class TestEmbeddingCreation:
         # Create responses for multiple batches
         def mock_create(model, input):
             response = Mock()
-            response.data = [Mock(embedding=[0.1] * 1536) for _ in input]
+            response.data = [Mock(embedding=[0.1] * 1024) for _ in input]
             return response
         
         mock_embed_client.embeddings.create.side_effect = mock_create
@@ -170,7 +170,7 @@ class TestEmbeddingCreation:
             embed_client=mock_embed_client,
             texts=texts,
             model="text-embedding-ada-002",
-            expected_dims=1536,
+            expected_dims=1024,
             batch_size=2
         )
         
@@ -182,18 +182,18 @@ class TestEmbeddingCreation:
     async def test_create_single_embedding(self, mock_embed_client):
         """Test single embedding creation."""
         response = Mock()
-        response.data = [Mock(embedding=[0.5] * 1536)]
+        response.data = [Mock(embedding=[0.5] * 1024)]
         mock_embed_client.embeddings.create.return_value = response
         
         embedding = await create_single_embedding(
             embed_client=mock_embed_client,
             text="test text",
             model="text-embedding-ada-002",
-            expected_dims=1536
+            expected_dims=1024
         )
         
-        assert len(embedding) == 1536
-        assert embedding == [0.5] * 1536
+        assert len(embedding) == 1024
+        assert embedding == [0.5] * 1024
     
     @pytest.mark.asyncio
     async def test_create_embeddings_empty_texts(self, mock_embed_client):
@@ -202,7 +202,7 @@ class TestEmbeddingCreation:
             embed_client=mock_embed_client,
             texts=[],
             model="text-embedding-ada-002",
-            expected_dims=1536
+            expected_dims=1024
         )
         
         assert embeddings == []
@@ -216,7 +216,7 @@ class TestEmbeddingCreation:
                 embed_client=None,
                 texts=["test"],
                 model="text-embedding-ada-002",
-                expected_dims=1536
+                expected_dims=1024
             )
     
     @pytest.mark.asyncio
@@ -235,9 +235,9 @@ class TestEmbeddingCreation:
         """Test handling of empty/whitespace strings."""
         response = Mock()
         response.data = [
-            Mock(embedding=[0.1] * 1536),
-            Mock(embedding=[0.2] * 1536),
-            Mock(embedding=[0.3] * 1536)
+            Mock(embedding=[0.1] * 1024),
+            Mock(embedding=[0.2] * 1024),
+            Mock(embedding=[0.3] * 1024)
         ]
         mock_embed_client.embeddings.create.return_value = response
         
@@ -246,7 +246,7 @@ class TestEmbeddingCreation:
             embed_client=mock_embed_client,
             texts=texts,
             model="text-embedding-ada-002",
-            expected_dims=1536
+            expected_dims=1024
         )
         
         # Should get 3 embeddings (valid text + 2 placeholders for empty strings)
@@ -272,14 +272,14 @@ class TestRetryLogic:
         mock_client.embeddings.create.side_effect = [
             Exception("Temporary failure"),
             Exception("Another failure"),
-            Mock(data=[Mock(embedding=[0.1] * 1536)])
+            Mock(data=[Mock(embedding=[0.1] * 1024)])
         ]
         
         embeddings = await create_embeddings_with_retry(
             embed_client=mock_client,
             texts=["test"],
             model="text-embedding-ada-002", 
-            expected_dims=1536
+            expected_dims=1024
         )
         
         assert len(embeddings) == 1
@@ -297,7 +297,7 @@ class TestRetryLogic:
                 embed_client=mock_client,
                 texts=["test"],
                 model="text-embedding-ada-002",
-                expected_dims=1536
+                expected_dims=1024
             )
         
         # Should have tried 3 times (initial + 2 retries)
@@ -334,7 +334,7 @@ class SlowClient:
             raise Exception(f"Slow failure #{self.call_count}")
         
         response = Mock()
-        response.data = [Mock(embedding=[0.1] * 1536) for _ in input]
+        response.data = [Mock(embedding=[0.1] * 1024) for _ in input]
         return response
 
 
@@ -348,7 +348,7 @@ async def test_wrong_dimension_integration():
             embed_client=client,
             texts=["test"],
             model="text-embedding-ada-002",
-            expected_dims=1536
+            expected_dims=1024
         )
 
 
@@ -361,7 +361,7 @@ async def test_slow_client_integration():
         embed_client=client,
         texts=["test"],
         model="text-embedding-ada-002", 
-        expected_dims=1536
+        expected_dims=1024
     )
     
     assert len(embeddings) == 1

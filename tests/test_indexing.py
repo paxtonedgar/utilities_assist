@@ -218,8 +218,8 @@ async def test_mock_embedding_provider():
     embeddings = await provider.create_embeddings(texts)
     
     assert len(embeddings) == 2
-    assert len(embeddings[0]) == 1536  # Correct dimensions
-    assert len(embeddings[1]) == 1536
+    assert len(embeddings[0]) == 1024  # Correct dimensions
+    assert len(embeddings[1]) == 1024
     
     # Embeddings should be deterministic but different
     assert embeddings[0] != embeddings[1]
@@ -281,7 +281,7 @@ def test_document_validation(sample_documents):
 def test_document_to_opensearch_format(sample_documents):
     """Test document conversion to OpenSearch format."""
     doc = sample_documents[0]
-    embedding = [0.1] * 1536  # Correct dimensions
+    embedding = [0.1] * 1024  # Correct dimensions
     
     opensearch_doc = doc.to_opensearch_doc(embedding)
     
@@ -412,7 +412,7 @@ def test_index_mapping_creation(mock_search_config):
         # Verify embedding field has correct dimensions
         embedding_config = mapping["mappings"]["properties"]["embedding"]
         assert embedding_config["type"] == "knn_vector"
-        assert embedding_config["dimension"] == 1536  # Fixed to 1536
+        assert embedding_config["dimension"] == 1024  # Fixed to 1536
         
         # Verify other required fields
         assert "title" in mapping["mappings"]["properties"]

@@ -71,7 +71,7 @@ class TestSearchTools:
         
         with patch('agent.tools.search.enhanced_rrf_search') as mock_search:
             with patch('agent.tools.search.create_single_embedding') as mock_embed:
-                mock_embed.return_value = [0.1] * 1536  # Mock embedding
+                mock_embed.return_value = [0.1] * 1024  # Mock embedding
                 mock_search.return_value = (mock_result, {})  # Mock search result
                 
                 result = await search_index_tool(

@@ -91,7 +91,8 @@ async def _create_batch_embeddings(
     try:
         response = embed_client.embeddings.create(
             model=model,
-            input=texts
+            input=texts,
+            dimensions=1024  # Reduce to match Khub cluster mapping
         )
         
         # Extract embeddings from response

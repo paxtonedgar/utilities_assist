@@ -235,7 +235,7 @@ class TestAgentMocking:
             method="enhanced_rrf"
         )
         
-        with patch('workflows.agents.create_single_embedding', return_value=AsyncMock(return_value=[0.1] * 1536)):
+        with patch('workflows.agents.create_single_embedding', return_value=AsyncMock(return_value=[0.1] * 1024)):
             with patch('workflows.agents.enhanced_rrf_search', return_value=AsyncMock(return_value=(mock_result, {}))):
                 result = await single_search_agent(sample_state, mock_resources)
                 
@@ -282,7 +282,7 @@ class TestAgentMocking:
             method="enhanced_rrf"
         )
         
-        with patch('workflows.agents.create_single_embedding', return_value=AsyncMock(return_value=[0.1] * 1536)):
+        with patch('workflows.agents.create_single_embedding', return_value=AsyncMock(return_value=[0.1] * 1024)):
             with patch('workflows.agents.enhanced_rrf_search', return_value=AsyncMock(return_value=(mock_result, {}))):
                 result = await parallel_search_agent(sample_state, mock_resources)
                 
