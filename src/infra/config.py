@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from functools import lru_cache
 import os
 
+from src.infra.search_config import OpenSearchConfig
+
 
 class ChatCfg(BaseModel):
     """Configuration for chat/LLM providers"""
@@ -18,7 +20,7 @@ class EmbedCfg(BaseModel):
     """Configuration for embedding providers"""
     provider: str
     model: str
-    dims: int
+    dims: int = OpenSearchConfig.EMBEDDING_DIMENSIONS
 
 
 class SearchCfg(BaseModel):
@@ -65,14 +67,14 @@ def _jpmc() -> Settings:
         api_base = os.getenv("AZURE_OPENAI_ENDPOINT") or config.get('azure_openai', 'azure_openai_endpoint', fallback="https://llm-multitenancy-exp.jpmchase.net/ver2/")
         api_version = os.getenv("AZURE_API_VERSION") or config.get('azure_openai', 'api_version', fallback="2024-10-21")
         opensearch_host = os.getenv("OPENSEARCH_ENDPOINT") or config.get('aws_info', 'opensearch_endpoint', fallback="https://utilitiesassist.dev.aws.jpmchase.net")
-        opensearch_index = os.getenv("OPENSEARCH_INDEX") or config.get('aws_info', 'index_name', fallback="khub-opensearch-index")
+        opensearch_index = os.getenv("OPENSEARCH_INDEX") or config.get('aws_info', 'index_name', fallback=OpenSearchConfig.get_default_index())
     else:
         chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o-2024-08-06")
         embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small-1")
         api_base = os.getenv("AZURE_OPENAI_ENDPOINT", "https://llm-multitenancy-exp.jpmchase.net/ver2/")
         api_version = os.getenv("AZURE_API_VERSION", "2024-10-21")
         opensearch_host = os.getenv("OPENSEARCH_ENDPOINT", "https://utilitiesassist.dev.aws.jpmchase.net")
-        opensearch_index = os.getenv("OPENSEARCH_INDEX", "khub-opensearch-index")
+        opensearch_index = os.getenv("OPENSEARCH_INDEX", OpenSearchConfig.get_default_index())
         
     return Settings(
         profile="jpmc_azure", 

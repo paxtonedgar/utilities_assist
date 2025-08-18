@@ -198,9 +198,9 @@ async def knn_search(
     """Perform KNN vector search with enterprise filters and HNSW optimization.
     
     Args:
-        query_embedding: Query vector embedding (1536 dims)
+        query_embedding: Query vector embedding (dimensions defined by OpenSearchConfig.EMBEDDING_DIMENSIONS)
         search_client: OpenSearch client with authentication
-        index_name: OpenSearch index name or alias
+        index_name: OpenSearch index name or alias (defaults to OpenSearchConfig.get_default_index())
         filters: ACL, space, and time filters
         top_k: Number of results to return
         ef_search: HNSW ef_search parameter (accuracy vs speed trade-off)

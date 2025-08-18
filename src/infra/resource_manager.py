@@ -22,6 +22,7 @@ from threading import Lock
 
 from src.infra.settings import ApplicationSettings
 from src.infra.azure_auth import azure_token_provider
+from src.infra.search_config import OpenSearchConfig
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
             embed_cfg = EmbedCfg(
                 provider="azure",
                 model=settings.embed.model,
-                dims=1536  # TODO: Use OpenSearchConfig.EMBEDDING_DIMENSIONS
+                dims=OpenSearchConfig.EMBEDDING_DIMENSIONS
             )
             embed_client = make_embed_client(embed_cfg, token_provider)
         else:

@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional
 
 from services.models import RetrievalResult, SearchResult
 from src.infra.opensearch_client import OpenSearchClient, SearchFilters
+from src.infra.search_config import OpenSearchConfig
 from src.telemetry.logger import log_event
 
 logger = logging.getLogger(__name__)
@@ -47,12 +48,15 @@ def timeout_context(seconds: float):
 def bm25_search_sync_with_timeout(
     query: str,
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     time_decay_days: int = 75,
     timeout_seconds: float = DEFAULT_TIMEOUT_S
 ) -> RetrievalResult:
+    # Use centralized configuration for default index name
+    if index_name is None:
+        index_name = OpenSearchConfig.get_default_index()
     """
     Synchronous BM25 search with timeout and fallback.
     
@@ -194,12 +198,15 @@ def bm25_search_sync_with_timeout(
 def knn_search_sync_with_timeout(
     query_embedding: List[float],
     search_client: OpenSearchClient,
-    index_name: str = "khub-opensearch-index",
+    index_name: str = None,
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
     ef_search: int = 256,
     timeout_seconds: float = DEFAULT_TIMEOUT_S
 ) -> RetrievalResult:
+    # Use centralized configuration for default index name
+    if index_name is None:
+        index_name = OpenSearchConfig.get_default_index()
     """
     Synchronous kNN search with timeout and fallback.
     

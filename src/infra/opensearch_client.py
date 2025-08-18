@@ -18,6 +18,8 @@ import logging
 import math
 import re
 import time
+
+from src.infra.search_config import OpenSearchConfig
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -264,9 +266,9 @@ class OpenSearchClient:
         kNN vector similarity search with ACL filters and time decay.
         
         Args:
-            query_vector: Query embedding vector (1536 dims)
+            query_vector: Query embedding vector (dimensions defined by OpenSearchConfig.EMBEDDING_DIMENSIONS)
             filters: ACL, space, and time filters
-            index: Index name or alias to search
+            index: Index name or alias to search (defaults to OpenSearchConfig.get_default_index())
             k: Number of results to return
             ef_search: ef_search parameter for HNSW (trade-off: accuracy vs speed)
             time_decay_half_life_days: Half-life for time decay in days (uniform with BM25)
