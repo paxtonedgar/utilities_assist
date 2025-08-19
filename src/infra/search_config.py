@@ -65,7 +65,7 @@ class OpenSearchConfig:
         name="khub-opensearch-swagger-index", 
         content_fields=["body", "content", "text", "description", "summary"],
         metadata_fields=["title", "app_name", "utility_name", "api_name", "page_url", "path", "method", "endpoint"],
-        vector_field="embedding",
+        vector_field=None,  # Swagger index does not have proper knn_vector mapping - BM25 only
         title_fields=["title", "app_name", "api_name"]
     )
     
@@ -218,9 +218,9 @@ class QueryTemplates:
                 }
             }
         
-        # Build vector query - use native knn for all indices (script_score is deprecated and error-prone)
+        # Build vector query - only if index supports vectors
         vector_query_clause = None
-        if "sections." in config.vector_field:
+        if config.vector_field and "sections." in config.vector_field:
             # Use nested with native knn query for sections.embedding (main index structure)
             vector_query_clause = {
                 "nested": {
@@ -240,8 +240,8 @@ class QueryTemplates:
                     }
                 }
             }
-        else:
-            # Use native knn for flat fields (swagger index structure) - avoid problematic script_score
+        elif config.vector_field:
+            # Use native knn for flat fields (if properly mapped)
             vector_query_clause = {
                 "knn": {
                     config.vector_field: {
@@ -250,6 +250,7 @@ class QueryTemplates:
                     }
                 }
             }
+        # If vector_field is None, skip vector search entirely (BM25-only)
         
         return {
             "size": min(k, 20),  # Limit size to reduce over-fetching
@@ -319,9 +320,13 @@ class QueryTemplates:
         """Build a KNN-only search query."""
         config = OpenSearchConfig._get_index_config(index_name)
         
-        # Build vector query - use nested with native knn and inner_hits if vector field has nested structure  
+        # Build vector query - only if index supports vectors
+        if not config.vector_field:
+            # Index doesn't support vector search - return None to indicate KNN not available
+            return None
+            
         if "sections." in config.vector_field:
-            # Use nested with native knn query for sections.embedding (based on colleague's working code)
+            # Use nested with native knn query for sections.embedding (main index structure)
             query_clause = {
                 "nested": {
                     "path": "sections",
@@ -341,7 +346,7 @@ class QueryTemplates:
                 }
             }
         else:
-            # Use native knn for flat fields (swagger index structure) - avoid problematic script_score
+            # Use native knn for flat fields (if properly mapped)
             query_clause = {
                 "knn": {
                     config.vector_field: {
