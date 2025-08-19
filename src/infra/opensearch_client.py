@@ -27,7 +27,7 @@ from src.infra.settings import get_settings
 from src.infra.search_config import OpenSearchConfig, QueryTemplates
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.telemetry.logger import log_event, stage
-from src.services.models import SearchResult as ServiceSearchResult  # Use service model
+# Avoid cross-layer import at module level - import SearchResult locally when needed
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class SearchFilters:
 @dataclass
 class SearchResponse:
     """Search response with results and metadata."""
-    results: List[ServiceSearchResult]  # Use the service model
+    results: List[Any]  # Will contain SearchResult objects (imported locally)
     total_hits: int
     took_ms: int
     method: str
@@ -453,6 +453,9 @@ class OpenSearchClient:
             if doc_id in doc_map:
                 result = doc_map[doc_id]
                 # Create new result with RRF score - include all required fields
+                # Import locally to avoid cross-layer coupling
+                from src.services.models import SearchResult as ServiceSearchResult
+                
                 fused_result = ServiceSearchResult(
                     doc_id=result.doc_id,
                     title=result.title,        # REQUIRED: Include title from original result
@@ -623,8 +626,11 @@ class OpenSearchClient:
         
         return clauses
     
-    def _parse_search_response(self, data: Dict[str, Any], index: Optional[str] = None) -> List[ServiceSearchResult]:
+    def _parse_search_response(self, data: Dict[str, Any], index: Optional[str] = None) -> List[Any]:
         """Parse OpenSearch response into SearchResult objects with canonical schema."""
+        # Import locally to avoid cross-layer coupling
+        from src.services.models import SearchResult as ServiceSearchResult
+        
         results = []
         
         # DEBUG: Log the OpenSearch response structure

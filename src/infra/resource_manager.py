@@ -23,6 +23,8 @@ from threading import Lock
 from src.infra.settings import ApplicationSettings
 from src.infra.azure_auth import azure_token_provider
 from src.infra.search_config import OpenSearchConfig
+from src.infra.clients import make_chat_client, make_embed_client
+from src.infra.config import ChatCfg, EmbedCfg
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +97,6 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
         
         # Create clients once - these will be reused for all requests
         logger.info("Creating chat client...")
-        from src.infra.clients import make_chat_client
-        from src.infra.config import ChatCfg
-        
         chat_cfg = ChatCfg(
             provider="azure",
             model=settings.chat.model,
@@ -110,9 +109,6 @@ def initialize_resources(settings: ApplicationSettings, force_refresh: bool = Fa
         logger.info("Creating embed client...")
         embed_client = None
         if settings.azure_openai and settings.azure_openai.azure_openai_embedding_model and settings.embed:
-            from src.infra.clients import make_embed_client
-            from src.infra.config import EmbedCfg
-            
             embed_cfg = EmbedCfg(
                 provider="azure",
                 model=settings.embed.model,
@@ -221,8 +217,8 @@ def _load_config_once() -> dict:
         return _cached_config_params
     
     try:
-        from utils import load_config
-        config = load_config()
+        from src.infra.settings import _load_shared_config
+        config = _load_shared_config()
         
         # Extract all relevant parameters using exact config.ini key names (source of truth)
         _cached_config_params = {}

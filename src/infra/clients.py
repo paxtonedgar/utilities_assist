@@ -15,6 +15,21 @@ import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Third-party imports (moved to top to avoid repeated dynamic imports)
+try:
+    from openai import OpenAI, AzureOpenAI
+except ImportError:
+    OpenAI = AzureOpenAI = None
+    logging.warning("OpenAI library not available - client creation will fail")
+
+try:
+    import boto3
+    from requests_aws4auth import AWS4Auth
+except ImportError:
+    boto3 = AWS4Auth = None
+    logging.debug("AWS libraries not available - AWS auth will be disabled")
+
+# Internal imports
 from src.infra.config import ChatCfg, EmbedCfg, SearchCfg
 
 logger = logging.getLogger(__name__)
@@ -54,20 +69,19 @@ def _cached_chat_client(
     token_fingerprint: str
 ) -> Any:
     """Internal cached chat client creation."""
+    if not OpenAI or not AzureOpenAI:
+        raise ImportError("OpenAI library not available")
+        
     # Apply JPMC proxy if needed
     _setup_jpmc_proxy()
     
     if provider == "openai":
-        from openai import OpenAI
-        
         return OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             timeout=5.0
         )
     
     elif provider == "azure":
-        from openai import AzureOpenAI
-        
         # NOTE: This cached function should not be used for Azure in production
         # Azure clients use the direct authentication path instead
         return AzureOpenAI(
@@ -90,20 +104,19 @@ def _cached_embed_client(
     token_fingerprint: str
 ) -> Any:
     """Internal cached embedding client creation."""
+    if not OpenAI or not AzureOpenAI:
+        raise ImportError("OpenAI library not available")
+        
     # Apply JPMC proxy if needed
     _setup_jpmc_proxy()
     
     if provider == "openai":
-        from openai import OpenAI
-        
         return OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             timeout=5.0
         )
     
     elif provider == "azure":
-        from openai import AzureOpenAI
-        
         # Get the endpoint from environment or use fallback
         azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         if not azure_endpoint:
@@ -133,10 +146,11 @@ def _get_aws_auth():
     
     Cached to avoid repeated authentication setup.
     """
-    try:
-        import boto3
-        from requests_aws4auth import AWS4Auth
+    if not boto3 or not AWS4Auth:
+        logger.warning("AWS libraries not available - install boto3 and requests-aws4auth for JPMC OpenSearch")
+        return None
         
+    try:
         # Copy exact code from working main branch
         session = boto3.Session()
         logger.debug(f"AWS session: {session}")
@@ -145,9 +159,6 @@ def _get_aws_auth():
         logger.debug(f"AWS credentials: {credentials}")
         return AWS4Auth(credentials.access_key, credentials.secret_key, region, 'es', session_token=credentials.token)
         
-    except ImportError:
-        logger.warning("AWS4Auth not available - install requests-aws4auth for JPMC OpenSearch")
-        return None
     except Exception as e:
         logger.error(f"Failed to configure AWS authentication: {e}")
         return None
@@ -228,7 +239,8 @@ def _create_azure_client(
     Returns:
         Configured AzureOpenAI client
     """
-    from openai import AzureOpenAI
+    if not AzureOpenAI:
+        raise ImportError("OpenAI library not available")
     
     # Get API key from config (required base authentication)
     api_key = None
@@ -303,23 +315,19 @@ def make_embed_client(cfg: EmbedCfg, token_provider: Callable[[], str] | None = 
         OpenAI or Azure OpenAI client instance for embeddings
     """
     if cfg.provider == "azure":
-        # Get the endpoint from environment or use fallback
+        # Get the endpoint and API version from config (avoiding repeated dynamic imports)
         azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        if not azure_endpoint:
-            try:
-                from src.infra.config import get_settings
-                settings = get_settings()
-                azure_endpoint = settings.chat.api_base
-            except:
-                azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
+        api_version = "2024-10-21"  # Default
         
-        # Get API version from config to match chat client
         try:
             from src.infra.config import get_settings
             settings = get_settings()
+            if not azure_endpoint:
+                azure_endpoint = settings.chat.api_base
             api_version = settings.chat.api_version
         except:
-            api_version = "2024-10-21"  # Match config.ini default
+            if not azure_endpoint:
+                azure_endpoint = "https://llm-multitenancy-exp.jpmchase.net/ver2/"
         
         return _create_azure_client("embed", api_version, azure_endpoint, token_provider)
     
