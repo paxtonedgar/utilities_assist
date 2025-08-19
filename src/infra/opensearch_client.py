@@ -19,7 +19,6 @@ import math
 import re
 import time
 
-from src.infra.search_config import OpenSearchConfig
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -877,27 +876,29 @@ class OpenSearchClient:
         
         vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
         
-        # Base query using script_score for compatibility with actual cluster field type
-        base_query = {
-            "size": k,
-            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
-            "track_scores": True,
-            "query": {
-                "script_score": {
-                    "query": {
-                        "bool": {
-                            "filter": filter_clauses if filter_clauses else [{"match_all": {}}]
-                        }
-                    },
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, doc['{vector_field}'].value) + 1.0",
-                        "params": {
-                            "query_vector": query_vector
-                        }
+        # Use our centralized query template for nested structure support
+        base_query = QueryTemplates.build_knn_query(
+            vector_query=query_vector,
+            index_name=index or self.settings.search_index_alias,
+            k=k
+        )
+        
+        # Add filters if provided
+        if filter_clauses:
+            if "bool" not in base_query["query"]:
+                # Wrap existing query in bool
+                original_query = base_query["query"]
+                base_query["query"] = {
+                    "bool": {
+                        "must": [original_query],
+                        "filter": filter_clauses
                     }
                 }
-            }
-        }
+            else:
+                # Add filters to existing bool query
+                if "filter" not in base_query["query"]["bool"]:
+                    base_query["query"]["bool"]["filter"] = []
+                base_query["query"]["bool"]["filter"].extend(filter_clauses)
         
         # Apply time decay function score (uniform with BM25)
         if time_decay_half_life_days > 0:
@@ -1118,163 +1119,25 @@ class OpenSearchClient:
         return results
     
     def _build_simple_bm25_query(self, query: str, k: int, index: Optional[str] = None) -> Dict[str, Any]:
-        """Build optimized BM25 query with namespace filtering, acronym expansion, and title boosting."""
-        from src.agent.acronym_map import expand_acronym, is_short_acronym_query
+        """Build optimized BM25 query using centralized templates for nested structure support."""
         
-        # Expand acronyms if present (e.g., "CIU" -> "Customer Interaction Utility CIU")
-        expanded_query, expansions = expand_acronym(query)
-        is_acronym = is_short_acronym_query(query)
-        
-        # Extract key terms for BM25-friendly searching
-        key_terms = self._extract_key_terms(expanded_query if expansions else query)
-        
-        # Build filter clauses - TEMPORARILY DISABLED FOR DEBUGGING
-        filter_clauses = []
-        
-        # NAMESPACE FILTER: DISABLED - Testing if documents exist at all
-        # filter_clauses.append({
-        #     "bool": {
-        #         "should": [
-        #             {"term": {"space.keyword": "Utilities"}},
-        #             {"term": {"labels.keyword": "utilities"}},
-        #             {"wildcard": {"path.keyword": "*/utilities/*"}},
-        #             {"prefix": {"title.keyword": "utilities/"}}
-        #         ],
-        #         "minimum_should_match": 1
-        #     }
-        # })
-        
-        # Build should clauses for scoring
-        should_clauses = []
-        
-        # ACRONYM HANDLING: Add exact title matches with high boosts
-        if expansions:
-            for expansion in expansions:
-                # Exact title match gets highest boost
-                should_clauses.append({
-                    "term": {
-                        "title.keyword": {
-                            "value": expansion,
-                            "boost": 20
-                        }
-                    }
-                })
-                # Also boost the acronym itself in title
-                should_clauses.append({
-                    "term": {
-                        "title.keyword": {
-                            "value": query.upper(),
-                            "boost": 15
-                        }
-                    }
-                })
-                # Phrase match for the expansion
-                should_clauses.append({
-                    "match_phrase": {
-                        "title": {
-                            "query": expansion,
-                            "boost": 10
-                        }
-                    }
-                })
-                
-                # Boost documents containing associated API names from swagger_keyword.json
-                from src.agent.acronym_map import get_apis_for_acronym
-                acronym = query.upper().split()[0]  # Get first word as potential acronym
-                api_names = get_apis_for_acronym(acronym)
-                if api_names:
-                    # High boost for exact API name matches in title/headings
-                    for api_name in api_names[:5]:  # Limit to top 5 APIs to avoid query bloat
-                        should_clauses.append({
-                            "match_phrase": {
-                                "title": {
-                                    "query": api_name,
-                                    "boost": 12
-                                }
-                            }
-                        })
-                        # Use root-level fields instead of nested
-                        should_clauses.append({
-                            "match_phrase": {
-                                "title": {
-                                    "query": api_name,
-                                    "boost": 8
-                                }
-                            }
-                        })
-                        should_clauses.append({
-                            "match_phrase": {
-                                "content": {
-                                    "query": api_name,
-                                    "boost": 3
-                                }
-                            }
-                        })
-        
-        # MVRS boosting strategy with dis_max for better field scoring
-        multi_match_query = expanded_query if expansions else key_terms
-        boosted_fields = self._get_boosted_fields(index, "bm25" if not is_acronym else "acronym")
-        
-        # Build dis_max queries for MVRS field boosting
-        dis_max_queries = []
-        for field in boosted_fields:
-            dis_max_queries.append({
-                "match": {
-                    field.split("^")[0]: {
-                        "query": multi_match_query,
-                        "boost": float(field.split("^")[1]) if "^" in field else 1.0,
-                        "minimum_should_match": "2<-1 5<-2" if len(multi_match_query.split()) > 4 else "1"
-                    }
-                }
-            })
-        
-        should_clauses.append({
-            "dis_max": {
-                "queries": dis_max_queries,
-                "tie_breaker": 0.3  # Small tie_breaker as recommended by MVRS
-            }
-        })
-        
-        # Build the complete bool query
-        bool_query = {
-            "bool": {
-                "filter": filter_clauses,  # Namespace filtering
-                "should": should_clauses,   # Scoring with acronym boosts
-                "minimum_should_match": 1
-            }
-        }
-        
-        # PAYLOAD REDUCTION: Reduced size, essential fields, enable total tracking for error handling
-        search_body = {
-            "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
-            "track_total_hits": True,  # Enable to properly handle empty results
-            "query": bool_query
-        }
+        # Use our centralized query template for nested structure support
+        search_body = QueryTemplates.build_bm25_query(
+            text_query=query,
+            index_name=index or self.settings.search_index_alias,
+            k=k
+        )
         return search_body
     
     def _build_simple_knn_query(self, query_vector: List[float], k: int, index: Optional[str] = None) -> Dict[str, Any]:
-        """Build optimized kNN query for knn_vector field types in Khub cluster."""
+        """Build optimized kNN query using centralized templates for nested structure support."""
         
-        vector_field = OpenSearchConfig.get_vector_field(index or self.settings.search_index_alias)
-        
-        # Use script_score for compatibility with actual cluster field type
-        search_body = {
-            "size": min(k, 20),  # Limit to 20 instead of 50 to reduce over-fetching
-            "_source": OpenSearchConfig.get_source_fields(index or self.settings.search_index_alias),
-            "track_total_hits": True,  # Enable for proper error handling
-            "query": {
-                "script_score": {
-                    "query": {"match_all": {}},
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, doc['{vector_field}'].value) + 1.0",
-                        "params": {
-                            "query_vector": query_vector
-                        }
-                    }
-                }
-            }
-        }
+        # Use our centralized query template for nested structure support
+        search_body = QueryTemplates.build_knn_query(
+            vector_query=query_vector,
+            index_name=index or self.settings.search_index_alias,
+            k=k
+        )
         return search_body
     
     def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
@@ -1296,27 +1159,23 @@ class OpenSearchClient:
             if not response.ok:
                 error_body = response.text
                 logger.error(f"Get mapping failed with {response.status_code}: {error_body}")
-            response.raise_for_status()
+                return {}
             
-            mapping_data = response.json()
-            logger.info(f"Retrieved mapping for index {index_name}")
-            return mapping_data
+            return response.json()
             
         except Exception as e:
-            logger.error(f"Failed to get index mapping: {e}")
+            logger.error(f"Error getting index mapping for {index_name}: {e}")
             return {}
-
+    
     def health_check(self) -> Dict[str, Any]:
-        """Check OpenSearch cluster health and connectivity."""
+        """Comprehensive health check for JPMC-aware OpenSearch connectivity."""
         try:
-            # Test basic connectivity
-            url = f"{self.base_url}/_cluster/health"
+            health_url = f"{self.base_url}/_cluster/health"
             
-            # Handle JPMC authentication (session can be None)
-            if self.session is None:
-                # Use direct requests with AWS auth for JPMC
+            if self.settings.requires_aws_auth:
+                # Use AWS auth for JPMC
                 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-                _setup_jpmc_proxy()
+                _setup_jpmc_proxy()  # Ensure proxy is configured
                 aws_auth = _get_aws_auth()
                 if aws_auth:
                     response = requests.get(url, auth=aws_auth, timeout=5.0)
@@ -1332,34 +1191,23 @@ class OpenSearchClient:
             
             # Check if health data is valid
             if not health or not isinstance(health, dict):
-                raise ValueError("Invalid health response from OpenSearch")
+                raise ValueError("Invalid health response format")
             
-            # Test index existence using configured alias
-            index_alias = self.settings.search_index_alias
-            alias_url = f"{self.base_url}/{index_alias}"
+            # Test default index exists
+            index_exists = self._index_exists(self.settings.search_index_alias)
             
-            # Handle authentication for index check too
-            if self.session is None:
-                from src.infra.clients import _get_aws_auth
-                aws_auth = _get_aws_auth()
-                if aws_auth:
-                    alias_response = requests.head(alias_url, auth=aws_auth, timeout=5.0)
-                else:
-                    alias_response = requests.head(alias_url, timeout=5.0)
-            else:
-                alias_response = self.session.head(alias_url, timeout=5.0)
-                
-            index_exists = alias_response.status_code == 200
-            
-            # Determine authentication status safely
+            # Authentication status
             auth_status = "none"
-            if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
-                auth_status = "session_configured"
-            elif self.settings.requires_aws_auth:
-                auth_status = "aws_auth_configured"
-            
+            try:
+                if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
+                    auth_status = "session_configured"
+                elif self.settings.requires_aws_auth:
+                    auth_status = "aws_auth_configured"
+            except:
+                pass
+                
             return {
-                "status": "healthy" if health.get("status") in ["green", "yellow"] else "unhealthy",
+                "status": "healthy",
                 "cluster_name": health.get("cluster_name", "unknown"),
                 "cluster_status": health.get("status", "unknown"),
                 "node_count": health.get("number_of_nodes", 0),
