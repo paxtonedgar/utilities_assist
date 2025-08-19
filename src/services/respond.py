@@ -2,10 +2,16 @@
 
 import logging
 import re
+from pathlib import Path
 from typing import List, Dict, Any, Optional, AsyncGenerator
+from jinja2 import Environment, FileSystemLoader
 from src.services.models import SearchResult, SourceChip, IntentResult
 
 logger = logging.getLogger(__name__)
+
+# Load jinja templates
+template_dir = Path(__file__).parent.parent / "agent" / "prompts"
+jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
 # === TEXT PROCESSING UTILITIES ===
@@ -109,7 +115,7 @@ async def generate_response(
     temperature: float = 0.2,
     max_tokens: int = 1500
 ) -> AsyncGenerator[str, None]:
-    """Generate streaming response using LLM.
+    """Generate streaming response using LLM with Jinja2 template.
     
     Args:
         query: User query
@@ -122,31 +128,34 @@ async def generate_response(
         Streaming response chunks
     """
     try:
-        # Build system prompt based on intent
-        system_prompt = _build_system_prompt(intent)
+        # Use answer.jinja template instead of hardcoded prompt
+        template = jinja_env.get_template("answer.jinja")
         
-        # Build message history
-        messages = [{"role": "system", "content": system_prompt}]
+        # Ensure intent is in correct format for template
+        # Template expects intent.intent and intent.confidence
+        if isinstance(intent, dict):
+            template_intent = intent
+        elif hasattr(intent, 'intent') and hasattr(intent, 'confidence'):
+            template_intent = {
+                'intent': intent.intent,
+                'confidence': intent.confidence
+            }
+        else:
+            # Fallback for unknown intent structure
+            template_intent = {
+                'intent': str(intent) if intent else 'unknown',
+                'confidence': 0.5
+            }
         
-        # Add recent chat history if provided
-        if chat_history:
-            for msg in chat_history[-6:]:  # Last 6 messages
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+        prompt = template.render(
+            query=query,
+            context=context,
+            intent=template_intent,
+            chat_history=chat_history or []
+        )
         
-        # Add current query with context
-        user_message = f"""
-<context>
-{context}
-</context>
-
-<question>
-{query}
-</question>
-"""
-        messages.append({"role": "user", "content": user_message})
+        # Build message with template-rendered prompt
+        messages = [{"role": "user", "content": prompt}]
         
         # Debug: log the request details (reduced logging for performance)
         logger.info(f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}")
@@ -303,56 +312,7 @@ def _format_result_context(result: SearchResult, index: int) -> str:
     return context_block
 
 
-def _build_system_prompt(intent) -> str:
-    """Build system prompt based on classified intent - handles both dict and IntentResult."""
-    
-    intent_label = _get_intent_label(intent)
-    
-    base_prompt = """You are an enterprise knowledge assistant for product owners and developers. Create clear, executive-ready briefings.
-
-Instructions:
-- Write clear, scannable responses using bullets and concise paragraphs
-- Start with a brief overview, then provide key details
-- Use **bold headers** to organize sections and HTML tags where helpful (<p>, <ul>, <li>, <table>)
-- Include specific examples and use cases when available
-- For technical details, explain "what it is," "why it matters," and "how it's used"
-- For API field/parameter questions, focus solely on the exact field requested
-- Generate 3 relevant follow-up questions when appropriate
-- If multiple results match criteria and there are more than 3, note "Multiple results match; top results shown. To view all, please rephrase your query to 'List all'."
-- Avoid jargon dumps - explain terms clearly for business users
-- If information is incomplete, acknowledge limitations clearly
-- Use professional tone suitable for briefing executives"""
-    
-    if intent_label == "list":
-        return base_prompt + """
-
-Special Format for List Queries:
-- Structure as "I have knowledge of the following [APIs/APGs/Products]:"
-- Use numbered lists for APIs, bullet points for APGs/Products  
-- Include follow-up questions: "Which specific [item] do you want to know more about?"
-- For hierarchical data, show relationships (Product → APG → API)"""
-        
-    elif intent_label == "swagger":
-        return base_prompt + """
-
-Special Format for API Specification Queries:
-- Focus on technical details: endpoints, parameters, response formats
-- Use <pre><code> for JSON examples and technical specifications
-- For field questions: return all associated API names directly linked to that exact field
-- Highlight important constraints or requirements
-- Reference specific API documentation when available"""
-        
-    # Note: workflow and restart intents not produced by current intent classification
-        
-    else:  # confluence or general
-        return base_prompt + """
-
-Special Format for General/Documentation Queries:
-- Provide comprehensive explanations using the context
-- Use **bold headers** and clear formatting with lists
-- Include examples where appropriate
-- For confluence intent: Include References section at end with page_url links as <h4>References</h4><ul><li>links</li></ul>
-- Reference sources when making specific claims"""
+# _build_system_prompt function removed - now using answer.jinja template instead
 
 
 def _contains_error_phrases(answer: str) -> bool:

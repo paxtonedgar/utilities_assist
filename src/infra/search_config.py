@@ -218,10 +218,10 @@ class QueryTemplates:
                 }
             }
         
-        # Build vector query - use nested with native knn and inner_hits
+        # Build vector query - use native knn for all indices (script_score is deprecated and error-prone)
         vector_query_clause = None
         if "sections." in config.vector_field:
-            # Use nested with native knn query for sections.embedding (based on colleague's working code)
+            # Use nested with native knn query for sections.embedding (main index structure)
             vector_query_clause = {
                 "nested": {
                     "path": "sections",
@@ -241,13 +241,12 @@ class QueryTemplates:
                 }
             }
         else:
-            # Use regular script_score for flat fields
+            # Use native knn for flat fields (swagger index structure) - avoid problematic script_score
             vector_query_clause = {
-                "script_score": {
-                    "query": {"match_all": {}},
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, doc['{config.vector_field}'].value) + 1.0",
-                        "params": {"query_vector": vector_query}
+                "knn": {
+                    config.vector_field: {
+                        "vector": vector_query,
+                        "k": min(k, 20)
                     }
                 }
             }
@@ -342,13 +341,12 @@ class QueryTemplates:
                 }
             }
         else:
-            # Use regular script_score for flat fields
+            # Use native knn for flat fields (swagger index structure) - avoid problematic script_score
             query_clause = {
-                "script_score": {
-                    "query": {"match_all": {}},
-                    "script": {
-                        "source": f"cosineSimilarity(params.query_vector, doc['{config.vector_field}'].value) + 1.0",
-                        "params": {"query_vector": vector_query}
+                "knn": {
+                    config.vector_field: {
+                        "vector": vector_query,
+                        "k": min(k, 20)
                     }
                 }
             }
