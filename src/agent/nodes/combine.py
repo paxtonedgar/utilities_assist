@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any
 from src.services.models import SearchResult
 from src.services.retrieve import rrf_fuse_results, mmr_diversify
-from .base_node import to_state_dict
+from .base_node import to_state_dict, from_state_dict
 
 logger = logging.getLogger(__name__)
 
