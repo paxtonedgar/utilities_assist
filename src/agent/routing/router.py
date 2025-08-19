@@ -8,6 +8,7 @@ Contains all routing decisions and conditions.
 
 from typing import Literal, Dict, Any
 import logging
+import math
 
 # Import constants and utilities
 from src.agent.constants import NORMALIZED_QUERY
@@ -200,6 +201,11 @@ class CoverageChecker:
             logger.warning("Query is empty or too short, proceeding to combine")
             return "combine"
         
+        # CRITICAL: Never rewrite utility acronym queries - they are specific and targeted
+        if cls._is_utilities_acronym_query(normalized_query):
+            logger.info(f"Utility acronym query detected: '{normalized_query}' - skipping rewrite to preserve domain context")
+            return "combine"
+        
         # Check result count
         if len(search_results) < min_results:
             logger.info(f"Insufficient results ({len(search_results)} < {min_results}), rewriting query")
@@ -217,15 +223,20 @@ class CoverageChecker:
     
     @classmethod
     def _calculate_coverage_score(cls, state_dict: Dict[str, Any]) -> float:
-        """
-        Calculate coverage score based on search results.
-        
-        This is a placeholder - implement based on your coverage logic.
-        """
+        """Calculate normalized coverage score from search results."""
         search_results = state_dict.get("search_results", [])
         if not search_results:
             return 0.0
         
-        # Simple coverage based on average score
         avg_score = sum(r.score for r in search_results) / len(search_results)
-        return avg_score
+        return cls._normalize_score(avg_score)
+    
+    @classmethod
+    def _normalize_score(cls, score: float) -> float:
+        """Normalize search scores to 0-1 range for consistent threshold comparison."""
+        if score <= 2.0:
+            # Already normalized (embedding similarity scores)
+            return max(0.0, min(1.0, score))
+        
+        # OpenSearch scores (1-30+ range) - use sigmoid normalization
+        return 1.0 / (1.0 + math.exp(-(score - 10.0) / 5.0))

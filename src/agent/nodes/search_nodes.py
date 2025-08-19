@@ -343,7 +343,7 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
         normalized_query: str, 
         search_results: List[SearchResult]
     ) -> str:
-        """Rewrite query using LLM for better search results - REAL implementation."""
+        """Rewrite query using LLM for better search results with domain awareness."""
         # Use centralized resource access
         resources = self._get_resources()
         
@@ -352,20 +352,30 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
                 logger.warning("Resources not available, using fallback rewrite strategy")
                 return self._fallback_rewrite(normalized_query)
             
+            # Add domain context to prevent misinterpretation
+            domain_context = """
+IMPORTANT: This is JPMorgan utilities documentation.
+- Focus on financial technology APIs, services, and utilities
+- Preserve any utility acronyms in their technical context
+- Avoid medical or non-financial domain interpretations
+"""
+            
             # Analyze current results to understand what's missing
             result_titles = [r.metadata.get("title", "") for r in search_results[:5]]
             result_summary = "; ".join(result_titles[:3])
             
             rewrite_prompt = f"""
             The original query "{normalized_query}" returned {len(search_results)} results, but coverage seems insufficient.
-            
+            {domain_context}
             Current results include: {result_summary}
             
-            Please rewrite this query to find more comprehensive information. Consider:
-            - Using different keywords or synonyms
-            - Being more specific about what's needed
-            - Expanding the scope if the query was too narrow
-            - Focusing on key concepts if the query was too broad
+            Please rewrite this query to find more comprehensive information in the utilities documentation. Consider:
+            - Using different keywords or synonyms related to financial utilities/APIs
+            - Being more specific about technical aspects (APIs, onboarding, configuration)
+            - Expanding utility-specific terminology 
+            - Focus on actionable documentation keywords
+            
+            CRITICAL: Preserve the original technical/utility context. Do not change domain (e.g., finance to healthcare).
             
             Rewritten query:
             """
@@ -403,7 +413,11 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
             )
             
             response = await langchain_client.ainvoke([
-                SystemMessage(content="You are a query optimization expert. Rewrite queries to improve search results. Return ONLY the rewritten query, nothing else."),
+                SystemMessage(content="""You are a query optimization expert for JPMorgan utility documentation. 
+                Rewrite queries to improve search results within the financial technology domain.
+                CRITICAL: Never change domain context (e.g., financial utilities to healthcare).
+                Preserve utility acronyms and their technical context.
+                Return ONLY the rewritten query, nothing else."""),
                 HumanMessage(content=rewrite_prompt)
             ])
             
