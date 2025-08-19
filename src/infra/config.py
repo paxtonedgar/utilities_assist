@@ -4,8 +4,11 @@
 from pydantic import BaseModel, Field
 from functools import lru_cache
 import os
+import logging
 
 from src.infra.search_config import OpenSearchConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ChatCfg(BaseModel):
@@ -52,23 +55,20 @@ def _local() -> Settings:
 
 def _jpmc() -> Settings:
     """JPMC production profile using Azure OpenAI with AAD and enterprise endpoints"""
-    # Try to load from config.ini if available
-    config = None
+    # Use shared config utility for consistent loading
     try:
-        from utils import load_config
-        config = load_config()
-    except:
-        pass
-    
-    # Get values from environment or config.ini
-    if config:
-        chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT") or config.get('azure_openai', 'deployment_name', fallback="gpt-4o-2024-08-06")
-        embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT") or config.get('azure_openai', 'azure_openai_embedding_model', fallback="text-embedding-3-small-1")
-        api_base = os.getenv("AZURE_OPENAI_ENDPOINT") or config.get('azure_openai', 'azure_openai_endpoint', fallback="https://llm-multitenancy-exp.jpmchase.net/ver2/")
-        api_version = os.getenv("AZURE_API_VERSION") or config.get('azure_openai', 'api_version', fallback="2024-10-21")
-        opensearch_host = os.getenv("OPENSEARCH_ENDPOINT") or config.get('aws_info', 'opensearch_endpoint', fallback="https://utilitiesassist.dev.aws.jpmchase.net")
-        opensearch_index = os.getenv("OPENSEARCH_INDEX") or config.get('aws_info', 'index_name', fallback=OpenSearchConfig.get_default_index())
-    else:
+        from src.infra.settings import get_config_value
+        
+        # Get values from environment or shared config
+        chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT") or get_config_value('azure_openai', 'deployment_name', "gpt-4o-2024-08-06")
+        embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT") or get_config_value('azure_openai', 'azure_openai_embedding_model', "text-embedding-3-small-1")
+        api_base = os.getenv("AZURE_OPENAI_ENDPOINT") or get_config_value('azure_openai', 'azure_openai_endpoint', "https://llm-multitenancy-exp.jpmchase.net/ver2/")
+        api_version = os.getenv("AZURE_API_VERSION") or get_config_value('azure_openai', 'api_version', "2024-10-21")
+        opensearch_host = os.getenv("OPENSEARCH_ENDPOINT") or get_config_value('aws_info', 'opensearch_endpoint', "https://utilitiesassist.dev.aws.jpmchase.net")
+        opensearch_index = os.getenv("OPENSEARCH_INDEX") or get_config_value('aws_info', 'index_name', OpenSearchConfig.get_default_index())
+    except Exception as e:
+        logger.warning(f"Failed to load shared config, using defaults: {e}")
+        # Fallback to environment variables only
         chat_deployment = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-4o-2024-08-06")
         embed_deployment = os.getenv("AZURE_EMBED_DEPLOYMENT", "text-embedding-3-small-1")
         api_base = os.getenv("AZURE_OPENAI_ENDPOINT", "https://llm-multitenancy-exp.jpmchase.net/ver2/")

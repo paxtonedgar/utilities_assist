@@ -18,8 +18,45 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import configparser
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _load_shared_config():
+    """Shared configuration loading utility with caching.
+    
+    Loads config.ini once and caches the result to eliminate repeated file I/O
+    across different modules (config.py, azure_auth.py, resource_manager.py).
+    
+    Returns:
+        configparser.ConfigParser: Loaded configuration or empty config on error
+    """
+    try:
+        from utils import load_config
+        config = load_config()
+        logger.debug("Loaded shared config.ini successfully")
+        return config
+    except Exception as e:
+        logger.warning(f"Failed to load shared config.ini: {e}")
+        # Return empty config to prevent crashes
+        return configparser.ConfigParser()
+
+
+def get_config_value(section: str, key: str, fallback=None):
+    """Get a configuration value from the shared config.
+    
+    Args:
+        section: Config section name (e.g., 'azure_openai')
+        key: Config key name
+        fallback: Default value if not found
+        
+    Returns:
+        Configuration value or fallback
+    """
+    config = _load_shared_config()
+    return config.get(section, key, fallback=fallback)
 
 
 class AzureOpenAIConfig(BaseModel):
@@ -287,55 +324,54 @@ class ApplicationSettings(BaseSettings):
                 return "/".join(parts)
         return url
     
-    @property
-    def chat(self):
-        """Compatibility property for LangGraph nodes expecting settings.chat.*"""
+    def _create_config_wrapper(self, config_type: str):
+        """Create configuration wrapper with shared logic.
+        
+        Args:
+            config_type: Type of config ("chat", "embed", "search")
+            
+        Returns:
+            Configuration wrapper object or None if azure_openai not available
+        """
         if not self.azure_openai:
             return None
         
-        class ChatConfig:
-            def __init__(self, azure_config):
+        class ConfigWrapper:
+            def __init__(self, azure_config, settings, config_type):
+                # Common attributes for all config types
                 self.api_version = azure_config.api_version
-                self.model = azure_config.deployment_name
                 self.api_base = azure_config.azure_openai_endpoint
                 self.api_key = azure_config.api_key
-                self.temperature = azure_config.temperature
-                self.max_tokens_2k = azure_config.max_tokens_2k
-                self.max_tokens_500 = azure_config.max_tokens_500
+                
+                # Type-specific attributes
+                if config_type == "chat":
+                    self.model = azure_config.deployment_name
+                    self.temperature = azure_config.temperature
+                    self.max_tokens_2k = azure_config.max_tokens_2k
+                    self.max_tokens_500 = azure_config.max_tokens_500
+                elif config_type == "embed":
+                    self.model = azure_config.azure_openai_embedding_model
+                elif config_type == "search":
+                    self.model = azure_config.deployment_name
+                    self.index_alias = settings.search_index_alias
+                    self.opensearch_host = settings.opensearch_host
         
-        return ChatConfig(self.azure_openai)
+        return ConfigWrapper(self.azure_openai, self, config_type)
+    
+    @property
+    def chat(self):
+        """Compatibility property for LangGraph nodes expecting settings.chat.*"""
+        return self._create_config_wrapper("chat")
     
     @property 
     def embed(self):
         """Compatibility property for LangGraph nodes expecting settings.embed.*"""
-        if not self.azure_openai:
-            return None
-        
-        class EmbedConfig:
-            def __init__(self, azure_config):
-                self.api_version = azure_config.api_version
-                self.model = azure_config.azure_openai_embedding_model
-                self.api_base = azure_config.azure_openai_endpoint
-                self.api_key = azure_config.api_key
-        
-        return EmbedConfig(self.azure_openai)
+        return self._create_config_wrapper("embed")
     
     @property
     def search(self):
         """Compatibility property for graph search configuration."""
-        if not self.azure_openai:
-            return None
-        
-        class SearchConfig:
-            def __init__(self, azure_config, settings):
-                self.api_version = azure_config.api_version
-                self.model = azure_config.deployment_name
-                self.api_base = azure_config.azure_openai_endpoint
-                self.api_key = azure_config.api_key
-                self.index_alias = settings.search_index_alias
-                self.opensearch_host = settings.opensearch_host
-        
-        return SearchConfig(self.azure_openai, self)
+        return self._create_config_wrapper("search")
 
 
 # Singleton instance

@@ -98,18 +98,17 @@ def _get_azure_access_token() -> str:
         except Exception as e:
             logger.warning(f"Failed to load centralized settings: {e}")
             
-            # Final fallback to legacy config.ini
+            # Final fallback to shared config utility
             try:
-                from utils import load_config
-                config = load_config()
-                tenant_id = tenant_id or config.get('azure_openai', 'azure_tenant_id', fallback=None)
-                client_id = client_id or config.get('azure_openai', 'azure_client_id', fallback=None)
-                scope = scope or config.get('azure_openai', 'scope', fallback="https://cognitiveservices.azure.com/.default")
-                bucket_name = bucket_name or config.get('aws_info', 's3_bucket_name', fallback=None)
-                cert_file_name = cert_file_name or config.get('aws_info', 'azure_cert_file_name', fallback="UtilitiesAssist.pem")
-                logger.info("Using Azure configuration from legacy config.ini")
+                from src.infra.settings import get_config_value
+                tenant_id = tenant_id or get_config_value('azure_openai', 'azure_tenant_id')
+                client_id = client_id or get_config_value('azure_openai', 'azure_client_id')
+                scope = scope or get_config_value('azure_openai', 'scope', "https://cognitiveservices.azure.com/.default")
+                bucket_name = bucket_name or get_config_value('aws_info', 's3_bucket_name')
+                cert_file_name = cert_file_name or get_config_value('aws_info', 'azure_cert_file_name', "UtilitiesAssist.pem")
+                logger.info("Using Azure configuration from shared config utility")
             except Exception as e2:
-                logger.warning(f"Failed to load legacy config.ini: {e2}")
+                logger.warning(f"Failed to load shared config: {e2}")
     
     if not all([tenant_id, client_id, bucket_name]):
         raise ValueError("Missing required Azure configuration: AZURE_TENANT_ID, AZURE_CLIENT_ID, S3_BUCKET_NAME")
