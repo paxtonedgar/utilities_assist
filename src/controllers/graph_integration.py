@@ -55,7 +55,7 @@ from src.agent.graph import create_graph, GraphState
 from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
 
 # Environment flag for LangGraph control
-def is_langgraph_enabled() -> bool:
+def _check_langgraph_enabled() -> bool:
     """Check if LangGraph is enabled via centralized settings."""
     try:
         settings = get_settings()
@@ -64,7 +64,98 @@ def is_langgraph_enabled() -> bool:
         # Fallback to environment variable
         return os.getenv("ENABLE_LANGGRAPH", "false").lower() == "true"
 
-LANGGRAPH_ENABLED = is_langgraph_enabled()
+LANGGRAPH_ENABLED = _check_langgraph_enabled()
+
+
+def _validate_and_normalize_input(user_input: str, req_id: str) -> tuple[str, dict]:
+    """Validate and normalize user input with consistent error handling."""
+    # Normalize and validate user input to prevent corrupted queries
+    if user_input is None:
+        user_input = ""
+    
+    # Handle escaped/corrupted input - common issue from UI layers
+    if isinstance(user_input, str):
+        # Fix escaped backslashes and other common corruptions
+        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
+        # Remove any null bytes or control characters
+        user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
+    
+    # Validate after normalization
+    if not user_input or not user_input.strip():
+        error_msg = "Please provide a valid query. Empty or corrupted queries are not supported."
+        error_response = {
+            "type": "error",
+            "message": error_msg,
+            "req_id": req_id
+        }
+        return None, error_response
+    
+    return user_input.strip(), None
+
+
+def _convert_state_to_dict(state) -> dict:
+    """Convert GraphState or Pydantic model to dict with consistent handling."""
+    if hasattr(state, 'model_dump'):
+        # Pydantic v2
+        return state.model_dump()
+    elif hasattr(state, 'dict'):
+        # Pydantic v1
+        return state.dict()
+    elif isinstance(state, dict):
+        # Already a dict
+        return state
+    else:
+        # Last resort - attempt dict conversion
+        return dict(state)
+
+
+def _extract_user_context_and_thread(
+    user_context: Optional[Dict[str, Any]], 
+    thread_id: Optional[str], 
+    resources: RAGResources
+) -> tuple[Dict[str, Any], str]:
+    """Extract and generate user context and thread ID with consistent fallback."""
+    # Extract user context from authentication if not provided
+    if user_context is None:
+        user_context = extract_user_context(resources)
+        logger.info(f"Extracted user context: user_id={user_context.get('user_id', 'unknown')}")
+    
+    # Generate thread ID if not provided
+    if thread_id is None:
+        thread_id = generate_thread_id(
+            user_context.get("user_id", "unknown"), 
+            user_context.get("session_metadata")
+        )
+        logger.info(f"Generated thread ID: {thread_id}")
+    
+    return user_context, thread_id
+
+
+def _build_sources_from_results(combined_results: List, source_chips: List = None) -> List[Dict[str, Any]]:
+    """Build standardized sources from combined results or source chips."""
+    if source_chips:
+        return source_chips  # Use extracted source chips if available
+    
+    # Fallback: Build sources from combined results with required fields
+    sources = []
+    for i, result in enumerate(combined_results[:10]):  # Limit to top 10
+        # Ensure doc_id is always present (CRITICAL for TurnResult validation)
+        doc_id = result.doc_id if hasattr(result, 'doc_id') and result.doc_id else f"unknown-{i}"
+        
+        # Extract real URL or construct one from metadata
+        url = result.metadata.get("url") or result.metadata.get("page_url") or result.metadata.get("link")
+        if not url or url == "#":
+            # Construct a meaningful URL using doc_id
+            url = f"#doc-{doc_id}"
+        
+        sources.append({
+            "doc_id": doc_id,  # Required field - always populated
+            "title": result.metadata.get("title") or result.metadata.get("page_title") or f"Document {i+1}",
+            "url": url,
+            "excerpt": (result.content[:200] + "...") if hasattr(result, 'content') and len(result.content) > 200 else (result.content if hasattr(result, 'content') else "No content available")
+        })
+    
+    return sources
 
 
 @stage("overall")
@@ -98,31 +189,18 @@ async def handle_turn(
     # DEBUG: Log exactly what we received
     logger.debug(f"handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
     
-    # Normalize and validate user input to prevent corrupted queries
-    if user_input is None:
-        user_input = ""
-    
-    # Handle escaped/corrupted input - common issue from UI layers
-    if isinstance(user_input, str):
-        # Fix escaped backslashes and other common corruptions
-        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
-        # Remove any null bytes or control characters
-        user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
-    
-    # Validate after normalization
-    if not user_input or not user_input.strip():
-        logger.error(f"Empty or invalid user input after normalization: original='{repr(user_input)}'")
-        yield {
-            "type": "error",
-            "message": "Please provide a valid query. Empty or corrupted queries are not supported.",
-            "req_id": req_id
-        }
+    # Validate and normalize input using shared utility
+    normalized_input, error_response = _validate_and_normalize_input(user_input, req_id)
+    if error_response:
+        logger.error(f"Input validation failed: {error_response['message']}")
+        yield error_response
         return
+    user_input = normalized_input
     
     # DEBUG: Log normalized input
     logger.debug(f"after normalization user_input: '{repr(user_input)}' (len: {len(user_input)})")
     
-    # Set user context if available
+    # Set telemetry context variables
     if user_context and user_context.get("user_id"):
         set_context_var("user_id", user_context["user_id"])
     if thread_id:
@@ -157,18 +235,16 @@ async def handle_turn_with_graph(
     """
     start_time = time.time()
     turn_id = f"graph_{int(start_time)}"
-    req_id = generate_request_id()
+    req_id = generate_req_id()  # Use consistent req_id generator
     
-    # Additional validation at graph level
-    if not user_input or not user_input.strip():
-        logger.error(f"Graph received empty user input: '{repr(user_input)}'")
-        yield {
-            "type": "error",
-            "message": "Invalid query: empty or whitespace-only input not allowed",
-            "turn_id": turn_id,
-            "req_id": req_id
-        }
+    # Additional validation at graph level using shared utility
+    normalized_input, error_response = _validate_and_normalize_input(user_input, req_id)
+    if error_response:
+        error_response.update({"turn_id": turn_id})
+        logger.error(f"Graph input validation failed: {error_response['message']}")
+        yield error_response
         return
+    user_input = normalized_input
     
     try:
         # Get shared resources (Phase 1 performance optimizations maintained)
@@ -179,18 +255,8 @@ async def handle_turn_with_graph(
         
         logger.info(f"Processing with LangGraph (resource age: {resources.get_age_seconds():.1f}s)")
         
-        # Extract user context from authentication if not provided
-        if user_context is None:
-            user_context = extract_user_context(resources)
-            logger.info(f"Extracted user context: user_id={user_context.get('user_id', 'unknown')}")
-        
-        # Generate thread ID if not provided
-        if thread_id is None:
-            thread_id = generate_thread_id(
-                user_context.get("user_id", "unknown"), 
-                user_context.get("session_metadata")
-            )
-            logger.info(f"Generated thread ID: {thread_id}")
+        # Extract user context and thread ID using shared utility
+        user_context, thread_id = _extract_user_context_and_thread(user_context, thread_id, resources)
         
         # Initialize persistence layer
         checkpointer, store = get_checkpointer_and_store()
@@ -373,49 +439,17 @@ def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id:
 def _format_graph_final_result(final_state, start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
     """Format final graph state as TurnResult compatible response with missing features."""
     
-    # CRITICAL: Convert GraphState to dict at graph output boundary
-    # This fixes the "GraphState object has no attribute 'get'" error
-    if hasattr(final_state, 'model_dump'):
-        # Pydantic v2
-        state_dict = final_state.model_dump()
-    elif hasattr(final_state, 'dict'):
-        # Pydantic v1
-        state_dict = final_state.dict()
-    elif isinstance(final_state, dict):
-        # Already a dict
-        state_dict = final_state
-    else:
-        # Last resort - attempt dict conversion
-        state_dict = dict(final_state)
+    # Convert GraphState to dict using shared utility
+    state_dict = _convert_state_to_dict(final_state)
     
     # Extract results from normalized dict
     final_answer = state_dict.get("final_answer", "No answer generated.")
     combined_results = state_dict.get("combined_results", [])
     workflow_path = state_dict.get("workflow_path", [])
     
-    # MISSING: Use source chips if available (from traditional pipeline)
+    # Build sources using shared utility
     source_chips = state_dict.get("source_chips", [])
-    if source_chips:
-        sources = source_chips  # Use extracted source chips
-    else:
-        # Fallback: Build sources from combined results with required fields
-        sources = []
-        for i, result in enumerate(combined_results[:10]):  # Limit to top 10
-            # Ensure doc_id is always present (CRITICAL for TurnResult validation)
-            doc_id = result.doc_id if hasattr(result, 'doc_id') and result.doc_id else f"unknown-{i}"
-            
-            # Extract real URL or construct one from metadata
-            url = result.metadata.get("url") or result.metadata.get("page_url") or result.metadata.get("link")
-            if not url or url == "#":
-                # Construct a meaningful URL using doc_id
-                url = f"#doc-{doc_id}"
-            
-            sources.append({
-                "doc_id": doc_id,  # Required field - always populated
-                "title": result.metadata.get("title") or result.metadata.get("page_title") or f"Document {i+1}",
-                "url": url,
-                "excerpt": (result.content[:200] + "...") if hasattr(result, 'content') and len(result.content) > 200 else (result.content if hasattr(result, 'content') else "No content available")
-            })
+    sources = _build_sources_from_results(combined_results, source_chips)
     
     # MISSING: Include verification metrics (from traditional pipeline)
     verification_metrics = state_dict.get("verification_metrics", {})
