@@ -252,14 +252,22 @@ class QueryTemplates:
             }
         # If vector_field is None, skip vector search entirely (BM25-only)
         
-        return {
-            "size": min(k, 20),  # Limit size to reduce over-fetching
-            "query": {
+        # Build query structure - handle case where vector search is disabled
+        if vector_query_clause:
+            # Hybrid search (BM25 + KNN)
+            query_structure = {
                 "bool": {
                     "should": [content_query, vector_query_clause],
                     "minimum_should_match": 1
                 }
-            },
+            }
+        else:
+            # BM25-only search (when vector search is disabled)
+            query_structure = content_query
+        
+        return {
+            "size": min(k, 20),  # Limit size to reduce over-fetching
+            "query": query_structure,
             "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name),
             "track_total_hits": True,  # Enable for proper error handling
         }
