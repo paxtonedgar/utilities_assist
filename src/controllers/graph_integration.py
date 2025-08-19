@@ -498,7 +498,7 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
         intent=intent_result,
         response_time_ms=(time.time() - start_time) * 1000,
         graph_workflow_path=workflow_path,  # Additional field for graph tracking
-        graph_loop_count=state_dict.get("loop_count", 0),
+        graph_loop_count=safe_get(final_state, "loop_count", 0),
         verification=verification_metrics  # MISSING: Answer quality verification
     )
     
