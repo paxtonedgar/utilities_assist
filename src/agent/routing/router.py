@@ -202,7 +202,7 @@ class CoverageChecker:
             return "combine"
         
         # CRITICAL: Never rewrite utility acronym queries - they are specific and targeted
-        if cls._is_utilities_acronym_query(normalized_query):
+        if IntentRouter._is_utilities_acronym_query(normalized_query):
             logger.info(f"Utility acronym query detected: '{normalized_query}' - skipping rewrite to preserve domain context")
             return "combine"
         
