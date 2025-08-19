@@ -16,6 +16,10 @@ from src.infra.resource_manager import get_resources, RAGResources
 from src.services.models import TurnResult, IntentResult
 from src.infra.telemetry import generate_request_id, log_overall_stage
 from src.telemetry.logger import generate_req_id, set_context_var, stage
+
+# Initialize logger first to avoid NameError
+logger = logging.getLogger(__name__)
+
 # Graceful import handling for persistence module
 try:
     from src.infra.persistence import (
@@ -25,6 +29,7 @@ try:
         create_langgraph_config
     )
     PERSISTENCE_AVAILABLE = True
+    logger.info("Persistence module loaded successfully")
 except ImportError as e:
     logger.warning(f"Persistence module not available: {e}. Using fallback implementations.")
     PERSISTENCE_AVAILABLE = False
@@ -45,8 +50,6 @@ except ImportError as e:
 
 # Import LangGraph components (traditional handler removed - LangGraph is now the only system)
 from src.agent.graph import create_graph, GraphState
-
-logger = logging.getLogger(__name__)
 
 # Import state key constants from centralized location
 from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT

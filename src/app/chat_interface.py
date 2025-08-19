@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Optional
 # sys.path already configured by streamlit_app.py
 
 from src.infra.settings import get_settings
-from controllers.graph_integration import handle_turn
+from src.controllers.graph_integration import handle_turn
 from src.infra.telemetry import get_telemetry_collector, format_event_for_display
 from src.infra.resource_manager import initialize_resources, get_resources, health_check
 from src.telemetry.logger import get_stage_logs

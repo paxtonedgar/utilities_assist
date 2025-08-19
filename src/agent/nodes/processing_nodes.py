@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 import logging
 
 from .base_node import BaseNodeHandler
-from agent.nodes.combine import combine_node
+from src.agent.nodes.combine import combine_node
 from src.services.respond import generate_response, extract_source_chips, verify_answer
 from src.services.models import SearchResult
 

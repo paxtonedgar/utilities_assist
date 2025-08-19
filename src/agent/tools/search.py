@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 from langchain_core.tools import tool
 
 from src.services.retrieve import enhanced_rrf_search, bm25_search, knn_search
-from embedding_creation import create_single_embedding, EmbeddingError
+from src.embedding_creation import create_single_embedding, EmbeddingError
 from src.infra.opensearch_client import OpenSearchClient
 from src.infra.search_config import OpenSearchConfig
 from src.services.models import RetrievalResult

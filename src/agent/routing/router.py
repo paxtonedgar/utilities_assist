@@ -10,7 +10,7 @@ from typing import Literal, Dict, Any
 import logging
 
 # Import constants
-from agent.constants import NORMALIZED_QUERY
+from src.agent.constants import NORMALIZED_QUERY
 
 def to_state_dict(state):
     """

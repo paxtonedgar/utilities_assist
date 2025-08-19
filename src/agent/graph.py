@@ -20,17 +20,17 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 # Import new modular components
-from agent.nodes.summarize import SummarizeNode
-from agent.nodes.intent import IntentNode
-from agent.nodes.search_nodes import (
+from src.agent.nodes.summarize import SummarizeNode
+from src.agent.nodes.intent import IntentNode
+from src.agent.nodes.search_nodes import (
     ConfluenceSearchNode, 
     SwaggerSearchNode, MultiSearchNode, RewriteQueryNode
 )
-from agent.nodes.processing_nodes import (
+from src.agent.nodes.processing_nodes import (
     CombineNode, AnswerNode, RestartNode, 
     ListHandlerNode, WorkflowSynthesizerNode
 )
-from agent.routing.router import IntentRouter, CoverageChecker
+from src.agent.routing.router import IntentRouter, CoverageChecker
 
 logger = logging.getLogger(__name__)
 

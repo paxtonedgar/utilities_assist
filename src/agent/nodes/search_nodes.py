@@ -9,13 +9,13 @@ from typing import Dict, Any, List
 import logging
 
 from .base_node import SearchNodeHandler
-from agent.nodes.summarize import summarize_node
-from agent.nodes.intent import intent_node
-from agent.tools.search import adaptive_search_tool, multi_index_search_tool
+from src.agent.nodes.summarize import summarize_node
+from src.agent.nodes.intent import intent_node
+from src.agent.tools.search import adaptive_search_tool, multi_index_search_tool
 from src.services.models import SearchResult
 
 # Import constants to prevent KeyError issues
-from agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
+from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
 
 logger = logging.getLogger(__name__)
 
