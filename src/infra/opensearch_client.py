@@ -890,7 +890,7 @@ class OpenSearchClient:
                         }
                     },
                     "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "source": f"cosineSimilarity(params.query_vector, doc['{vector_field}'].value) + 1.0",
                         "params": {
                             "query_vector": query_vector
                         }
@@ -1267,7 +1267,7 @@ class OpenSearchClient:
                 "script_score": {
                     "query": {"match_all": {}},
                     "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{vector_field}') + 1.0",
+                        "source": f"cosineSimilarity(params.query_vector, doc['{vector_field}'].value) + 1.0",
                         "params": {
                             "query_vector": query_vector
                         }

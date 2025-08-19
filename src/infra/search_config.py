@@ -40,13 +40,13 @@ class OpenSearchConfig:
     """Centralized OpenSearch configuration."""
     
     # === INDEX DEFINITIONS ===
-    # Khub cluster embedding dimensions (reduced from 1536/3072 using dimensions parameter)
-    EMBEDDING_DIMENSIONS = 1024
+    # Khub cluster embedding dimensions (confirmed from colleague's mapping)
+    EMBEDDING_DIMENSIONS = 1536
     
     MAIN_INDEX = IndexConfig(
         name="khub-opensearch-index",
-        # Content fields: From mapping + commonly expected fields
-        content_fields=["body", "content", "text", "description", "section"],
+        # Content fields: Using nested structure as found in v1-working-code
+        content_fields=["sections.content"],
         # Metadata fields: From mapping + fields actively used in codebase  
         metadata_fields=[
             # From actual mapping
@@ -56,7 +56,7 @@ class OpenSearchConfig:
             # From metadata object structure
             "author", "space_key", "version", "labels"
         ],
-        vector_field="embedding",
+        vector_field="sections.embedding",
         # Title fields: Fields used to extract document titles
         title_fields=["title", "api_name", "utility_name", "app_name"]
     )
@@ -185,38 +185,83 @@ class QueryTemplates:
         """Build a hybrid search query with nested structure for kNN."""
         config = OpenSearchConfig._get_index_config(index_name)
         
+        # Build content query - use nested with inner_hits for sections
+        content_query = None
+        if any("sections." in field for field in config.content_fields):
+            # Use nested query for sections with inner_hits (based on colleague's working code)
+            content_query = {
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "match": {
+                            "sections.content": {"query": text_query}
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 5,
+                        "highlight": {
+                            "fields": {"sections.content": {}}
+                        },
+                        "sort": [{"_score": "desc"}]
+                    }
+                }
+            }
+        else:
+            # Use regular multi_match for flat fields
+            content_query = {
+                "multi_match": {
+                    "query": text_query,
+                    "fields": [f"{field}^3" for field in config.content_fields] + 
+                             [f"{field}^4" for field in config.title_fields],
+                    "type": "best_fields"
+                }
+            }
+        
+        # Build vector query - use nested with native knn and inner_hits
+        vector_query_clause = None
+        if "sections." in config.vector_field:
+            # Use nested with native knn query for sections.embedding (based on colleague's working code)
+            vector_query_clause = {
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "knn": {
+                            "sections.embedding": {
+                                "vector": vector_query,
+                                "k": min(k, 20)
+                            }
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 5,
+                        "sort": [{"_score": "desc"}]
+                    }
+                }
+            }
+        else:
+            # Use regular script_score for flat fields
+            vector_query_clause = {
+                "script_score": {
+                    "query": {"match_all": {}},
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, doc['{config.vector_field}'].value) + 1.0",
+                        "params": {"query_vector": vector_query}
+                    }
+                }
+            }
+        
         return {
             "size": min(k, 20),  # Limit size to reduce over-fetching
             "query": {
                 "bool": {
-                    "should": [
-                        {
-                            "multi_match": {
-                                "query": text_query,
-                                "fields": [f"{field}^3" for field in config.content_fields] + 
-                                         [f"{field}^4" for field in config.title_fields],
-                                "type": "best_fields"
-                            }
-                        },
-                        {
-                            "knn": {
-                                config.vector_field: {
-                                    "vector": vector_query,
-                                    "k": min(k, 20)  # Limit to reduce payload
-                                }
-                            }
-                        }
-                    ],
+                    "should": [content_query, vector_query_clause],
                     "minimum_should_match": 1
                 }
             },
-            "_source": OpenSearchConfig.get_source_fields(index_name),
+            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name),
             "track_total_hits": True,  # Enable for proper error handling
-            "highlight": {
-                "fields": {field: {} for field in config.content_fields},
-                "fragment_size": 160,
-                "number_of_fragments": 2
-            }
         }
     
     @staticmethod 
@@ -228,22 +273,42 @@ class QueryTemplates:
         """Build a BM25-only search query."""
         config = OpenSearchConfig._get_index_config(index_name)
         
-        return {
-            "size": k,
-            "query": {
+        # Build content query - use nested with inner_hits if content fields have nested structure
+        if any("sections." in field for field in config.content_fields):
+            # Use nested query for sections with inner_hits (based on colleague's working code)
+            query_clause = {
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "match": {
+                            "sections.content": {"query": text_query}
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 5,
+                        "highlight": {
+                            "fields": {"sections.content": {}}
+                        },
+                        "sort": [{"_score": "desc"}]
+                    }
+                }
+            }
+        else:
+            # Use regular multi_match for flat fields
+            query_clause = {
                 "multi_match": {
                     "query": text_query,
                     "fields": [f"{field}^2" for field in config.content_fields] + 
                              [f"{field}^6" for field in config.title_fields],
                     "type": "best_fields"
                 }
-            },
-            "_source": OpenSearchConfig.get_source_fields(index_name),
-            "highlight": {
-                "fields": {field: {} for field in config.content_fields},
-                "fragment_size": 160,
-                "number_of_fragments": 2
             }
+        
+        return {
+            "size": k,
+            "query": query_clause,
+            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name)
         }
     
     @staticmethod
@@ -255,20 +320,43 @@ class QueryTemplates:
         """Build a KNN-only search query."""
         config = OpenSearchConfig._get_index_config(index_name)
         
-        return {
-            "size": k,
-            "query": {
+        # Build vector query - use nested with native knn and inner_hits if vector field has nested structure  
+        if "sections." in config.vector_field:
+            # Use nested with native knn query for sections.embedding (based on colleague's working code)
+            query_clause = {
+                "nested": {
+                    "path": "sections",
+                    "query": {
+                        "knn": {
+                            "sections.embedding": {
+                                "vector": vector_query,
+                                "k": k
+                            }
+                        }
+                    },
+                    "inner_hits": {
+                        "name": "matched_sections",
+                        "size": 5,
+                        "sort": [{"_score": "desc"}]
+                    }
+                }
+            }
+        else:
+            # Use regular script_score for flat fields
+            query_clause = {
                 "script_score": {
                     "query": {"match_all": {}},
                     "script": {
-                        "source": f"cosineSimilarity(params.query_vector, '{config.vector_field}') + 1.0",
-                        "params": {
-                            "query_vector": vector_query
-                        }
+                        "source": f"cosineSimilarity(params.query_vector, doc['{config.vector_field}'].value) + 1.0",
+                        "params": {"query_vector": vector_query}
                     }
                 }
-            },
-            "_source": OpenSearchConfig.get_source_fields(index_name),
+            }
+        
+        return {
+            "size": k,
+            "query": query_clause,
+            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name),
             "track_scores": True
         }
 
