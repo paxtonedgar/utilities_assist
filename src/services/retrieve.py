@@ -762,7 +762,7 @@ async def enhanced_rrf_search(
                 index_name=index_name,
                 filters=filters,
                 top_k=top_k,
-                timeout_seconds=2.5  # Slightly longer timeout for hybrid
+                timeout_seconds=5.0  # Allow adequate time for BM25 + KNN execution (~4s observed)
             )
             
             if hybrid_result.results:

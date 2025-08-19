@@ -13,20 +13,19 @@ Features:
 - Function score time decay for recency boosting
 """
 
-import json
 import logging
-import math
 import re
 import time
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
 import requests
 
 from src.infra.settings import get_settings
 from src.infra.search_config import OpenSearchConfig, QueryTemplates
+from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.telemetry.logger import log_event, stage
 from src.services.models import SearchResult as ServiceSearchResult  # Use service model
 
@@ -88,7 +87,6 @@ class OpenSearchClient:
         # Create session with proper authentication for the current profile
         if settings.requires_aws_auth:
             # Will use AWS authentication via clients module
-            from src.infra.clients import _setup_jpmc_proxy
             _setup_jpmc_proxy()
             self.session = None  # Use direct requests with AWS auth
         else:
@@ -148,7 +146,6 @@ class OpenSearchClient:
             )
             
             # Use POST request for search with body
-            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             headers = {'Content-Type': 'application/json'}
@@ -300,7 +297,6 @@ class OpenSearchClient:
             start_time = time.time()
             
             # Use direct requests with auth (like main branch) instead of session
-            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             headers = {'Content-Type': 'application/json'}
@@ -456,11 +452,13 @@ class OpenSearchClient:
         for doc_id, rrf_score in sorted_docs:
             if doc_id in doc_map:
                 result = doc_map[doc_id]
-                # Create new result with RRF score
+                # Create new result with RRF score - include all required fields
                 fused_result = ServiceSearchResult(
                     doc_id=result.doc_id,
-                    score=rrf_score,
-                    content=result.content,  # Use content field
+                    title=result.title,        # REQUIRED: Include title from original result
+                    url=result.url,           # REQUIRED: Include URL from original result
+                    score=rrf_score,          # Use RRF-computed score
+                    content=result.content,   # Use content field
                     metadata=result.metadata
                 )
                 fused_results.append(fused_result)
@@ -795,7 +793,6 @@ class OpenSearchClient:
             url = f"{self.base_url}/{index_name}/_mapping"
             
             # Use direct requests with auth (like main branch)
-            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
             if aws_auth:
@@ -823,7 +820,6 @@ class OpenSearchClient:
             
             if self.settings.requires_aws_auth:
                 # Use AWS auth for JPMC
-                from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
                 _setup_jpmc_proxy()  # Ensure proxy is configured
                 aws_auth = _get_aws_auth()
                 if aws_auth:
