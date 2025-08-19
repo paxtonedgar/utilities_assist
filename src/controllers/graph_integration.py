@@ -68,29 +68,37 @@ LANGGRAPH_ENABLED = _check_langgraph_enabled()
 
 
 def _validate_and_normalize_input(user_input: str, req_id: str) -> tuple[str, dict]:
-    """Validate and normalize user input with consistent error handling."""
-    # Normalize and validate user input to prevent corrupted queries
-    if user_input is None:
-        user_input = ""
-    
-    # Handle escaped/corrupted input - common issue from UI layers
-    if isinstance(user_input, str):
-        # Fix escaped backslashes and other common corruptions
-        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
-        # Remove any null bytes or control characters
-        user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
-    
-    # Validate after normalization
-    if not user_input or not user_input.strip():
-        error_msg = "Please provide a valid query. Empty or corrupted queries are not supported."
+    """Validate and normalize user input with optimized processing."""
+    # Fast path: check for None/empty first
+    if not user_input:
         error_response = {
             "type": "error",
-            "message": error_msg,
+            "message": "Please provide a valid query. Empty queries are not supported.",
             "req_id": req_id
         }
         return None, error_response
     
-    return user_input.strip(), None
+    # Optimize: only process if string contains problematic characters
+    if isinstance(user_input, str) and ('\\' in user_input or len(user_input) != len(user_input.strip())):
+        # Fix common UI corruptions - only if needed
+        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
+        
+        # Only filter control characters if we detect them (rare case)
+        if any(ord(c) < 32 and c not in '\t\n\r' for c in user_input[:50]):  # Sample first 50 chars
+            user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
+    else:
+        user_input = user_input.strip()
+    
+    # Final validation
+    if not user_input:
+        error_response = {
+            "type": "error",
+            "message": "Please provide a valid query. Empty or corrupted queries are not supported.",
+            "req_id": req_id
+        }
+        return None, error_response
+    
+    return user_input, None
 
 
 def _convert_state_to_dict(state) -> dict:
@@ -114,11 +122,10 @@ def _extract_user_context_and_thread(
     thread_id: Optional[str], 
     resources: RAGResources
 ) -> tuple[Dict[str, Any], str]:
-    """Extract and generate user context and thread ID with consistent fallback."""
+    """Extract and generate user context and thread ID with optimized logging."""
     # Extract user context from authentication if not provided
     if user_context is None:
         user_context = extract_user_context(resources)
-        logger.info(f"Extracted user context: user_id={user_context.get('user_id', 'unknown')}")
     
     # Generate thread ID if not provided
     if thread_id is None:
@@ -126,33 +133,45 @@ def _extract_user_context_and_thread(
             user_context.get("user_id", "unknown"), 
             user_context.get("session_metadata")
         )
-        logger.info(f"Generated thread ID: {thread_id}")
+    
+    # Single consolidated log for context initialization
+    logger.info(f"Turn context: user_id={user_context.get('user_id', 'unknown')}, thread_id={thread_id}")
     
     return user_context, thread_id
 
 
 def _build_sources_from_results(combined_results: List, source_chips: List = None) -> List[Dict[str, Any]]:
-    """Build standardized sources from combined results or source chips."""
+    """Build standardized sources from combined results with optimized attribute access."""
     if source_chips:
         return source_chips  # Use extracted source chips if available
     
-    # Fallback: Build sources from combined results with required fields
+    # Fallback: Build sources from combined results with cached attribute access
     sources = []
     for i, result in enumerate(combined_results[:10]):  # Limit to top 10
-        # Ensure doc_id is always present (CRITICAL for TurnResult validation)
-        doc_id = result.doc_id if hasattr(result, 'doc_id') and result.doc_id else f"unknown-{i}"
+        # Cache attribute access to avoid repeated hasattr/getattr calls
+        doc_id = getattr(result, 'doc_id', None) or f"unknown-{i}"
+        metadata = getattr(result, 'metadata', {})
+        content = getattr(result, 'content', "")
         
-        # Extract real URL or construct one from metadata
-        url = result.metadata.get("url") or result.metadata.get("page_url") or result.metadata.get("link")
-        if not url or url == "#":
-            # Construct a meaningful URL using doc_id
-            url = f"#doc-{doc_id}"
+        # Extract URL with single metadata lookup using dict.get() chaining
+        url = metadata.get("url") or metadata.get("page_url") or metadata.get("link") or f"#doc-{doc_id}"
+        
+        # Extract title with single metadata lookup
+        title = metadata.get("title") or metadata.get("page_title") or f"Document {i+1}"
+        
+        # Optimize content excerpt generation
+        if content and len(content) > 200:
+            excerpt = content[:200] + "..."
+        elif content:
+            excerpt = content
+        else:
+            excerpt = "No content available"
         
         sources.append({
             "doc_id": doc_id,  # Required field - always populated
-            "title": result.metadata.get("title") or result.metadata.get("page_title") or f"Document {i+1}",
+            "title": title,
             "url": url,
-            "excerpt": (result.content[:200] + "...") if hasattr(result, 'content') and len(result.content) > 200 else (result.content if hasattr(result, 'content') else "No content available")
+            "excerpt": excerpt
         })
     
     return sources
@@ -186,9 +205,6 @@ async def handle_turn(
     req_id = generate_req_id()
     set_context_var("current_req_id", req_id)
     
-    # DEBUG: Log exactly what we received
-    logger.debug(f"handle_turn received user_input: '{repr(user_input)}' (type: {type(user_input)}, len: {len(user_input) if user_input else 'None'})")
-    
     # Validate and normalize input using shared utility
     normalized_input, error_response = _validate_and_normalize_input(user_input, req_id)
     if error_response:
@@ -197,8 +213,16 @@ async def handle_turn(
         return
     user_input = normalized_input
     
-    # DEBUG: Log normalized input
-    logger.debug(f"after normalization user_input: '{repr(user_input)}' (len: {len(user_input)})")
+    # Get resources once at entry point to avoid duplicate lookups
+    if resources is None:
+        resources = get_resources()
+        if resources is None:
+            yield {
+                "type": "error",
+                "message": "Resources not initialized. Call initialize_resources() at startup.",
+                "req_id": req_id
+            }
+            return
     
     # Set telemetry context variables
     if user_context and user_context.get("user_id"):
@@ -209,7 +233,7 @@ async def handle_turn(
     # Always use LangGraph (traditional pipeline has been fully migrated)
     async for update in handle_turn_with_graph(
         user_input=user_input,
-        resources=resources,
+        resources=resources,  # Pass validated resources
         chat_history=chat_history,
         thread_id=thread_id,
         user_context=user_context
@@ -237,25 +261,12 @@ async def handle_turn_with_graph(
     turn_id = f"graph_{int(start_time)}"
     req_id = generate_req_id()  # Use consistent req_id generator
     
-    # Additional validation at graph level using shared utility
-    normalized_input, error_response = _validate_and_normalize_input(user_input, req_id)
-    if error_response:
-        error_response.update({"turn_id": turn_id})
-        logger.error(f"Graph input validation failed: {error_response['message']}")
-        yield error_response
-        return
-    user_input = normalized_input
-    
     try:
-        # Get shared resources (Phase 1 performance optimizations maintained)
+        # Resources should always be passed from handle_turn() - no need to re-fetch
         if resources is None:
-            resources = get_resources()
-            if resources is None:
-                raise RuntimeError("Resources not initialized. Call initialize_resources() at startup.")
+            raise RuntimeError("Resources should be passed from handle_turn(). This is a programming error.")
         
-        logger.info(f"Processing with LangGraph (resource age: {resources.get_age_seconds():.1f}s)")
-        
-        # Extract user context and thread ID using shared utility
+        # Extract user context and thread ID using shared utility  
         user_context, thread_id = _extract_user_context_and_thread(user_context, thread_id, resources)
         
         # Initialize persistence layer
@@ -294,9 +305,6 @@ async def handle_turn_with_graph(
             except Exception as e:
                 logger.warning(f"Query rewrite failed, using original: {e}")
         
-        # DEBUG: Log state creation
-        logger.debug(f"creating initial_state with user_input: '{repr(user_input)}' sanitized: '{repr(text)}'")
-        
         # Initialize graph state as plain dict - NO GraphState construction
         # This prevents "GraphState object has no attribute 'get'" errors
         initial_state = {
@@ -330,14 +338,8 @@ async def handle_turn_with_graph(
             logger.error("Initial state is not a dict-like mapping: %r", type(initial_state))
             raise TypeError(f"Expected dict-like initial state, got {type(initial_state)}")
         
-        # State sanity log - confirm keys are present (extended with key list)
-        logger.info(
-            "TURN_START user_id=%s thread_id=%s | keys=%s | original=%r normalized=%r",
-            user_context.get("user_id", "unknown"), thread_id,
-            sorted(list(initial_state.keys()))[:10],  # First 10 keys for sanity
-            initial_state.get(ORIGINAL_QUERY, "")[:80],
-            initial_state.get(NORMALIZED_QUERY, "")[:80]
-        )
+        # Concise turn start log  
+        logger.info(f"LangGraph processing: {initial_state.get(ORIGINAL_QUERY, '')[:50]}...")
         
         # Track progress and stream updates with user context
         yield {
@@ -437,25 +439,33 @@ def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id:
 
 
 def _format_graph_final_result(final_state, start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
-    """Format final graph state as TurnResult compatible response with missing features."""
+    """Format final graph state as TurnResult compatible response with optimized access."""
     
-    # Convert GraphState to dict using shared utility
-    state_dict = _convert_state_to_dict(final_state)
+    # Optimize: Access state attributes directly when possible, fallback to dict conversion
+    def safe_get(obj, key, default=None):
+        """Get attribute/key safely from state object or dict."""
+        if hasattr(obj, key):
+            return getattr(obj, key, default)
+        elif isinstance(obj, dict):
+            return obj.get(key, default)
+        else:
+            # Only convert to dict as last resort
+            return _convert_state_to_dict(obj).get(key, default)
     
-    # Extract results from normalized dict
-    final_answer = state_dict.get("final_answer", "No answer generated.")
-    combined_results = state_dict.get("combined_results", [])
-    workflow_path = state_dict.get("workflow_path", [])
+    # Extract results with optimized access
+    final_answer = safe_get(final_state, "final_answer", "No answer generated.")
+    combined_results = safe_get(final_state, "combined_results", [])
+    workflow_path = safe_get(final_state, "workflow_path", [])
+    source_chips = safe_get(final_state, "source_chips", [])
     
     # Build sources using shared utility
-    source_chips = state_dict.get("source_chips", [])
     sources = _build_sources_from_results(combined_results, source_chips)
     
     # MISSING: Include verification metrics (from traditional pipeline)
-    verification_metrics = state_dict.get("verification_metrics", {})
+    verification_metrics = safe_get(final_state, "verification_metrics", {})
     
     # Handle intent - always expect dict format and convert to IntentResult for TurnResult
-    intent_data = state_dict.get("intent", {"intent": "unknown", "confidence": 0.0})
+    intent_data = safe_get(final_state, "intent", {"intent": "unknown", "confidence": 0.0})
     
     # Defensive handling for both dict and IntentResult formats
     if hasattr(intent_data, "dict"):
