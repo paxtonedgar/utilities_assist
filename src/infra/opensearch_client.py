@@ -819,6 +819,26 @@ class OpenSearchClient:
             logger.error(f"Error getting index mapping for {index_name}: {e}")
             return {}
     
+    def _check_index_exists(self, index_name: str) -> bool:
+        """Check if an index exists in OpenSearch."""
+        try:
+            url = f"{self.base_url}/{index_name}"
+            
+            # Use direct requests with auth (like main branch)
+            _setup_jpmc_proxy()  # Ensure proxy is configured
+            aws_auth = _get_aws_auth()
+            if aws_auth:
+                response = requests.head(url, auth=aws_auth, timeout=5.0)
+            else:
+                response = self.session.head(url, timeout=5.0)
+            
+            # 200 = exists, 404 = doesn't exist, other = error
+            return response.status_code == 200
+            
+        except Exception as e:
+            logger.warning(f"Error checking index existence for {index_name}: {e}")
+            return False
+    
     def health_check(self) -> Dict[str, Any]:
         """Comprehensive health check for JPMC-aware OpenSearch connectivity."""
         try:
@@ -845,7 +865,7 @@ class OpenSearchClient:
                 raise ValueError("Invalid health response format")
             
             # Test default index exists
-            index_exists = self._index_exists(self.settings.search_index_alias)
+            index_exists = self._check_index_exists(self.settings.search_index_alias)
             
             # Authentication status
             auth_status = "none"

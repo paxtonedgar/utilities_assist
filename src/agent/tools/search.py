@@ -14,63 +14,56 @@ from src.telemetry.logger import stage
 logger = logging.getLogger(__name__)
 
 
-async def adaptive_search_tool(
-    query: str,
-    intent_confidence: float,
-    intent_type: str,
-    search_client: OpenSearchClient,
-    embed_client,
-    embed_model: str,
-    search_index: str,
-    top_k: int = 10
-) -> RetrievalResult:
-    """
-    Adaptive search tool that chooses search strategy based on intent and confidence.
-    
-    This is a wrapper around search_index_tool that provides the adaptive logic
-    for choosing between BM25, vector search, and hybrid RRF based on query characteristics.
-    
-    Args:
-        query: Search query text
-        intent_confidence: Confidence score from intent classification (0.0-1.0)
-        intent_type: Classified intent type (e.g., "confluence", "swagger")
-        search_client: OpenSearch client instance
-        embed_client: Embedding client for vector search
-        embed_model: Embedding model to use
-        search_index: Index name to search
-        top_k: Number of results to return
+async def _create_enhanced_embedding(query: str, embed_client, embed_model: str) -> List[float]:
+    """Create enhanced embedding with acronym expansion and domain context."""
+    try:
+        from agent.acronym_map import expand_acronym, get_apis_for_acronym
+        expanded_query, expansions = expand_acronym(query)
         
-    Returns:
-        RetrievalResult with search results using optimal strategy
-    """
-    
-    # Determine search strategy based on query characteristics
-    strategy = "enhanced_rrf"  # Default to hybrid search
-    
-    # For low confidence intents, use hybrid search for better coverage
-    if intent_confidence < 0.6:
-        strategy = "enhanced_rrf"
-        logger.info(f"Low intent confidence ({intent_confidence:.2f}), using hybrid RRF search")
-    
-    # For specific technical queries, favor vector search
-    elif any(keyword in query.lower() for keyword in ["api", "endpoint", "parameter", "field", "schema"]):
-        strategy = "knn" if embed_client else "bm25"
-        logger.info(f"Technical query detected, using {'vector' if embed_client else 'BM25'} search")
-    
-    # For general documentation queries, use hybrid
-    else:
-        strategy = "enhanced_rrf" if embed_client else "bm25"
-        logger.info(f"General query, using {'hybrid RRF' if embed_client else 'BM25'} search")
-    
-    return await search_index_tool(
-        index=search_index,
-        query=query,
-        search_client=search_client,
-        embed_client=embed_client,
-        embed_model=embed_model,
-        top_k=top_k,
-        strategy=strategy
-    )
+        # Build rich embedding text: "{user_query} ({expanded_full_name}) {api_keywords_joined} site:Utilities"
+        embedding_parts = [query]
+        
+        if expansions:
+            # Add expanded name in parentheses
+            embedding_parts.append(f"({expansions[0]})")
+            
+            # Add associated API names as keywords
+            acronym = query.upper().split()[0]
+            api_names = get_apis_for_acronym(acronym)
+            if api_names:
+                # Extract key terms from API names for embedding
+                api_keywords = []
+                for api_name in api_names[:3]:  # Limit to top 3 APIs
+                    # Extract meaningful keywords from API names
+                    words = api_name.replace("API", "").replace("Service", "").split()
+                    api_keywords.extend([w for w in words if len(w) > 2])
+                
+                if api_keywords:
+                    embedding_parts.append(" ".join(api_keywords[:5]))  # Top 5 keywords
+        
+        # Add domain and context hints
+        embedding_parts.append("site:Utilities onboarding runbook documentation")
+        
+        embedding_query = " ".join(embedding_parts)
+        
+        expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
+        return await create_single_embedding(
+            embed_client=embed_client,
+            text=embedding_query,
+            model=embed_model,
+            expected_dims=expected_dims
+        )
+    except Exception as e:
+        logger.warning(f"Enhanced embedding failed, using simple query: {e}")
+        # Fallback to simple query embedding
+        expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
+        return await create_single_embedding(
+            embed_client=embed_client,
+            text=query,
+            model=embed_model,
+            expected_dims=expected_dims
+        )
+
 
 
 @stage("search_execution")
@@ -112,43 +105,8 @@ async def search_index_tool(
         if strategy == "enhanced_rrf" and embed_client:
             # Enhanced RRF with vector search
             try:
-                # Enhanced embedding text with API keywords and domain context
-                from agent.acronym_map import expand_acronym, get_apis_for_acronym
-                expanded_query, expansions = expand_acronym(query)
-                
-                # Build rich embedding text: "{user_query} ({expanded_full_name}) {api_keywords_joined} site:Utilities"
-                embedding_parts = [query]
-                
-                if expansions:
-                    # Add expanded name in parentheses
-                    embedding_parts.append(f"({expansions[0]})")
-                    
-                    # Add associated API names as keywords
-                    acronym = query.upper().split()[0]
-                    api_names = get_apis_for_acronym(acronym)
-                    if api_names:
-                        # Extract key terms from API names for embedding
-                        api_keywords = []
-                        for api_name in api_names[:3]:  # Limit to top 3 APIs
-                            # Extract meaningful keywords from API names
-                            words = api_name.replace("API", "").replace("Service", "").split()
-                            api_keywords.extend([w for w in words if len(w) > 2])
-                        
-                        if api_keywords:
-                            embedding_parts.append(" ".join(api_keywords[:5]))  # Top 5 keywords
-                
-                # Add domain and context hints
-                embedding_parts.append("site:Utilities onboarding runbook documentation")
-                
-                embedding_query = " ".join(embedding_parts)
-                
-                expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
-                query_embedding = await create_single_embedding(
-                    embed_client=embed_client,
-                    text=embedding_query,
-                    model=embed_model,
-                    expected_dims=expected_dims
-                )
+                # Use enhanced embedding utility
+                query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
                 
                 result, diagnostics = await enhanced_rrf_search(
                     query=query,
@@ -169,43 +127,8 @@ async def search_index_tool(
         if strategy == "knn" and embed_client:
             # Vector search only
             try:
-                # Enhanced embedding text with API keywords and domain context
-                from agent.acronym_map import expand_acronym, get_apis_for_acronym
-                expanded_query, expansions = expand_acronym(query)
-                
-                # Build rich embedding text: "{user_query} ({expanded_full_name}) {api_keywords_joined} site:Utilities"
-                embedding_parts = [query]
-                
-                if expansions:
-                    # Add expanded name in parentheses
-                    embedding_parts.append(f"({expansions[0]})")
-                    
-                    # Add associated API names as keywords
-                    acronym = query.upper().split()[0]
-                    api_names = get_apis_for_acronym(acronym)
-                    if api_names:
-                        # Extract key terms from API names for embedding
-                        api_keywords = []
-                        for api_name in api_names[:3]:  # Limit to top 3 APIs
-                            # Extract meaningful keywords from API names
-                            words = api_name.replace("API", "").replace("Service", "").split()
-                            api_keywords.extend([w for w in words if len(w) > 2])
-                        
-                        if api_keywords:
-                            embedding_parts.append(" ".join(api_keywords[:5]))  # Top 5 keywords
-                
-                # Add domain and context hints
-                embedding_parts.append("site:Utilities onboarding runbook documentation")
-                
-                embedding_query = " ".join(embedding_parts)
-                
-                expected_dims = OpenSearchConfig.EMBEDDING_DIMENSIONS
-                query_embedding = await create_single_embedding(
-                    embed_client=embed_client,
-                    text=embedding_query,
-                    model=embed_model,
-                    expected_dims=expected_dims
-                )
+                # Use enhanced embedding utility
+                query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
                 
                 return await knn_search(
                     query_embedding=query_embedding,

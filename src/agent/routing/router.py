@@ -9,26 +9,10 @@ Contains all routing decisions and conditions.
 from typing import Literal, Dict, Any
 import logging
 
-# Import constants
+# Import constants and utilities
 from src.agent.constants import NORMALIZED_QUERY
+from src.agent.nodes.base_node import to_state_dict
 
-def to_state_dict(state):
-    """
-    Convert any state object (GraphState, Pydantic BaseModel, or dict) to a plain dict.
-    
-    Handles:
-    - Plain dict: return as-is
-    - Pydantic v2: use model_dump()
-    - Pydantic v1: use dict()
-    - Any other object: attempt dict() conversion
-    """
-    if isinstance(state, dict):
-        return state
-    if hasattr(state, "model_dump"):       # pydantic v2
-        return state.model_dump()
-    if hasattr(state, "dict"):             # pydantic v1
-        return state.dict()
-    return dict(state)  # last resort
 
 logger = logging.getLogger(__name__)
 
