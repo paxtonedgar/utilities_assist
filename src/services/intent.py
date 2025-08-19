@@ -8,6 +8,26 @@ from src.services.models import IntentResult
 logger = logging.getLogger(__name__)
 
 
+def _matches_patterns(text: str, patterns: List[str]) -> bool:
+    """Check if text matches any of the provided regex patterns.
+    
+    Centralizes pattern matching logic used by intent detection functions.
+    """
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def _extract_from_response(response: str, field: str, pattern: str, default_value=None):
+    """Extract a field from LLM response using regex pattern.
+    
+    Centralizes response parsing logic used in _parse_intent_response.
+    """
+    if f"{field}:" in response:
+        match = re.search(pattern, response)
+        if match:
+            return match.group(1)
+    return default_value
+
+
 async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None, model_name: str = "gpt-4o-mini") -> IntentResult:
     """Determine user intent from query text.
     
@@ -74,7 +94,7 @@ def _is_list_intent(text: str) -> bool:
         r"\butil\w*\s+are\s+(available|there)\b"
     ]
     
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in list_patterns)
+    return _matches_patterns(text, list_patterns)
 
 
 def _is_swagger_intent(text: str) -> bool:
@@ -92,7 +112,7 @@ def _is_swagger_intent(text: str) -> bool:
         r"\bjson\b.*\bstructure\b"
     ]
     
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in swagger_patterns)
+    return _matches_patterns(text, swagger_patterns)
 
 
 async def _classify_with_llm(text: str, chat_client: Any, utilities_list: List[str], model_name: str = "gpt-4o-mini") -> IntentResult:
@@ -158,23 +178,15 @@ def _parse_intent_response(response: str) -> IntentResult:
     reasoning = "Parsed from LLM response"
     
     try:
-        # Extract intent
-        if "Intent:" in response:
-            intent_match = re.search(r"Intent:\s*(\w+)", response)
-            if intent_match:
-                intent = intent_match.group(1).lower()
+        # Extract fields using centralized pattern matching
+        intent = _extract_from_response(response, "Intent", r"Intent:\s*(\w+)", "confluence").lower()
         
-        # Extract confidence
-        if "Confidence:" in response:
-            conf_match = re.search(r"Confidence:\s*([\d.]+)", response)
-            if conf_match:
-                confidence = float(conf_match.group(1))
+        conf_str = _extract_from_response(response, "Confidence", r"Confidence:\s*([\d.]+)", "0.5")
+        confidence = float(conf_str)
         
-        # Extract reasoning
-        if "Reasoning:" in response:
-            reason_match = re.search(r"Reasoning:\s*(.+)$", response, re.MULTILINE)
-            if reason_match:
-                reasoning = reason_match.group(1).strip()
+        reasoning = _extract_from_response(
+            response, "Reasoning", r"Reasoning:\s*(.+)$", "Parsed from LLM response"
+        ).strip()
                 
     except Exception as e:
         logger.warning(f"Failed to parse LLM response: {e}")

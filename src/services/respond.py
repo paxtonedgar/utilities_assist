@@ -1,12 +1,58 @@
 """Response generation and context building services."""
 
-import json
 import logging
 import re
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from src.services.models import SearchResult, SourceChip, IntentResult
 
 logger = logging.getLogger(__name__)
+
+
+# === TEXT PROCESSING UTILITIES ===
+
+def _extract_meaningful_words(text: str, exclude_stopwords: bool = True) -> set:
+    """Extract meaningful words from text, optionally excluding stopwords.
+    
+    Centralizes word extraction logic used throughout the file.
+    """
+    words = set(re.findall(r'\w+', text.lower()))
+    
+    if exclude_stopwords:
+        # Combined stopwords from both functions + query-specific terms
+        stopwords = {
+            "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+            "what", "how", "when", "where", "why", "which", "who", "is", "are"
+        }
+        words = words - stopwords
+    
+    return words
+
+
+def _calculate_word_overlap(text1: str, text2: str, threshold: float = 0.1) -> bool:
+    """Calculate if word overlap between two texts meets threshold.
+    
+    Consolidates overlap calculation logic used in multiple validation functions.
+    """
+    if not text1 or not text2:
+        return True  # Can't verify without substantial text
+    
+    words1 = _extract_meaningful_words(text1)
+    words2 = _extract_meaningful_words(text2)
+    
+    if not words1:
+        return True
+    
+    overlap = len(words1 & words2)
+    return overlap / len(words1) > threshold
+
+
+def _text_matches_patterns(text: str, patterns: List[str]) -> bool:
+    """Check if text matches any of the provided patterns.
+    
+    Centralizes pattern matching logic used in validation functions.
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in patterns)
 
 
 def build_context(
@@ -102,9 +148,8 @@ async def generate_response(
 """
         messages.append({"role": "user", "content": user_message})
         
-        # Debug: log the complete request details
+        # Debug: log the request details (reduced logging for performance)
         logger.info(f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}")
-        logger.info(f"Azure OpenAI messages: {json.dumps(messages, indent=2)}")
         
         # Generate streaming response
         try:
@@ -297,27 +342,7 @@ Special Format for API Specification Queries:
 - Highlight important constraints or requirements
 - Reference specific API documentation when available"""
         
-    elif intent_label == "workflow":
-        return base_prompt + """
-
-Special Format for Workflow/Procedure Queries:
-- Synthesize information from multiple documents into a coherent sequence
-- Provide numbered step-by-step instructions (1. 2. 3. etc.)
-- Resolve any duplicate or conflicting steps from different sources
-- Order steps logically based on dependencies, not document relevance
-- Group related sub-steps under main steps when appropriate
-- Include prerequisites or setup steps at the beginning
-- Add validation/verification steps where applicable
-- For complex workflows, consider outputting structured format: %%workflow%% JSON for visualization
-- Focus on actionable instructions, not just descriptions"""
-
-    elif intent_label == "restart":
-        return base_prompt + """
-
-For Restart Requests:
-- Confirm that context has been cleared
-- Offer to help with new questions
-- Be brief and welcoming"""
+    # Note: workflow and restart intents not produced by current intent classification
         
     else:  # confluence or general
         return base_prompt + """
@@ -341,46 +366,17 @@ def _contains_error_phrases(answer: str) -> bool:
         "error occurred"
     ]
     
-    answer_lower = answer.lower()
-    return any(phrase in answer_lower for phrase in error_phrases)
+    return _text_matches_patterns(answer, error_phrases)
 
 
 def _answer_uses_context(answer: str, context: str) -> bool:
     """Check if answer appears to use provided context."""
-    if not context or len(context) < 50:
-        return True  # Can't verify without substantial context
-    
-    # Extract key phrases from context
-    context_words = set(re.findall(r'\w+', context.lower()))
-    answer_words = set(re.findall(r'\w+', answer.lower()))
-    
-    # Check overlap (excluding common words)
-    common_words = {"the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
-    meaningful_context = context_words - common_words
-    meaningful_answer = answer_words - common_words
-    
-    if not meaningful_context:
-        return True
-    
-    overlap = len(meaningful_context & meaningful_answer)
-    return overlap / len(meaningful_context) > 0.1  # At least 10% overlap
+    return _calculate_word_overlap(context, answer, threshold=0.1)
 
 
 def _answer_addresses_query(answer: str, query: str) -> bool:
     """Check if answer appears to address the query."""
-    # Extract key terms from query
-    query_terms = set(re.findall(r'\w+', query.lower()))
-    answer_terms = set(re.findall(r'\w+', answer.lower()))
-    
-    # Remove common words
-    stop_words = {"what", "how", "when", "where", "why", "which", "who", "is", "are", "the", "and", "or"}
-    meaningful_query = query_terms - stop_words
-    
-    if not meaningful_query:
-        return True
-    
-    overlap = len(meaningful_query & answer_terms)
-    return overlap / len(meaningful_query) > 0.3  # At least 30% overlap
+    return _calculate_word_overlap(query, answer, threshold=0.3)
 
 
 def _answer_seems_truncated(answer: str) -> bool:

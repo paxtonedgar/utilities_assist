@@ -2,7 +2,6 @@
 
 import logging
 import time
-import json
 import re
 import asyncio
 from typing import List, Dict, Any, Optional, Tuple
@@ -19,6 +18,90 @@ from sklearn.metrics.pairwise import cosine_similarity
 logger = logging.getLogger(__name__)
 
 
+def _create_search_result(client_result) -> SearchResult:
+    """Factory function to create SearchResult from client result.
+    
+    Centralizes the SearchResult creation pattern used throughout the file.
+    """
+    return SearchResult(
+        doc_id=client_result.doc_id,
+        title=client_result.title,
+        url=client_result.url, 
+        score=client_result.score,
+        content=client_result.content,
+        metadata=client_result.metadata
+    )
+
+
+def _create_search_results(client_results) -> List[SearchResult]:
+    """Factory function to create list of SearchResults from client results."""
+    return [_create_search_result(result) for result in client_results]
+
+
+async def _with_search_timeout(
+    search_func,
+    stage_name: str,
+    timeout_seconds: float,
+    method_name: str,
+    *args,
+    **kwargs
+) -> RetrievalResult:
+    """Generic timeout wrapper for all search functions.
+    
+    Args:
+        search_func: The search function to execute
+        stage_name: Name for logging (e.g., 'bm25', 'knn', 'hybrid')
+        timeout_seconds: Timeout in seconds
+        method_name: Method name for result diagnostics
+        *args, **kwargs: Arguments passed to search_func
+        
+    Returns:
+        RetrievalResult with search results or empty on timeout/error
+    """
+    try:
+        if asyncio.iscoroutinefunction(search_func):
+            return await asyncio.wait_for(search_func(*args, **kwargs), timeout=timeout_seconds)
+        else:
+            return await asyncio.wait_for(
+                asyncio.to_thread(search_func, *args, **kwargs),
+                timeout=timeout_seconds
+            )
+    except (asyncio.TimeoutError, Exception) as e:
+        is_timeout = isinstance(e, asyncio.TimeoutError)
+        error_type = "timeout" if is_timeout else "error"
+        
+        # Extract common parameters for logging
+        query = kwargs.get('query', args[0] if args else '')
+        index_name = kwargs.get('index_name') or kwargs.get('index')
+        query_embedding = kwargs.get('query_embedding')
+        
+        # STRUCTURED LOGGING: Log timeout/error with telemetry details
+        from src.telemetry.logger import log_event
+        log_params = {
+            "stage": stage_name,
+            "event": error_type,
+            "err": True,
+            "timeout": is_timeout,
+            "took_ms": timeout_seconds * 1000,
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:100],
+            "index_name": index_name,
+        }
+        
+        if query:
+            log_params["query_length"] = len(str(query))
+        if query_embedding:
+            log_params["embedding_dims"] = len(query_embedding)
+            
+        log_event(**log_params)
+        
+        logger.warning(f"{stage_name.upper()} search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
+        return RetrievalResult(
+            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
+            method=f"{method_name}_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
+        )
+
+
 async def bm25_search_with_timeout(
     query: str,
     search_client: OpenSearchClient,
@@ -32,41 +115,11 @@ async def bm25_search_with_timeout(
     
     Never propagates exceptions - returns empty results on failure.
     """
-    try:
-        return await asyncio.wait_for(
-            bm25_search(
-                query=query,
-                search_client=search_client,
-                index_name=index_name,
-                filters=filters,
-                top_k=top_k,
-                time_decay_days=time_decay_days
-            ),
-            timeout=timeout_seconds
-        )
-    except (asyncio.TimeoutError, Exception) as e:
-        is_timeout = isinstance(e, asyncio.TimeoutError)
-        error_type = "timeout" if is_timeout else "error"
-        
-        # STRUCTURED LOGGING: Log timeout/error with telemetry details
-        from src.telemetry.logger import log_event
-        log_event(
-            stage="bm25",
-            event=error_type,
-            err=True,
-            timeout=is_timeout,
-            took_ms=timeout_seconds * 1000,
-            error_type=type(e).__name__,
-            error_message=str(e)[:100],
-            index_name=index_name,
-            query_length=len(query)
-        )
-        
-        logger.warning(f"BM25 search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
-        return RetrievalResult(
-            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
-            method="bm25_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
-        )
+    return await _with_search_timeout(
+        bm25_search, "bm25", timeout_seconds, "bm25",
+        query=query, search_client=search_client, index_name=index_name,
+        filters=filters, top_k=top_k, time_decay_days=time_decay_days
+    )
 
 
 async def bm25_search(
@@ -150,41 +203,11 @@ async def knn_search_with_timeout(
     
     Never propagates exceptions - returns empty results on failure.
     """
-    try:
-        return await asyncio.wait_for(
-            knn_search(
-                query_embedding=query_embedding,
-                search_client=search_client,
-                index_name=index_name,
-                filters=filters,
-                top_k=top_k,
-                ef_search=ef_search
-            ),
-            timeout=timeout_seconds
-        )
-    except (asyncio.TimeoutError, Exception) as e:
-        is_timeout = isinstance(e, asyncio.TimeoutError)
-        error_type = "timeout" if is_timeout else "error"
-        
-        # STRUCTURED LOGGING: Log timeout/error with telemetry details
-        from src.telemetry.logger import log_event
-        log_event(
-            stage="knn",
-            event=error_type,
-            err=True,
-            timeout=is_timeout,
-            took_ms=timeout_seconds * 1000,
-            error_type=type(e).__name__,
-            error_message=str(e)[:100],
-            index_name=index_name,
-            embedding_dims=len(query_embedding)
-        )
-        
-        logger.warning(f"KNN search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
-        return RetrievalResult(
-            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
-            method="knn_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
-        )
+    return await _with_search_timeout(
+        knn_search, "knn", timeout_seconds, "knn",
+        query_embedding=query_embedding, search_client=search_client, index_name=index_name,
+        filters=filters, top_k=top_k, ef_search=ef_search
+    )
 
 
 async def knn_search(
@@ -222,19 +245,7 @@ async def knn_search(
         )
         
         # Convert to canonical service format - OpenSearch client now returns services.models.SearchResult  
-        results = []
-        for result in response.results:
-            # Result is already a services.models.SearchResult with canonical schema
-            # Create canonical SearchResult ensuring all required fields are present
-            service_result = SearchResult(
-                doc_id=result.doc_id,
-                title=result.title,     # Now available in canonical schema
-                url=result.url,         # Now available in canonical schema
-                score=result.score,
-                content=result.content, # Use content field consistently
-                metadata=result.metadata
-            )
-            results.append(service_result)
+        results = _create_search_results(response.results)
         
         return RetrievalResult(
             results=results,
@@ -278,8 +289,8 @@ async def rrf_fuse(
     """
     try:
         # Convert service results to client format for fusion
-        from infra.opensearch_client import SearchResponse
-        from services.models import SearchResult as ServiceSearchResult  # Use the service model that RRF expects
+        from src.infra.opensearch_client import SearchResponse
+        from src.services.models import SearchResult as ServiceSearchResult  # Use the service model that RRF expects
         
         bm25_response = SearchResponse(
             results=[
@@ -324,19 +335,7 @@ async def rrf_fuse(
         )
         
         # Convert back to canonical service format - RRF fusion returns services.models.SearchResult
-        results = []
-        for result in fused_response.results:
-            # Result is already a services.models.SearchResult with canonical schema from RRF fusion
-            # Create canonical SearchResult ensuring all required fields are present
-            service_result = SearchResult(
-                doc_id=result.doc_id,
-                title=result.title,     # Now available in canonical schema
-                url=result.url,         # Now available in canonical schema
-                score=result.score,
-                content=result.content, # Use content field consistently
-                metadata=result.metadata
-            )
-            results.append(service_result)
+        results = _create_search_results(fused_response.results)
         
         return RetrievalResult(
             results=results,
@@ -634,6 +633,37 @@ def _rrf_with_diversification(
     return selected, diagnostics
 
 
+def _hybrid_search_wrapper(
+    query: str,
+    query_embedding: Optional[List[float]], 
+    search_client: OpenSearchClient,
+    index_name: str = None,
+    filters: Optional[Dict[str, Any]] = None,
+    top_k: int = 10
+) -> RetrievalResult:
+    """Sync wrapper for hybrid search to work with timeout decorator."""
+    search_filters = _build_search_filters(filters) if filters else None
+    
+    response = search_client.hybrid_search(
+        query=query,
+        query_vector=query_embedding,
+        filters=search_filters,
+        index=index_name or OpenSearchConfig.get_default_index(),
+        k=top_k
+    )
+    
+    # Convert to canonical service format
+    results = _create_search_results(response.results)
+    
+    return RetrievalResult(
+        results=results,
+        total_found=response.total_hits,
+        retrieval_time_ms=response.took_ms,
+        method="hybrid",
+        diagnostics={"query_type": "hybrid", "index": index_name}
+    )
+
+
 async def hybrid_search_with_timeout(
     query: str,
     query_embedding: Optional[List[float]],
@@ -641,74 +671,18 @@ async def hybrid_search_with_timeout(
     index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    timeout_seconds: float = 3.0
+    timeout_seconds: float = 5.0  # Updated to match retrieve.py timeout fix
 ) -> RetrievalResult:
     """True hybrid search with aggressive timeout and fallback.
     
     Uses the new hybrid_search method that combines BM25 and KNN in a single query.
     Never propagates exceptions - returns empty results on failure.
     """
-    try:
-        # Convert filters dict to SearchFilters
-        search_filters = _build_search_filters(filters) if filters else None
-        
-        # Execute hybrid search with timeout
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                search_client.hybrid_search,
-                query=query,
-                query_vector=query_embedding,
-                filters=search_filters,
-                index=index_name or OpenSearchConfig.get_default_index(),
-                k=top_k
-            ),
-            timeout=timeout_seconds
-        )
-        
-        # Convert to canonical service format
-        results = []
-        for result in response.results:
-            service_result = SearchResult(
-                doc_id=result.doc_id,
-                title=result.title,
-                url=result.url,
-                score=result.score,
-                content=result.content,
-                metadata=result.metadata
-            )
-            results.append(service_result)
-        
-        return RetrievalResult(
-            results=results,
-            total_found=response.total_hits,
-            retrieval_time_ms=response.took_ms,
-            method="hybrid",
-            diagnostics={"query_type": "hybrid", "index": index_name}
-        )
-        
-    except (asyncio.TimeoutError, Exception) as e:
-        is_timeout = isinstance(e, asyncio.TimeoutError)
-        error_type = "timeout" if is_timeout else "error"
-        
-        # STRUCTURED LOGGING: Log timeout/error with telemetry details
-        from src.telemetry.logger import log_event
-        log_event(
-            stage="hybrid",
-            event=error_type,
-            err=True,
-            timeout=is_timeout,
-            took_ms=timeout_seconds * 1000,
-            error_type=type(e).__name__,
-            error_message=str(e)[:100],
-            index_name=index_name,
-            query_length=len(query)
-        )
-        
-        logger.warning(f"Hybrid search failed/timed out ({timeout_seconds}s): {type(e).__name__}: {str(e)[:100]}")
-        return RetrievalResult(
-            results=[], total_found=0, retrieval_time_ms=int(timeout_seconds * 1000),
-            method="hybrid_timeout", diagnostics={"timeout": is_timeout, "error": str(e)[:100]}
-        )
+    return await _with_search_timeout(
+        _hybrid_search_wrapper, "hybrid", timeout_seconds, "hybrid",
+        query=query, query_embedding=query_embedding, search_client=search_client,
+        index_name=index_name, filters=filters, top_k=top_k
+    )
 
 
 async def enhanced_rrf_search(
