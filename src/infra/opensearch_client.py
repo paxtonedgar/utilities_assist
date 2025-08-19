@@ -829,12 +829,12 @@ class OpenSearchClient:
                 _setup_jpmc_proxy()  # Ensure proxy is configured
                 aws_auth = _get_aws_auth()
                 if aws_auth:
-                    response = requests.get(url, auth=aws_auth, timeout=5.0)
+                    response = requests.get(health_url, auth=aws_auth, timeout=5.0)
                 else:
                     # No auth available
                     raise ValueError("No authentication available for JPMC profile")
             else:
-                response = self.session.get(url, timeout=5.0)
+                response = self.session.get(health_url, timeout=5.0)
                 
             response.raise_for_status()
             
