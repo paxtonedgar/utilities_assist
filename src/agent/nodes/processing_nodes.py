@@ -13,10 +13,75 @@ from src.agent.nodes.combine import combine_node
 from src.services.respond import generate_response, extract_source_chips, verify_answer
 from src.services.models import SearchResult
 
+# Pre-import resource management and common utilities to avoid repeated dynamic imports
+from src.infra.resource_manager import get_resources
+from src.infra.search_config import OpenSearchConfig
+from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+from agent.tools.search import multi_index_search_tool
+
 logger = logging.getLogger(__name__)
 
 
-class CombineNode(BaseNodeHandler):
+class BaseProcessingNodeMixin:
+    """Consolidated utilities to eliminate repeated boilerplate across processing nodes."""
+    
+    def _get_resources(self):
+        """Centralized resource access with error handling."""
+        return get_resources()
+    
+    def _preserve_workflow_path(self, state: Dict[str, Any], node_name: str, **updates) -> Dict[str, Any]:
+        """Preserve state with standardized workflow path tracking."""
+        return {
+            **updates,
+            "workflow_path": state.get("workflow_path", []) + [node_name]
+        }
+    
+    def _handle_resource_unavailable(self, resource_type: str) -> Dict[str, Any]:
+        """Standardized resource unavailable response."""
+        logger.error(f"{resource_type} not available")
+        return {
+            "final_answer": f"Unable to process request - {resource_type.lower()} unavailable.",
+            "response_chunks": [f"Unable to process request - {resource_type.lower()} unavailable."],
+            "answer_verification": {"has_content": True, "confidence_score": 0.0},
+            "source_chips": []
+        }
+    
+    async def _execute_opensearch_aggregation(self, agg_body: Dict, list_type: str) -> List[str]:
+        """Centralized OpenSearch aggregation execution."""
+        try:
+            resources = self._get_resources()
+            if not resources:
+                logger.error("Resources not available for aggregation")
+                return []
+            
+            search_client = resources.search_client
+            index_name = resources.settings.search_index_alias or OpenSearchConfig.get_default_index()
+            url = f"{search_client.base_url}/{index_name}/_search"
+            
+            _setup_jpmc_proxy()
+            aws_auth = _get_aws_auth()
+            
+            import requests
+            if aws_auth:
+                response = requests.post(url, json=agg_body, auth=aws_auth, timeout=30.0)
+            else:
+                response = search_client.session.post(url, json=agg_body, timeout=30.0)
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            buckets = data.get("aggregations", {}).get(f"unique_{list_type}", {}).get("buckets", [])
+            unique_values = [bucket["key"] for bucket in buckets]
+            
+            logger.info(f"Found {len(unique_values)} unique {list_type}")
+            return unique_values
+            
+        except Exception as e:
+            logger.error(f"OpenSearch aggregation failed: {e}")
+            return []
+
+
+class CombineNode(BaseNodeHandler, BaseProcessingNodeMixin):
     """Handles combining and ranking search results."""
     
     def __init__(self):
@@ -41,7 +106,7 @@ class CombineNode(BaseNodeHandler):
         }
 
 
-class AnswerNode(BaseNodeHandler):
+class AnswerNode(BaseNodeHandler, BaseProcessingNodeMixin):
     """Handles final answer generation with streaming support."""
     
     def __init__(self):
@@ -70,16 +135,9 @@ class AnswerNode(BaseNodeHandler):
             }
         
         # Get chat client from resources
-        from src.infra.resource_manager import get_resources
-        resources = get_resources()
+        resources = self._get_resources()
         if not resources or not resources.chat_client:
-            logger.error("Chat client not available for answer generation")
-            return {
-                "final_answer": "Unable to generate response - chat service unavailable.",
-                "response_chunks": ["Unable to generate response - chat service unavailable."],
-                "answer_verification": {"has_content": True, "confidence_score": 0.0},
-                "source_chips": []
-            }
+            return self._handle_resource_unavailable("Chat client")
         
         # Generate streaming response - collect all chunks
         response_chunks = []
@@ -110,7 +168,7 @@ class AnswerNode(BaseNodeHandler):
         }
 
 
-class RestartNode(BaseNodeHandler):
+class RestartNode(BaseNodeHandler, BaseProcessingNodeMixin):
     """Handles restart/reset requests."""
     
     def __init__(self):
@@ -128,7 +186,7 @@ class RestartNode(BaseNodeHandler):
         }
 
 
-class ListHandlerNode(BaseNodeHandler):
+class ListHandlerNode(BaseNodeHandler, BaseProcessingNodeMixin):
     """Handles list queries using OpenSearch aggregations."""
     
     def __init__(self):
@@ -148,11 +206,10 @@ class ListHandlerNode(BaseNodeHandler):
         # Format response
         formatted_response = self._format_list_response(items, list_type, normalized_query)
         
-        return {
-            "final_context": formatted_response,
-            "combined_results": [],  # List queries don't need search results
-            "workflow_path": state.get("workflow_path", []) + ["list_handler"]
-        }
+        return self._preserve_workflow_path(state, "list_handler",
+            final_context=formatted_response,
+            combined_results=[]  # List queries don't need search results
+        )
     
     def _extract_list_type(self, query: str) -> str:
         """Extract what type of list is being requested - REAL implementation from original."""
@@ -174,72 +231,33 @@ class ListHandlerNode(BaseNodeHandler):
             return "apis"
     
     async def _get_list_from_opensearch(self, list_type: str) -> List[str]:
-        """Get unique values using OpenSearch aggregations - REAL implementation."""
-        from src.infra.resource_manager import get_resources
+        """Get unique values using OpenSearch aggregations."""
+        # Map list types to field names
+        field_mapping = {
+            "apis": "api_name",
+            "apgs": "apg_name", 
+            "products": "product_name",
+            "utilities": "utility_name",
+            "fields": "field_name"
+        }
         
-        try:
-            resources = get_resources()
-            if not resources:
-                logger.error("Resources not available for list aggregation")
-                return []
-            
-            # Map list types to field names (from original implementation)
-            field_mapping = {
-                "apis": "api_name",
-                "apgs": "apg_name", 
-                "products": "product_name",
-                "utilities": "utility_name",
-                "fields": "field_name"
-            }
-            
-            field_name = field_mapping.get(list_type, "api_name")
-            
-            # Build aggregation query
-            agg_body = {
-                "size": 0,  # Don't need document hits, just aggregations
-                "aggs": {
-                    f"unique_{list_type}": {
-                        "terms": {
-                            "field": f"{field_name}.keyword",  # Use keyword field for aggregations
-                            "size": 1000,  # Get up to 1000 unique values
-                            "order": {"_key": "asc"}  # Alphabetical order
-                        }
+        field_name = field_mapping.get(list_type, "api_name")
+        
+        # Build aggregation query
+        agg_body = {
+            "size": 0,
+            "aggs": {
+                f"unique_{list_type}": {
+                    "terms": {
+                        "field": f"{field_name}.keyword",
+                        "size": 1000,
+                        "order": {"_key": "asc"}
                     }
                 }
             }
-            
-            # Execute aggregation query using OpenSearch client
-            search_client = resources.search_client
-            # Use centralized configuration for index name
-            from src.infra.search_config import OpenSearchConfig
-            index_name = resources.settings.search_index_alias or OpenSearchConfig.get_default_index()
-            
-            url = f"{search_client.base_url}/{index_name}/_search"
-            
-            # Use same auth pattern as regular searches
-            from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-            _setup_jpmc_proxy()
-            aws_auth = _get_aws_auth()
-            
-            import requests
-            if aws_auth:
-                response = requests.post(url, json=agg_body, auth=aws_auth, timeout=30.0)
-            else:
-                response = search_client.session.post(url, json=agg_body, timeout=30.0)
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            # Extract unique values from aggregation results
-            buckets = data.get("aggregations", {}).get(f"unique_{list_type}", {}).get("buckets", [])
-            unique_values = [bucket["key"] for bucket in buckets]
-            
-            logger.info(f"Found {len(unique_values)} unique {list_type}")
-            return unique_values
-            
-        except Exception as e:
-            logger.error(f"OpenSearch aggregation failed: {e}")
-            return []
+        }
+        
+        return await self._execute_opensearch_aggregation(agg_body, list_type)
     
     def _format_list_response(self, items: List[str], list_type: str, original_query: str) -> str:
         """Format list response in the old system's style - REAL implementation from original."""
@@ -275,7 +293,7 @@ class ListHandlerNode(BaseNodeHandler):
         return response
 
 
-class WorkflowSynthesizerNode(BaseNodeHandler):
+class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
     """Handles workflow/procedure synthesis queries."""
     
     def __init__(self):
@@ -291,30 +309,25 @@ class WorkflowSynthesizerNode(BaseNodeHandler):
         
         formatted_response = self._format_workflow_response(workflow_steps)
         
-        return {
-            "final_context": workflow_steps,
-            "combined_results": [],
-            "workflow_path": state.get("workflow_path", []) + ["workflow_synthesizer"]
-        }
+        return self._preserve_workflow_path(state, "workflow_synthesizer",
+            final_context=workflow_steps,
+            combined_results=[]
+        )
     
     async def _synthesize_workflow(self, query: str) -> str:
-        """Synthesize multi-document workflows with step sequencing - REAL implementation."""
-        from src.infra.resource_manager import get_resources
-        
+        """Synthesize multi-document workflows with step sequencing."""
         try:
-            resources = get_resources()
+            resources = self._get_resources()
             if not resources:
                 logger.error("Resources not available for workflow synthesis")
                 return "Unable to synthesize workflow - resources unavailable"
             
             # Phase 1: Multi-document search with workflow focus
-            from src.infra.search_config import OpenSearchConfig
             indices = [
                 resources.settings.search_index_alias,  # Main confluence
                 OpenSearchConfig.get_swagger_index()  # Technical procedures
             ]
             
-            from agent.tools.search import multi_index_search_tool
             results_list = await multi_index_search_tool(
                 indices=indices,
                 query=query,

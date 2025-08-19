@@ -17,10 +17,90 @@ from src.services.models import SearchResult
 # Import constants to prevent KeyError issues
 from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
 
+# Pre-import resource management and utilities to avoid repeated dynamic imports
+from src.infra.resource_manager import get_resources
+from agent.nodes.base_node import get_intent_confidence
+from src.infra.search_config import OpenSearchConfig
+
 logger = logging.getLogger(__name__)
 
 
-class SummarizeNode(SearchNodeHandler):
+class BaseSearchNodeMixin:
+    """Consolidated utilities to eliminate repeated boilerplate across search nodes."""
+    
+    def _get_resources(self):
+        """Centralized resource access with error handling."""
+        return get_resources()
+    
+    def _preserve_state_with_path(self, state: Dict[str, Any], node_name: str, **updates) -> Dict[str, Any]:
+        """Preserve all existing state fields with standardized path tracking."""
+        return {
+            **state,  # Preserve all existing state
+            "workflow_path": state.get("workflow_path", []) + [node_name],
+            **updates
+        }
+    
+    def _preserve_state_with_error(self, state: Dict[str, Any], node_name: str, error: str) -> Dict[str, Any]:
+        """Preserve state with error tracking."""
+        return {
+            **state,  # Preserve all existing state
+            "search_results": [],
+            "workflow_path": state.get("workflow_path", []) + [f"{node_name}_error"],
+            "error_messages": state.get("error_messages", []) + [error]
+        }
+    
+    def _handle_empty_query(self, state: Dict[str, Any], node_name: str) -> Dict[str, Any]:
+        """Standardized empty query handling."""
+        logger.error(f"Empty query provided to {node_name}")
+        return self._preserve_state_with_error(state, node_name, "Empty query provided")
+    
+    def _mark_search_results(self, results: List[SearchResult], search_method: str, search_id: str = None):
+        """Mark search results with metadata."""
+        search_id = search_id or search_method
+        for search_result in results:
+            search_result.metadata["search_method"] = search_method
+            search_result.metadata["search_id"] = search_id
+    
+    def _handle_empty_retrieval(self, state: Dict[str, Any], node_name: str, query: str) -> Dict[str, Any]:
+        """Standardized empty retrieval guard with suggestions."""
+        logger.info(f"EMPTY {node_name.upper()} RETRIEVAL - Short-circuiting to prevent expensive LLM call")
+        
+        # Generate context-aware suggestions inline (only used here)
+        from agent.acronym_map import UTILITY_ACRONYMS
+        suggestions = []
+        
+        # Check if query contains an acronym
+        query_upper = query.upper()
+        for acronym, expansion in UTILITY_ACRONYMS.items():
+            if acronym in query_upper:
+                suggestions.extend([
+                    f"{expansion} onboarding",
+                    f"{expansion} API",
+                    f"{expansion} integration guide",
+                    f"create {acronym} client ID"
+                ])
+                break
+        
+        # Default suggestions if no acronym found
+        if not suggestions:
+            suggestions = [
+                f"{query} onboarding",
+                f"{query} API documentation", 
+                f"{query} setup guide",
+                f"utilities {query}"
+            ]
+        
+        suggestion_text = "Try searching for: " + " | ".join(suggestions[:3])
+        
+        return self._preserve_state_with_path(state, f"{node_name}_empty_guard",
+            search_results=[],
+            combined_results=[],
+            final_context=f"No documentation found for '{query}'.",
+            final_answer=f"I didn't find documentation matching '{query}'. {suggestion_text}"
+        )
+
+
+class SummarizeNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles query summarization and normalization."""
     
     def __init__(self):
@@ -28,16 +108,13 @@ class SummarizeNode(SearchNodeHandler):
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute query summarization logic."""
-        # Use existing summarize_node function with proper config parameter
-        # Note: The original function expects (state, config, store=None)
-        # We provide a minimal config for compatibility
         if config is None:
             config = {"configurable": {}}
         result = await summarize_node(state, config)
         return result
 
 
-class IntentNode(SearchNodeHandler):
+class IntentNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles intent classification."""
     
     def __init__(self):
@@ -45,16 +122,13 @@ class IntentNode(SearchNodeHandler):
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute intent classification logic."""
-        # Use existing intent_node function with proper config parameter
-        # Note: The original function expects (state, config, store=None)
-        # We provide a minimal config for compatibility
         if config is None:
             config = {"configurable": {}}
         result = await intent_node(state, config)
         return result
 
 
-class ConfluenceSearchNode(SearchNodeHandler):
+class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles Confluence-specific search."""
     
     def __init__(self):
@@ -65,15 +139,13 @@ class ConfluenceSearchNode(SearchNodeHandler):
         from agent.nodes.base_node import get_intent_label
         intent_type = get_intent_label(intent)
         
-        # INTENT-BASED ROUTING: Map intent to specific indices
-        # Use default_index for content indices, keep swagger separate
         index_mapping = {
-            "definition": default_index,              # Concept/definition → main content index
-            "confluence": default_index,              # General docs → main content index 
-            "swagger": "swagger-api-index",           # API questions → swagger only
-            "api": "swagger-api-index",               # API-related → swagger only
-            "list": default_index,                    # Lists need aggregations → main index
-            "workflow": default_index,                # How-to/processes → main content index
+            "definition": default_index,
+            "confluence": default_index,
+            "swagger": "swagger-api-index",
+            "api": "swagger-api-index",
+            "list": default_index,
+            "workflow": default_index,
         }
         
         selected_index = index_mapping.get(intent_type, default_index)
@@ -85,29 +157,14 @@ class ConfluenceSearchNode(SearchNodeHandler):
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute Confluence search logic with intent-based index routing."""
         try:
-            # Extract resources from global resource manager
-            from src.infra.resource_manager import get_resources
-            from agent.nodes.base_node import get_intent_confidence
-            resources = get_resources()
-            
+            resources = self._get_resources()
             query = state.get(NORMALIZED_QUERY, "")
             intent = state.get("intent")
             
-            # INTENT-BASED INDEX SELECTION: Pick the right index to cut latency
-            optimal_index = self._get_intent_based_index(intent, resources.settings.search_index_alias)
-            
-            # Handle empty query to prevent infinite loops
             if not query or query.strip() == "":
-                logger.error("Empty query provided to Confluence search")
-                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-                return {
-                    **state,  # Preserve all existing state
-                    "search_results": [],
-                    "workflow_path": state.get("workflow_path", []) + ["search_confluence_error"],
-                    "error_messages": state.get("error_messages", []) + ["Empty query provided"]
-                }
+                return self._handle_empty_query(state, "search_confluence")
             
-            # Use safe intent confidence extraction
+            optimal_index = self._get_intent_based_index(intent, resources.settings.search_index_alias)
             intent_confidence = get_intent_confidence(intent)
             logger.debug(f"Using intent confidence: {intent_confidence} for confluence search")
             
@@ -118,98 +175,41 @@ class ConfluenceSearchNode(SearchNodeHandler):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                search_index=optimal_index,  # Use intent-optimized index instead of default
+                search_index=optimal_index,
                 top_k=10
             )
             
-            # Mark results with search method
-            for search_result in result.results:
-                search_result.metadata["search_method"] = "confluence"
-                search_result.metadata["search_id"] = "confluence"
+            self._mark_search_results(result.results, "confluence")
             
-            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
             if len(result.results) == 0:
-                logger.info("EMPTY CONFLUENCE RETRIEVAL - Short-circuiting to prevent expensive LLM call")
-                
-                # Provide helpful suggestions based on the query
-                from agent.acronym_map import UTILITY_ACRONYMS
-                suggestions = []
-                
-                # Check if query contains an acronym
-                query_upper = query.upper()
-                for acronym, expansion in UTILITY_ACRONYMS.items():
-                    if acronym in query_upper:
-                        suggestions.extend([
-                            f"{expansion} onboarding",
-                            f"{expansion} API",
-                            f"{expansion} integration guide",
-                            f"create {acronym} client ID"
-                        ])
-                        break
-                
-                # Default suggestions if no acronym found
-                if not suggestions:
-                    suggestions = [
-                        f"{query} onboarding",
-                        f"{query} API documentation", 
-                        f"{query} setup guide",
-                        f"utilities {query}"
-                    ]
-                
-                suggestion_text = "Try searching for: " + " | ".join(suggestions[:3])
-                
-                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-                return {
-                    **state,  # Preserve all existing state
-                    "search_results": [],
-                    "combined_results": [],
-                    "final_context": f"No Utilities documentation found for '{query}'.",
-                    "final_answer": f"I didn't find Utilities documentation matching '{query}'. {suggestion_text}",
-                    "workflow_path": state.get("workflow_path", []) + ["search_confluence", "empty_guard"]
-                }
+                return self._handle_empty_retrieval(state, "confluence", query)
             
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": result.results,
-                "workflow_path": state.get("workflow_path", []) + ["search_confluence"]
-            }
+            return self._preserve_state_with_path(state, "search_confluence",
+                search_results=result.results
+            )
             
         except Exception as e:
             logger.error(f"Confluence search failed: {e}")
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": [],
-                "workflow_path": state.get("workflow_path", []) + ["search_confluence_error"],
-                "error_messages": state.get("error_messages", []) + [f"Confluence search failed: {e}"]
-            }
+            return self._preserve_state_with_error(state, "search_confluence", f"Confluence search failed: {e}")
 
 
-class SwaggerSearchNode(SearchNodeHandler):
+class SwaggerSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles Swagger/API documentation search."""
     
     def __init__(self):
         super().__init__("search_swagger")
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        """Execute Swagger search logic - REAL implementation from original."""
+        """Execute Swagger search logic."""
         try:
-            # Extract resources from global resource manager
-            from src.infra.resource_manager import get_resources
-            from agent.nodes.base_node import get_intent_confidence
-            resources = get_resources()
-            
+            resources = self._get_resources()
             query = state["normalized_query"]
             intent = state.get("intent")
             
-            # Use safe intent confidence extraction
             intent_confidence = get_intent_confidence(intent)
             logger.debug(f"Using intent confidence: {intent_confidence} for swagger search")
             
-            # INTENT-BASED INDEX SELECTION: API questions should use swagger index only
-            from src.infra.search_config import OpenSearchConfig
-            optimal_index = OpenSearchConfig.get_swagger_index() 
+            optimal_index = OpenSearchConfig.get_swagger_index()
             logger.info(f"Using Swagger-specific index: {optimal_index}")
             
             result = await adaptive_search_tool(
@@ -219,80 +219,56 @@ class SwaggerSearchNode(SearchNodeHandler):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                search_index=optimal_index,  # Explicit swagger index
+                search_index=optimal_index,
                 top_k=10
             )
             
-            # Mark results with search method
-            for search_result in result.results:
-                search_result.metadata["search_method"] = "swagger"
-                search_result.metadata["search_id"] = "swagger"
+            self._mark_search_results(result.results, "swagger")
             
-            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
             if len(result.results) == 0:
-                logger.info("EMPTY SWAGGER RETRIEVAL - Short-circuiting to prevent expensive LLM call")
-                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-                return {
-                    **state,  # Preserve all existing state
-                    "search_results": [],
-                    "combined_results": [],
-                    "final_context": "No swagger/API documents found matching your query. Please try more specific terms or check if the API documentation exists.",
-                    "final_answer": "I couldn't find any relevant API documentation for your query. Please try using different keywords or more specific terms.",
-                    "workflow_path": state.get("workflow_path", []) + ["search_swagger", "empty_guard"]
-                }
+                return self._preserve_state_with_path(state, "search_swagger_empty_guard",
+                    search_results=[],
+                    combined_results=[],
+                    final_context="No swagger/API documents found matching your query. Please try more specific terms or check if the API documentation exists.",
+                    final_answer="I couldn't find any relevant API documentation for your query. Please try using different keywords or more specific terms."
+                )
             
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": result.results,
-                "workflow_path": state.get("workflow_path", []) + ["search_swagger"]
-            }
+            return self._preserve_state_with_path(state, "search_swagger",
+                search_results=result.results
+            )
             
         except Exception as e:
             logger.error(f"Swagger search failed: {e}")
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": [],
-                "workflow_path": state.get("workflow_path", []) + ["search_swagger_error"],
-                "error_messages": state.get("error_messages", []) + [f"Swagger search failed: {e}"]
-            }
+            return self._preserve_state_with_error(state, "search_swagger", f"Swagger search failed: {e}")
 
 
-class MultiSearchNode(SearchNodeHandler):
+class MultiSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles multi-index search for complex queries."""
     
     def __init__(self):
         super().__init__("search_multi")
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        """Execute multi-index search logic - REAL implementation from original."""
+        """Execute multi-index search logic."""
         try:
-            # Extract resources from global resource manager
-            from src.infra.resource_manager import get_resources
-            resources = get_resources()
-            
+            resources = self._get_resources()
             query = state["normalized_query"]
             intent = state.get("intent")
             
-            # Define indices to search for compound queries
-            from src.infra.search_config import OpenSearchConfig
             indices = [
-                OpenSearchConfig.get_default_index(),  # Use centralized config
+                OpenSearchConfig.get_default_index(),
                 OpenSearchConfig.get_swagger_index()
             ]
             
-            # Search all indices
             results_list = await multi_index_search_tool(
                 indices=indices,
                 query=query,
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                top_k_per_index=8  # Get fewer per index to avoid overwhelming context
+                top_k_per_index=8
             )
             
-            # Combine results from all indices
             all_results = []
             for i, result in enumerate(results_list):
                 index_name = indices[i] if i < len(indices) else f"index_{i}"
@@ -303,38 +279,24 @@ class MultiSearchNode(SearchNodeHandler):
             
             logger.info(f"Multi-search found {len(all_results)} results across {len(indices)} indices")
             
-            # P0 FIX: Hard guard against empty retrieval to prevent generic answers
             if len(all_results) == 0:
-                logger.info("EMPTY RETRIEVAL - Short-circuiting to prevent expensive LLM call with no context")
-                # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-                return {
-                    **state,  # Preserve all existing state
-                    "search_results": [],
-                    "combined_results": [],
-                    "final_context": "No documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
-                    "final_answer": "I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms.",
-                    "workflow_path": state.get("workflow_path", []) + ["search_multi", "empty_guard"]
-                }
+                return self._preserve_state_with_path(state, "search_multi_empty_guard",
+                    search_results=[],
+                    combined_results=[],
+                    final_context="No documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
+                    final_answer="I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms."
+                )
             
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": all_results,
-                "workflow_path": state.get("workflow_path", []) + ["search_multi"]
-            }
+            return self._preserve_state_with_path(state, "search_multi",
+                search_results=all_results
+            )
             
         except Exception as e:
             logger.error(f"Multi-index search failed: {e}")
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                "search_results": [],
-                "workflow_path": state.get("workflow_path", []) + ["search_multi_error"],
-                "error_messages": state.get("error_messages", []) + [f"Multi-search failed: {e}"]
-            }
+            return self._preserve_state_with_error(state, "search_multi", f"Multi-search failed: {e}")
 
 
-class RewriteQueryNode(SearchNodeHandler):
+class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
     """Handles query rewriting for improved search results."""
     
     def __init__(self):
@@ -351,13 +313,11 @@ class RewriteQueryNode(SearchNodeHandler):
         if not normalized_query or normalized_query.strip() == "":
             logger.warning("Cannot rewrite empty query, using original query")
             fallback_query = original_query or "general information"
-            # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-            return {
-                **state,  # Preserve all existing state
-                NORMALIZED_QUERY: fallback_query,
-                "loop_count": loop_count + 1,
-                "rewrite_attempts": state.get("rewrite_attempts", 0) + 1
-            }
+            return self._preserve_state_with_path(state, "rewrite_query",
+                **{NORMALIZED_QUERY: fallback_query},
+                loop_count=loop_count + 1,
+                rewrite_attempts=state.get("rewrite_attempts", 0) + 1
+            )
         
         # Perform query rewriting
         rewritten_query = await self._rewrite_query(
@@ -371,13 +331,11 @@ class RewriteQueryNode(SearchNodeHandler):
         
         logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
         
-        # CRITICAL: Preserve ALL existing state fields - LangGraph replaces, not merges
-        return {
-            **state,  # Preserve all existing state
-            NORMALIZED_QUERY: rewritten_query,
-            "loop_count": loop_count + 1,
-            "rewrite_attempts": state.get("rewrite_attempts", 0) + 1
-        }
+        return self._preserve_state_with_path(state, "rewrite_query",
+            **{NORMALIZED_QUERY: rewritten_query},
+            loop_count=loop_count + 1,
+            rewrite_attempts=state.get("rewrite_attempts", 0) + 1
+        )
     
     async def _rewrite_query(
         self, 
@@ -386,10 +344,10 @@ class RewriteQueryNode(SearchNodeHandler):
         search_results: List[SearchResult]
     ) -> str:
         """Rewrite query using LLM for better search results - REAL implementation."""
-        from infra.resource_manager import get_resources
+        # Use centralized resource access
+        resources = self._get_resources()
         
         try:
-            resources = get_resources()
             if not resources:
                 logger.warning("Resources not available, using fallback rewrite strategy")
                 return self._fallback_rewrite(normalized_query)
