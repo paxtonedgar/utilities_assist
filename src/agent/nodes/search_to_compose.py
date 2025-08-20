@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Construct once (module/global scope) to reuse the model
 COVERAGE = CoverageGate(
-    model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+    model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
     tau=0.45, alpha=0.5,
     gate_ar=0.60, gate_andcg=0.40,
     min_actionable_spans=3

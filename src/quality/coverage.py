@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 import math, regex as re, numpy as np
-from sentence_transformers import CrossEncoder
+from sentence_transformers import SentenceTransformer
 
 _ACTION_PATTERNS = {
     "steps": re.compile(r"(?m)^\s*(?:\d+\.|[-*])\s+\S+"),
@@ -29,7 +29,7 @@ class CoverageGate:
     """
     def __init__(
         self,
-        model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
         device: str = None,
         weights: Dict[str, float] = None,
         tau: float = 0.45,
@@ -38,7 +38,7 @@ class CoverageGate:
         gate_ar: float = 0.60,
         gate_andcg: float = 0.40,
     ):
-        self.ce = CrossEncoder(model_name, device=device or ("cuda" if self._has_cuda() else "cpu"))
+        self.ce = SentenceTransformer(model_name, device=device or ("cuda" if self._has_cuda() else "cpu"))
         self.tau = tau
         self.alpha = alpha
         self.min_actionable_spans = min_actionable_spans
@@ -65,11 +65,14 @@ class CoverageGate:
         if not subqs or not passages:
             return np.zeros((len(subqs), len(passages)), dtype="float32")
 
-        pairs = [(q, p.text) for q in subqs for p in passages]
-        # CE returns 0..1 for some models; for others it's a logit-like score. Normalize via sigmoid on-demand.
-        raw = np.array(self.ce.predict(pairs), dtype="float32")
-        # Ensure shape
-        raw = raw.reshape(len(subqs), len(passages))
+        # Encode subqueries and passages separately
+        subq_embeddings = self.ce.encode(subqs, convert_to_tensor=False)
+        passage_texts = [p.text for p in passages]
+        passage_embeddings = self.ce.encode(passage_texts, convert_to_tensor=False)
+        
+        # Compute cosine similarity matrix
+        from sklearn.metrics.pairwise import cosine_similarity
+        raw = cosine_similarity(subq_embeddings, passage_embeddings).astype("float32")
 
         # augment with features
         feats = [self._features(p.text) for p in passages]  # list of dicts per passage
@@ -77,9 +80,8 @@ class CoverageGate:
         for i in range(len(subqs)):
             for j in range(len(passages)):
                 ce = float(raw[i, j])
-                # If model returns big numbers (logits), squash
-                if ce > 1.0 or ce < 0.0:
-                    ce = _sigmoid(ce)
+                # Cosine similarity is already in [-1,1], normalize to [0,1]
+                ce = (ce + 1.0) / 2.0
                 s = self.w["w0"] * ce
                 for name in ("steps", "endpoint", "jira", "owner", "table"):
                     s += self.w[name] * feats[j][name]

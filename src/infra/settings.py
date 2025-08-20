@@ -93,7 +93,7 @@ class OpenSearchConfig(BaseModel):
 
 class CoverageConfig(BaseModel):
     """Coverage evaluation configuration."""
-    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
     tau: float = 0.45              # per (q_i, p_j) answer threshold
     alpha: float = 0.5             # diversity for α-nDCG
     gate_ar: float = 0.60          # aspect recall gate

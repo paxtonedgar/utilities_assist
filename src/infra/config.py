@@ -15,7 +15,7 @@ class ChatCfg(BaseModel):
     """Configuration for chat/LLM providers"""
     provider: str           # "openai" | "azure"
     model: str
-    api_base: str | None = None  # for azure
+    api_base: str | None = None  # for azureImport Hierarchy Fixed
     api_version: str | None = None
 
 

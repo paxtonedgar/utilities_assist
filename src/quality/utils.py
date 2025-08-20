@@ -41,7 +41,7 @@ def get_coverage_gate() -> CoverageGate:
             else:
                 # Use defaults
                 _COVERAGE_GATE = CoverageGate(
-                    model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                    model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
                     tau=0.45, alpha=0.5,
                     gate_ar=0.60, gate_andcg=0.40,
                     min_actionable_spans=3
@@ -49,7 +49,7 @@ def get_coverage_gate() -> CoverageGate:
         except Exception as e:
             # Fallback to defaults on any config error
             _COVERAGE_GATE = CoverageGate(
-                model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
                 tau=0.45, alpha=0.5,
                 gate_ar=0.60, gate_andcg=0.40,
                 min_actionable_spans=3
