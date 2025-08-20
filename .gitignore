@@ -66,11 +66,28 @@ coverage.xml
 # MyPy
 .mypy_cache/
 .dmypy.json
-dmypy.json.cache/
+dmypy.json
+
+# ML Model caches and weights (never commit these!)
+.cache/
 .huggingface/
+.transformers_cache/
+.torch/
+**/.cache/
 **/models/
-**/*.safetensors
-**/*.bin
+**/hub/
 **/checkpoints/
 **/runs/
+**/*.safetensors
+**/*.bin
+**/*.pt
+**/*.ckpt
+**/*.pth
+**/*.tar.gz
+**/*.zip
+
+# Virtual environments
 .venv311/
+.venv/
+venv/
+env/
