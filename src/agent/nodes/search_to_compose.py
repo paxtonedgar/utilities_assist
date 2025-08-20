@@ -15,54 +15,13 @@ from .base_node import to_state_dict, from_state_dict
 
 logger = logging.getLogger(__name__)
 
-# Global coverage gate instance (initialized lazily)
-_COVERAGE_GATE = None
-
-def get_coverage_gate():
-    """Get or create the coverage gate instance with configuration."""
-    global _COVERAGE_GATE
-    if _COVERAGE_GATE is None:
-        try:
-            from src.infra.settings import get_settings
-            settings = get_settings()
-            
-            # Use coverage config if available, otherwise use defaults
-            if settings.coverage:
-                coverage_config = settings.coverage
-                weights = {
-                    "steps": coverage_config.weight_steps,
-                    "endpoint": coverage_config.weight_endpoint,
-                    "jira": coverage_config.weight_jira,
-                    "owner": coverage_config.weight_owner,
-                    "table": coverage_config.weight_table,
-                }
-                _COVERAGE_GATE = CoverageGate(
-                    model_name=coverage_config.model_name,
-                    tau=coverage_config.tau,
-                    alpha=coverage_config.alpha,
-                    gate_ar=coverage_config.gate_ar,
-                    gate_andcg=coverage_config.gate_andcg,
-                    min_actionable_spans=coverage_config.min_actionable_spans,
-                    weights=weights
-                )
-            else:
-                # Use defaults
-                _COVERAGE_GATE = CoverageGate(
-                    model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
-                    tau=0.45, alpha=0.5,
-                    gate_ar=0.60, gate_andcg=0.40,
-                    min_actionable_spans=3
-                )
-            logger.info("Initialized coverage gate with configuration")
-        except Exception as e:
-            logger.warning(f"Failed to load coverage config, using defaults: {e}")
-            _COVERAGE_GATE = CoverageGate(
-                model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
-                tau=0.45, alpha=0.5,
-                gate_ar=0.60, gate_andcg=0.40,
-                min_actionable_spans=3
-            )
-    return _COVERAGE_GATE
+# Construct once (module/global scope) to reuse the model
+COVERAGE = CoverageGate(
+    model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+    tau=0.45, alpha=0.5,
+    gate_ar=0.60, gate_andcg=0.40,
+    min_actionable_spans=3
+)
 
 async def search_coverage_node(state, config=None, *, store=None):
     """
@@ -139,10 +98,25 @@ async def search_coverage_node(state, config=None, *, store=None):
             result["metrics"]["selected_count"]
         )
         
+        # Log uncovered aspects if gate fails
+        if not result["gate_pass"]:
+            ev = COVERAGE.evaluate(user_query, result["metrics"]["subqueries"], 
+                                 [Passage(text=p["text"], meta=p) for p in search_results])
+            uncovered = [result["metrics"]["subqueries"][i] for i, col in enumerate(ev["answerability_matrix"]) 
+                        if col.max() < COVERAGE.tau]
+            logger.info(f"Uncovered aspects: {uncovered}")
+        
         # Update state with coverage results
         merged = {
             **s,
-            "coverage_evaluation": result["metrics"],
+            "coverage_evaluation": {
+                "subqueries": result["metrics"]["subqueries"],
+                "aspect_recall": result["metrics"]["aspect_recall"], 
+                "alpha_ndcg": result["metrics"]["alpha_ndcg"],
+                "actionable_spans": result["metrics"]["actionable_spans"],
+                "selected_count": result["metrics"]["selected_count"],
+                "gate_pass": result["gate_pass"]
+            },
             "gate_pass": result["gate_pass"],
             "selected_passages": result["selected_passages"],
             "all_passages_debug": result.get("all_passages_debug", search_results),
@@ -176,49 +150,29 @@ async def search_coverage_node(state, config=None, *, store=None):
         return from_state_dict(incoming_type, merged)
 
 
-def run_search_and_gate(user_query: str, search_results: List[SearchResult]) -> dict:
+def run_search_and_gate(user_query: str, fused_passages: list) -> dict:
     """
-    Apply coverage gate to search results.
-    
-    Args:
-        user_query: Original user query
-        search_results: List of SearchResult objects from search
-        
-    Returns:
-        Dict with gate_pass, metrics, selected_passages, etc.
+    fused_passages: list of dicts with keys:
+      - "text" (str)
+      - "url"  (str)
+      - "title" (str)
+      - "heading" (str)
+      - "rank" (int)  # rank after your RRF
     """
-    # 1) Sub-queries
+    # 1) sub-queries
     subqs = decompose(user_query)
-    
-    # 2) Convert SearchResult objects to Passage objects
-    passages = []
-    for idx, result in enumerate(search_results):
-        # Extract metadata from SearchResult
-        meta = {
-            "url": getattr(result, 'url', ''),
-            "title": getattr(result, 'title', ''),
-            "heading": result.metadata.get('heading', ''),
-            "rank": idx + 1  # Use position in list as rank
-        }
-        
-        # Get text content
-        text = getattr(result, 'content', '') or getattr(result, 'text', '')
-        
-        passages.append(Passage(text=text, meta=meta))
-    
-    # 3) Evaluate coverage
-    coverage_gate = get_coverage_gate()
-    ev = coverage_gate.evaluate(user_query, subqs, passages)
-    
-    # 4) Choose passages to send to composer: best 1 per aspect
+
+    # 2) convert to Passage objects
+    passages = [Passage(text=p["text"], meta={k: p.get(k) for k in ("url","title","heading","rank")})
+                for p in fused_passages]
+
+    # 3) evaluate coverage
+    ev = COVERAGE.evaluate(user_query, subqs, passages)
+
+    # 4) choose passages to send to composer: best 1 per aspect
     picks = sorted({j for idxs in ev["picks"].values() for j in idxs})
-    selected = [search_results[j] for j in picks if j < len(search_results)]
-    
-    # If no passages were selected but we have results, select top 3 as fallback
-    if not selected and search_results:
-        selected = search_results[:3]
-        logger.info("No passages met coverage threshold, using top 3 as fallback")
-    
+    selected = [fused_passages[j] for j in picks]
+
     return {
         "gate_pass": ev["gate_pass"],
         "metrics": {
@@ -229,7 +183,7 @@ def run_search_and_gate(user_query: str, search_results: List[SearchResult]) -> 
             "selected_count": len(selected),
         },
         "selected_passages": selected,  # feed only these to the composer
-        "all_passages_debug": search_results,  # keep for logs if needed
+        "all_passages_debug": fused_passages,  # keep for logs if you like
     }
 
 
