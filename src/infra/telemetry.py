@@ -262,6 +262,25 @@ def log_embedding_stage(req_id: str, text_count: int, batch_count: int, expected
     )
 
 
+def log_coverage_stage(req_id: str, gate_pass: bool, aspect_recall: float, alpha_ndcg: float,
+                      actionable_spans: int, selected_count: int, total_count: int,
+                      subqueries_count: int, ms: float, error: Optional[str] = None):
+    """Log coverage evaluation stage."""
+    log_event(
+        stage="coverage",
+        req_id=req_id,
+        ms=round(ms, 2),
+        gate_pass=gate_pass,
+        aspect_recall=round(aspect_recall, 3),
+        alpha_ndcg=round(alpha_ndcg, 3),
+        actionable_spans=actionable_spans,
+        selected_count=selected_count,
+        total_count=total_count,
+        subqueries_count=subqueries_count,
+        error=error
+    )
+
+
 def format_event_for_display(event: TelemetryEvent) -> Dict[str, Any]:
     """Format telemetry event for display in debug drawer."""
     error = getattr(event, 'error', None)
@@ -288,6 +307,15 @@ def format_event_for_display(event: TelemetryEvent) -> Dict[str, Any]:
     unmatched_claims_count = getattr(event, 'unmatched_claims_count', None)
     latency_ms = getattr(event, 'latency_ms', None)
     
+    # Coverage stage attributes
+    gate_pass = getattr(event, 'gate_pass', None)
+    aspect_recall = getattr(event, 'aspect_recall', None)
+    alpha_ndcg = getattr(event, 'alpha_ndcg', None)
+    actionable_spans = getattr(event, 'actionable_spans', None)
+    selected_count = getattr(event, 'selected_count', None)
+    total_count = getattr(event, 'total_count', None)
+    subqueries_count = getattr(event, 'subqueries_count', None)
+    
     if event.stage == "intent":
         display["Details"] = f"{intent} ({confidence:.2f})" if intent else "—"
     elif event.stage in ["retrieve_bm25", "retrieve_knn"]:
@@ -313,6 +341,19 @@ def format_event_for_display(event: TelemetryEvent) -> Dict[str, Any]:
         display["Details"] = "; ".join(details) if details else "—"
     elif event.stage == "overall":
         display["Details"] = f"Total: {latency_ms:.1f}ms" if latency_ms else "—"
+    elif event.stage == "coverage":
+        details = []
+        if gate_pass is not None:
+            details.append(f"Gate: {'PASS' if gate_pass else 'FAIL'}")
+        if aspect_recall is not None:
+            details.append(f"AR: {aspect_recall:.3f}")
+        if alpha_ndcg is not None:
+            details.append(f"αnDCG: {alpha_ndcg:.3f}")
+        if selected_count is not None and total_count is not None:
+            details.append(f"Selected: {selected_count}/{total_count}")
+        if subqueries_count is not None:
+            details.append(f"Aspects: {subqueries_count}")
+        display["Details"] = "; ".join(details) if details else "—"
     else:
         display["Details"] = "—"
     

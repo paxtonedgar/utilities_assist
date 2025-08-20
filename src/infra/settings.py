@@ -91,6 +91,22 @@ class OpenSearchConfig(BaseModel):
     index_name: str = "confluence_current"
 
 
+class CoverageConfig(BaseModel):
+    """Coverage evaluation configuration."""
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    tau: float = 0.45              # per (q_i, p_j) answer threshold
+    alpha: float = 0.5             # diversity for α-nDCG
+    gate_ar: float = 0.60          # aspect recall gate
+    gate_andcg: float = 0.40       # α-nDCG gate
+    min_actionable_spans: int = 3
+    # Feature weights
+    weight_steps: float = 0.20
+    weight_endpoint: float = 0.15
+    weight_jira: float = 0.15
+    weight_owner: float = 0.10
+    weight_table: float = 0.05
+
+
 class ApplicationSettings(BaseSettings):
     """Main application settings with profile-aware configuration."""
     
@@ -145,6 +161,7 @@ class ApplicationSettings(BaseSettings):
     azure_openai: Optional[AzureOpenAIConfig] = None
     aws_info: Optional[AWSConfig] = None
     opensearch: Optional[OpenSearchConfig] = None
+    coverage: Optional[CoverageConfig] = None
     
     # File paths
     synonyms_file_path: str = "data/synonyms.json"
@@ -186,7 +203,8 @@ class ApplicationSettings(BaseSettings):
             for section_name, model_class in [
                 ('azure_openai', AzureOpenAIConfig),
                 ('aws_info', AWSConfig), 
-                ('opensearch', OpenSearchConfig)
+                ('opensearch', OpenSearchConfig),
+                ('coverage', CoverageConfig)
             ]:
                 if config.has_section(section_name):
                     section_data = dict(config[section_name])

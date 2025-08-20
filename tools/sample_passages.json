@@ -1,0 +1,44 @@
+[
+  {
+    "text": "AU Auto Loan API Onboarding Steps:\n1. Create Jira ticket with project key AUAPI\n2. Request client ID from team\n3. Configure endpoints and authentication\n4. Test with sandbox environment",
+    "url": "https://confluence.example.com/au-onboarding",
+    "title": "AU API Onboarding Guide",
+    "heading": "Getting Started",
+    "rank": 1
+  },
+  {
+    "text": "POST /api/v1/au/loans\nGET /api/v1/au/status\nAuthorization: Bearer <token>\nContent-Type: application/json",
+    "url": "https://api-docs.example.com/au-endpoints",
+    "title": "AU API Endpoints",
+    "heading": "REST API Reference",
+    "rank": 2
+  },
+  {
+    "text": "Contact Information:\nTeam: AU Platform Team\nEmail: dl-au-platform@company.com\nSlack: #au-platform-support\nPager: au-platform-oncall",
+    "url": "https://confluence.example.com/au-support",
+    "title": "AU Team Support",
+    "heading": "Contact Details",
+    "rank": 3
+  },
+  {
+    "text": "Prerequisites:\n- Valid employee ID\n- Manager approval\n- Completion of security training\n- Access to Jira and Confluence",
+    "url": "https://confluence.example.com/au-prerequisites",
+    "title": "AU Access Prerequisites",
+    "heading": "Requirements",
+    "rank": 4
+  },
+  {
+    "text": "ServiceNow Process:\n1. Go to ServiceNow portal\n2. Search for 'AU API Access'\n3. Fill out request form\n4. Attach manager approval\n5. Submit ticket",
+    "url": "https://servicenow.example.com/au-request",
+    "title": "AU ServiceNow Request",
+    "heading": "Request Process",
+    "rank": 5
+  },
+  {
+    "text": "This is just some random documentation about general company policies and procedures that doesn't specifically relate to AU or any actionable technical steps.",
+    "url": "https://confluence.example.com/general-policies",
+    "title": "General Company Policies",
+    "heading": "Overview",
+    "rank": 6
+  }
+]

@@ -38,3 +38,6 @@ faiss-cpu
 boto3
 python-dotenv
 orjson
+sentence-transformers==2.7.0
+torch>=2.2,<3.0
+regex>=2024.5.10
