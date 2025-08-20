@@ -19,6 +19,7 @@ class SearchResult(BaseModel):
     score: float
     content: str  # Main content/snippet
     metadata: Dict[str, Any] = {}
+    rerank_score: Optional[float] = None  # Cross-encoder relevance score
 
 
 class RetrievalResult(BaseModel):

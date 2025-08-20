@@ -2,7 +2,9 @@
 from dataclasses import dataclass
 from typing import List, Dict, Tuple
 import math, regex as re, numpy as np
-from sentence_transformers import SentenceTransformer
+
+# Use our BGE reranker instead of sentence_transformers
+from src.services.reranker import get_reranker, is_reranker_available
 
 _ACTION_PATTERNS = {
     "steps": re.compile(r"(?m)^\s*(?:\d+\.|[-*])\s+\S+"),
@@ -22,23 +24,24 @@ class Passage:
 
 class CoverageGate:
     """
-    Computes per-(subquery, passage) answerability and aggregates:
+    Computes per-(subquery, passage) answerability using BGE v2-m3 reranker and aggregates:
       - Aspect Recall (coverage of sub-queries)
       - alpha-nDCG (diversity-aware gain)
     Then selects passages for composition.
     """
     def __init__(
         self,
-        model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2",
-        device: str = None,
+        model_name: str = "BAAI/bge-reranker-v2-m3",
+        device: str = "auto",
         weights: Dict[str, float] = None,
-        tau: float = 0.45,
+        tau: float = 0.25,  # Updated for BGE reranker scores
         alpha: float = 0.5,
         min_actionable_spans: int = 3,
         gate_ar: float = 0.60,
         gate_andcg: float = 0.40,
     ):
-        self.ce = SentenceTransformer(model_name, device=device or ("cuda" if self._has_cuda() else "cpu"))
+        self.model_name = model_name
+        self.device = device
         self.tau = tau
         self.alpha = alpha
         self.min_actionable_spans = min_actionable_spans
@@ -47,13 +50,30 @@ class CoverageGate:
         self.w = {"w0": 1.0, "steps": 0.20, "endpoint": 0.15, "jira": 0.15, "owner": 0.10, "table": 0.05}
         if weights:
             self.w.update(weights)
+        
+        # Initialize BGE reranker
+        self.reranker = None
+        self._init_reranker()
 
-    def _has_cuda(self) -> bool:
-        try:
-            import torch
-            return torch.cuda.is_available()
-        except Exception:
-            return False
+    def _init_reranker(self):
+        """Initialize BGE reranker if available."""
+        if is_reranker_available():
+            try:
+                self.reranker = get_reranker(
+                    model_id=self.model_name,
+                    device=self.device,
+                    batch_size=32  # Can be tuned
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to initialize BGE reranker: {e}")
+                self.reranker = None
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("BGE reranker not available, coverage evaluation will be limited")
+            self.reranker = None
 
     # ---------- feature helpers ----------
     def _features(self, text: str) -> Dict[str, int]:
@@ -61,31 +81,53 @@ class CoverageGate:
 
     # ---------- main API ----------
     def score_matrix(self, subqs: List[str], passages: List[Passage]) -> np.ndarray:
-        """Return a matrix [len(subqs) x len(passages)] of a'(q_i, p_j) in [0,1]."""
+        """Return a matrix [len(subqs) x len(passages)] of a'(q_i, p_j) in [0,1] using BGE reranker."""
         if not subqs or not passages:
             return np.zeros((len(subqs), len(passages)), dtype="float32")
 
-        # Encode subqueries and passages separately
-        subq_embeddings = self.ce.encode(subqs, convert_to_tensor=False)
         passage_texts = [p.text for p in passages]
-        passage_embeddings = self.ce.encode(passage_texts, convert_to_tensor=False)
+        mat = np.zeros((len(subqs), len(passages)), dtype="float32")
         
-        # Compute cosine similarity matrix
-        from sklearn.metrics.pairwise import cosine_similarity
-        raw = cosine_similarity(subq_embeddings, passage_embeddings).astype("float32")
-
-        # augment with features
-        feats = [self._features(p.text) for p in passages]  # list of dicts per passage
-        mat = np.zeros_like(raw, dtype="float32")
-        for i in range(len(subqs)):
-            for j in range(len(passages)):
-                ce = float(raw[i, j])
-                # Cosine similarity is already in [-1,1], normalize to [0,1]
-                ce = (ce + 1.0) / 2.0
-                s = self.w["w0"] * ce
-                for name in ("steps", "endpoint", "jira", "owner", "table"):
-                    s += self.w[name] * feats[j][name]
-                mat[i, j] = _sigmoid(s)  # calibrated into 0..1
+        if self.reranker is not None:
+            # Use BGE reranker for cross-encoder scores
+            for i, subq in enumerate(subqs):
+                try:
+                    # Get BGE scores for this subquery against all passages
+                    scores = self.reranker.score(subq, passage_texts)
+                    
+                    # Convert BGE scores to [0,1] range and apply feature weighting
+                    feats = [self._features(p.text) for p in passages]
+                    for j, (score, feat_dict) in enumerate(zip(scores, feats)):
+                        # BGE scores are typically in range [0, 1], but may exceed
+                        # Normalize and apply sigmoid for calibration
+                        ce_score = max(0.0, min(1.0, float(score)))  # Clamp to [0,1]
+                        
+                        # Apply feature weighting
+                        s = self.w["w0"] * ce_score
+                        for name in ("steps", "endpoint", "jira", "owner", "table"):
+                            s += self.w[name] * feat_dict[name]
+                        
+                        mat[i, j] = _sigmoid(s)  # calibrated into 0..1
+                        
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"BGE scoring failed for subquery {i}: {e}")
+                    # Fallback to zero scores for this subquery
+                    mat[i, :] = 0.0
+        else:
+            # Fallback to basic feature-only scoring if BGE not available
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("BGE reranker not available, using feature-only scoring")
+            
+            feats = [self._features(p.text) for p in passages]
+            for i in range(len(subqs)):
+                for j, feat_dict in enumerate(feats):
+                    # No cross-encoder score, just features
+                    s = sum(self.w[name] * feat_dict[name] for name in ("steps", "endpoint", "jira", "owner", "table"))
+                    mat[i, j] = _sigmoid(s * 0.5)  # Scale down since no CE score
+        
         return mat
 
     def aspect_recall(self, mat: np.ndarray) -> float:

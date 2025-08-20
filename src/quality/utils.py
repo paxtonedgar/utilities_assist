@@ -19,6 +19,17 @@ def get_coverage_gate() -> CoverageGate:
             from src.infra.settings import get_settings
             settings = get_settings()
             
+            # Use reranker config for model and thresholds if available
+            model_name = "BAAI/bge-reranker-v2-m3"  # Default to BGE
+            device = "auto"
+            tau = 0.25  # Updated threshold for BGE scores
+            
+            if hasattr(settings, 'reranker') and settings.reranker and settings.reranker.enabled:
+                # Use BGE v2-m3 reranker configuration
+                model_name = settings.reranker.model_id
+                device = settings.reranker.device
+                tau = settings.reranker.min_score  # Use reranker threshold
+                
             # Use coverage config if available, otherwise use defaults
             if hasattr(settings, 'coverage') and settings.coverage:
                 coverage_config = settings.coverage
@@ -30,8 +41,9 @@ def get_coverage_gate() -> CoverageGate:
                     "table": coverage_config.weight_table,
                 }
                 _COVERAGE_GATE = CoverageGate(
-                    model_name=coverage_config.model_name,
-                    tau=coverage_config.tau,
+                    model_name=model_name,
+                    device=device,
+                    tau=tau,  # Use BGE-appropriate threshold
                     alpha=coverage_config.alpha,
                     gate_ar=coverage_config.gate_ar,
                     gate_andcg=coverage_config.gate_andcg,
@@ -39,18 +51,22 @@ def get_coverage_gate() -> CoverageGate:
                     weights=weights
                 )
             else:
-                # Use defaults
+                # Use defaults with BGE model
                 _COVERAGE_GATE = CoverageGate(
-                    model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
-                    tau=0.45, alpha=0.5,
+                    model_name=model_name,
+                    device=device,
+                    tau=tau,  # BGE threshold
+                    alpha=0.5,
                     gate_ar=0.60, gate_andcg=0.40,
                     min_actionable_spans=3
                 )
         except Exception as e:
-            # Fallback to defaults on any config error
+            # Fallback to BGE defaults on any config error
             _COVERAGE_GATE = CoverageGate(
-                model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
-                tau=0.45, alpha=0.5,
+                model_name="BAAI/bge-reranker-v2-m3",
+                device="auto",
+                tau=0.25,
+                alpha=0.5,
                 gate_ar=0.60, gate_andcg=0.40,
                 min_actionable_spans=3
             )

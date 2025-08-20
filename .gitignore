@@ -66,4 +66,11 @@ coverage.xml
 # MyPy
 .mypy_cache/
 .dmypy.json
-dmypy.json
+dmypy.json.cache/
+.huggingface/
+**/models/
+**/*.safetensors
+**/*.bin
+**/checkpoints/
+**/runs/
+.venv311/

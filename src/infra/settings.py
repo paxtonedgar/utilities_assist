@@ -107,6 +107,60 @@ class CoverageConfig(BaseModel):
     weight_table: float = 0.05
 
 
+class RerankerConfig(BaseModel):
+    """Cross-encoder reranker configuration."""
+    enabled: bool = Field(
+        default=True,
+        validation_alias="RERANKER_ENABLED",
+        description="Enable cross-encoder reranking"
+    )
+    model_id: str = Field(
+        default="BAAI/bge-reranker-v2-m3",
+        validation_alias="RERANKER_MODEL_ID", 
+        description="Hugging Face model ID for reranker"
+    )
+    batch_size: int = Field(
+        default=32,
+        validation_alias="RERANKER_BATCH",
+        description="Batch size for reranking (lower for CPU)"
+    )
+    device: str = Field(
+        default="auto",
+        validation_alias="RERANKER_DEVICE",
+        description="Device preference: auto, mps, cuda, cpu"
+    )
+    hf_home: Optional[str] = Field(
+        default=None,
+        validation_alias="HF_HOME",
+        description="Hugging Face cache directory"
+    )
+    # Thresholds for gating
+    min_docs: int = Field(
+        default=3,
+        validation_alias="RERANK_MIN_DOCS",
+        description="Minimum docs required for actionable answer"
+    )
+    min_score: float = Field(
+        default=0.25,
+        validation_alias="RERANK_MIN_SCORE", 
+        description="Drop passages below this score"
+    )
+    top_k: int = Field(
+        default=8,
+        validation_alias="RERANK_TOP_K",
+        description="Maximum docs to pass to composer"
+    )
+    # Performance settings
+    max_length: int = Field(
+        default=512,
+        description="Maximum token length for input truncation"
+    )
+    use_fp16: bool = Field(
+        default=True,
+        description="Use FP16 precision on GPU (MPS/CUDA)"
+    )
+
+
 class ApplicationSettings(BaseSettings):
     """Main application settings with profile-aware configuration."""
     
@@ -162,6 +216,7 @@ class ApplicationSettings(BaseSettings):
     aws_info: Optional[AWSConfig] = None
     opensearch: Optional[OpenSearchConfig] = None
     coverage: Optional[CoverageConfig] = None
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     
     # File paths
     synonyms_file_path: str = "data/synonyms.json"
@@ -204,7 +259,8 @@ class ApplicationSettings(BaseSettings):
                 ('azure_openai', AzureOpenAIConfig),
                 ('aws_info', AWSConfig), 
                 ('opensearch', OpenSearchConfig),
-                ('coverage', CoverageConfig)
+                ('coverage', CoverageConfig),
+                ('reranker', RerankerConfig)
             ]:
                 if config.has_section(section_name):
                     section_data = dict(config[section_name])

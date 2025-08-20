@@ -1,69 +1,38 @@
-# src/list_models.py
-import sys, cdao
+import os, sys
+from typing import List, Tuple
 
-# terms to search for (defaults target rerankers / MiniLM / BGE)
-TERMS = [t.lower() for t in (sys.argv[1:] or ["mini", "lm", "bge", "reranker"])]
+# Choose one here (or pass via CLI)
+MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+QUERY  = "How do I onboard to ETU in our environment?"
+DOCS   = [
+    "ETU: Enhanced Transaction Utility. To onboard, open a Jira in project ETUONB and attach the service form.",
+    "Energy Transfer Unit is a physics concept unrelated to onboarding.",
+    "Contact the ETU platform team on Slack #etu-onboarding. Prereqs: AppID, VPC egress, ServiceNOW change.",
+    "This is a glossary page with a definition only."
+]
 
-def call(fn_name, *args, **kwargs):
-    fn = getattr(cdao, fn_name, None)
-    if not fn:
-        return []
-    try:
-        return fn(*args, **kwargs)
-    except TypeError:
-        try:
-            return fn()
-        except Exception:
-            return []
-    except Exception:
-        return []
+def use_flagembedding(model_id: str) -> bool:
+    return model_id.lower().startswith("baai/bge-reranker") or "bge-reranker" in model_id.lower()
 
-def yield_rows():
-    # Try a few possible list/search entry points; SDKs vary by version
-    for fn in ("public_models_list_all",
-               "public_models_list_models",
-               "public_models_search",
-               "models_list",
-               "list_models"):
-        for r in call(fn, q=""):
-            yield r
+def rerank_flagembedding(model_id: str, query: str, docs: List[str]) -> List[Tuple[str,float]]:
+    from FlagEmbedding import FlagReranker
+    rr = FlagReranker(model_id, use_fp16=True, device="cuda" if os.environ.get("CUDA_VISIBLE_DEVICES","") else "cpu")
+    scores = rr.compute_score([(query, d) for d in docs], normalize=True)
+    return sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
 
-def name_of(r):
-    if isinstance(r, str):
-        return r
-    if isinstance(r, dict):
-        for k in ("model_unique_name","unique_name","name","id","model_name"):
-            if r.get(k):
-                return r[k]
-    for k in ("model_unique_name","unique_name","name","id","model_name"):
-        if hasattr(r, k):
-            v = getattr(r, k)
-            if v:
-                return v
-    return None
+def rerank_sentence_transformers(model_id: str, query: str, docs: List[str]) -> List[Tuple[str,float]]:
+    from sentence_transformers import CrossEncoder
+    rr = CrossEncoder(model_id, device="cuda" if os.environ.get("CUDA_VISIBLE_DEVICES","") else "cpu")
+    scores = rr.predict([[query, d] for d in docs])
+    return sorted(zip(docs, [float(s) for s in scores]), key=lambda x: x[1], reverse=True)
 
-def matches(name):
-    s = name.lower()
-    return all(t in s for t in TERMS)
+if __name__ == "__main__":
+    if len(sys.argv) > 1: MODEL = sys.argv[1]
+    if use_flagembedding(MODEL):
+        ranked = rerank_flagembedding(MODEL, QUERY, DOCS)
+    else:
+        ranked = rerank_sentence_transformers(MODEL, QUERY, DOCS)
 
-# collect candidates
-all_names = set()
-for r in yield_rows():
-    n = name_of(r)
-    if n:
-        all_names.add(n)
-
-cands = sorted(n for n in all_names if matches(n))
-
-print("\nCandidates (may include 3- or 4-segment names):")
-for n in cands:
-    print(" -", n)
-
-# If we saw 3-segment prefixes, show all 4-segment variants that exist
-prefixes = [n for n in cands if len(n.split("__")) == 3]
-if prefixes:
-    print("\nVariants for 3-segment prefixes (choose one of these):")
-    for p in prefixes:
-        vs = sorted(x for x in all_names if x.startswith(p + "__"))
-        for v in vs:
-            print(" -", v)
+    print(f"\nModel: {MODEL}")
+    for i, (d, s) in enumerate(ranked, 1):
+        print(f"{i:>2}. {s:6.3f}  {d[:120]}")
