@@ -79,6 +79,9 @@ class CrossEncodeReranker:
         # Device selection with fallback
         self.device = self._select_device(device)
         
+        # Determine model path - use local model if available
+        self.model_path = self._get_model_path(model_id)
+        
         # Set HF_HOME if provided to keep weights out of repo
         if 'HF_HOME' in os.environ:
             os.environ['TRANSFORMERS_CACHE'] = os.environ['HF_HOME']
@@ -89,6 +92,55 @@ class CrossEncodeReranker:
         self._initialize_model()
         
         logger.info(f"CrossEncodeReranker initialized: model={model_id}, device={self.device}, batch_size={batch_size}")
+    
+    def _get_model_path(self, model_id: str) -> str:
+        """Get local model path if available, otherwise use HuggingFace ID."""
+        if model_id == "BAAI/bge-reranker-v2-m3":
+            # Check for local model first
+            from pathlib import Path
+            local_model_path = Path(__file__).parent.parent.parent / "models" / "bge-reranker-v2-m3"
+            
+            if local_model_path.exists():
+                model_file = local_model_path / "model.safetensors"
+                zip_file = local_model_path / "model-weights.zip"
+                
+                # Check if model file exists
+                if model_file.exists():
+                    logger.info(f"Using local model: {local_model_path}")
+                    return str(local_model_path)
+                
+                # Check if zip file exists and extract it
+                elif zip_file.exists():
+                    logger.info(f"Found zipped model, extracting: {zip_file}")
+                    self._extract_model_zip(zip_file, local_model_path)
+                    if model_file.exists():
+                        logger.info(f"Using extracted local model: {local_model_path}")
+                        return str(local_model_path)
+        
+        # Fallback to HuggingFace ID
+        logger.info(f"Using HuggingFace model: {model_id}")
+        return model_id
+    
+    def _extract_model_zip(self, zip_path, extract_to):
+        """Extract model weights from zip file."""
+        try:
+            import zipfile
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Extract only the model.safetensors file
+                for file in zip_ref.namelist():
+                    if file.endswith('model.safetensors'):
+                        # Extract with correct path
+                        zip_ref.extract(file, extract_to.parent)
+                        # Move to correct location if needed
+                        extracted_file = extract_to.parent / file
+                        target_file = extract_to / "model.safetensors"
+                        if extracted_file != target_file:
+                            extracted_file.rename(target_file)
+                        logger.info(f"Extracted model weights to: {target_file}")
+                        break
+        except Exception as e:
+            logger.error(f"Failed to extract model zip: {e}")
+            raise
     
     def _select_device(self, device_pref: str) -> str:
         """Select device with fallback logic."""
@@ -112,9 +164,9 @@ class CrossEncodeReranker:
         try:
             start_time = time.time()
             
-            # Load model
+            # Load model from determined path (local or HuggingFace)
             self.model = CrossEncoder(
-                self.model_id,
+                self.model_path,
                 max_length=self.max_length,
                 device=self.device
             )

@@ -74,17 +74,19 @@ dmypy.json
 .transformers_cache/
 .torch/
 **/.cache/
-**/models/
 **/hub/
 **/checkpoints/
 **/runs/
-**/*.safetensors
-**/*.bin
-**/*.pt
-**/*.ckpt
-**/*.pth
+# Include our versioned model directory
+!models/
+models/**/.cache/
+models/**/hub/
+# Allow model zip files in our models directory
+!models/**/*.zip
+# Exclude extracted large model files (will be auto-extracted from zip)
+models/**/model.safetensors
+# But exclude these patterns everywhere else  
 **/*.tar.gz
-**/*.zip
 
 # Virtual environments
 .venv311/
