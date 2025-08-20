@@ -75,7 +75,6 @@ class GraphState(TypedDict, total=False):
     rewrite_attempts: int
     
     # Configuration
-    coverage_threshold: float
     min_results: int
     
     # Error handling
@@ -87,7 +86,6 @@ class GraphState(TypedDict, total=False):
 
 def create_graph(
     enable_loops: bool = True, 
-    coverage_threshold: float = 0.7, 
     min_results: int = 3,
     checkpointer=None,
     store=None
@@ -100,10 +98,10 @@ def create_graph(
     - Separated routing logic for better testability  
     - Clean node implementations following SRP
     - Maintained exact same external API
+    - Replaced old coverage threshold with cross-encoder gate system
     
     Args:
         enable_loops: Whether to enable iterative refinement loops
-        coverage_threshold: Minimum coverage score to avoid re-search
         min_results: Minimum number of results required
         checkpointer: Optional checkpointer for conversation persistence
         store: Optional store for cross-thread user memory
@@ -155,7 +153,7 @@ def create_graph(
     # Coverage checking with extracted logic
     if enable_loops:
         def check_coverage_wrapper(state):
-            return CoverageChecker.check_coverage(state, coverage_threshold, min_results)
+            return CoverageChecker.check_coverage(state, min_results)
         
         workflow.add_conditional_edges(
             "search_confluence",

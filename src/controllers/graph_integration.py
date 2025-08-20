@@ -282,7 +282,6 @@ async def handle_turn_with_graph(
         # Create and configure graph with persistence
         graph = create_graph(
             enable_loops=True,
-            coverage_threshold=0.7,
             min_results=3,
             checkpointer=checkpointer,
             store=store
@@ -327,7 +326,6 @@ async def handle_turn_with_graph(
             "workflow_path": [],
             "loop_count": 0,
             "rewrite_attempts": 0,  # Track rewrite attempts to prevent infinite loops
-            "coverage_threshold": 0.7,
             "min_results": 3,
             "error_messages": [],
             "_use_mock_corpus": False  # CRITICAL: Turn mocks OFF - use real OpenSearch

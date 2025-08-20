@@ -14,6 +14,9 @@ import math
 from src.agent.constants import NORMALIZED_QUERY
 from src.agent.nodes.base_node import to_state_dict
 
+# Import centralized coverage utilities (eliminates duplication)
+from src.quality.utils import get_coverage_gate, run_coverage_evaluation, convert_search_results_to_passages
+
 
 logger = logging.getLogger(__name__)
 
@@ -157,15 +160,13 @@ class CoverageChecker:
     def check_coverage(
         cls, 
         state, 
-        coverage_threshold: float = 0.7, 
         min_results: int = 3
     ) -> CoverageRouteDestination:
         """
-        Check if search results meet coverage requirements.
+        Check if search results meet coverage requirements using cross-encoder gate.
         
         Args:
             state: Current graph state (GraphState or dict)
-            coverage_threshold: Minimum coverage score required
             min_results: Minimum number of results required
             
         Returns:
@@ -211,32 +212,38 @@ class CoverageChecker:
             logger.info(f"Insufficient results ({len(search_results)} < {min_results}), rewriting query")
             return "rewrite"
         
-        # Check coverage score if available
-        # This would need to be implemented based on your coverage calculation
-        coverage_score = cls._calculate_coverage_score(s)
-        if coverage_score < coverage_threshold:
-            logger.info(f"Low coverage score ({coverage_score:.2f} < {coverage_threshold}), rewriting query")
+        # Use cross-encoder coverage evaluation (replaces old handwritten math)
+        coverage_result = cls._evaluate_coverage_with_gate(s)
+        
+        if not coverage_result["gate_pass"]:
+            logger.info(f"Coverage gate failed: AR={coverage_result['aspect_recall']:.3f}, αnDCG={coverage_result['alpha_ndcg']:.3f}, actionable={coverage_result['actionable_spans']} - rewriting query")
             return "rewrite"
         
-        logger.info(f"Coverage acceptable ({coverage_score:.2f}), proceeding to combine")
+        logger.info(f"Coverage gate passed: AR={coverage_result['aspect_recall']:.3f}, αnDCG={coverage_result['alpha_ndcg']:.3f} - proceeding to combine")
         return "combine"
     
     @classmethod
     def _calculate_coverage_score(cls, state_dict: Dict[str, Any]) -> float:
-        """Calculate normalized coverage score from search results."""
+        """Calculate coverage score using cross-encoder answerability and aspect recall."""
         search_results = state_dict.get("search_results", [])
-        if not search_results:
-            return 0.0
+        normalized_query = state_dict.get(NORMALIZED_QUERY, "")
         
-        avg_score = sum(r.score for r in search_results) / len(search_results)
-        return cls._normalize_score(avg_score)
+        # Use centralized coverage evaluation (eliminates code duplication)
+        result = run_coverage_evaluation(normalized_query, search_results)
+        return result["aspect_recall"]
     
     @classmethod
-    def _normalize_score(cls, score: float) -> float:
-        """Normalize search scores to 0-1 range for consistent threshold comparison."""
-        if score <= 2.0:
-            # Already normalized (embedding similarity scores)
-            return max(0.0, min(1.0, score))
+    def _evaluate_coverage_with_gate(cls, state_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Full coverage evaluation using cross-encoder gate - replaces old coverage logic."""
+        search_results = state_dict.get("search_results", [])
+        normalized_query = state_dict.get(NORMALIZED_QUERY, "")
         
-        # OpenSearch scores (1-30+ range) - use sigmoid normalization
-        return 1.0 / (1.0 + math.exp(-(score - 10.0) / 5.0))
+        # Use centralized coverage evaluation (eliminates code duplication)
+        result = run_coverage_evaluation(normalized_query, search_results)
+        
+        return {
+            "gate_pass": result["gate_pass"],
+            "aspect_recall": result["aspect_recall"],
+            "alpha_ndcg": result["alpha_ndcg"],
+            "actionable_spans": result["actionable_spans"]
+        }
