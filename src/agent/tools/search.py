@@ -128,12 +128,25 @@ async def search_index_tool(
                 if coverage_result["gate_pass"]:
                     # Coverage passed - safe to run expensive cross-encoder reranking
                     from src.services.retrieve import _cross_encoder_rerank
-                    reranked_results = _cross_encoder_rerank(
-                        query=query,
-                        results=rrf_result.results,
-                        top_k=4,  # Reduce from 8→4 for cheaper reranking
-                        max_rerank_ms=2000   # Add timeout guardrail
-                    )
+                    import inspect
+                    
+                    # Check if function supports max_rerank_ms parameter (backwards compatibility)
+                    sig = inspect.signature(_cross_encoder_rerank)
+                    if 'max_rerank_ms' in sig.parameters:
+                        reranked_results = _cross_encoder_rerank(
+                            query=query,
+                            results=rrf_result.results,
+                            top_k=4,  # Reduce from 8→4 for cheaper reranking
+                            max_rerank_ms=2000   # Add timeout guardrail
+                        )
+                    else:
+                        # Fallback for older function signature
+                        logger.warning("Using older _cross_encoder_rerank without timeout guardrail")
+                        reranked_results = _cross_encoder_rerank(
+                            query=query,
+                            results=rrf_result.results,
+                            top_k=4  # Reduce from 8→4 for cheaper reranking
+                        )
                     method_name = "enhanced_rrf_ce"
                     final_results = reranked_results
                 else:
