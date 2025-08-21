@@ -194,19 +194,47 @@ def initialize_session():
             health = health_check()
             logger.info(f"Resource health: {health['status']} (eliminates 25-50% response time overhead)")
             
+            # Initialize reranker at startup to avoid delays during search
+            try:
+                logger.info("Initializing BGE reranker at startup...")
+                from src.services.reranker import get_reranker, is_reranker_available
+                
+                if is_reranker_available() and st.session_state.settings.reranker.enabled:
+                    reranker = get_reranker()
+                    if reranker:
+                        st.session_state.reranker_initialized = True
+                        logger.info(f"✅ BGE reranker initialized successfully at startup (device: {reranker.device})")
+                    else:
+                        st.session_state.reranker_initialized = False
+                        logger.warning("⚠️ BGE reranker failed to initialize - will use fallback scoring")
+                else:
+                    st.session_state.reranker_initialized = False
+                    if not st.session_state.settings.reranker.enabled:
+                        logger.info("BGE reranker disabled in settings")
+                    else:
+                        logger.info("BGE reranker dependencies not available")
+                        
+            except Exception as reranker_error:
+                logger.warning(f"BGE reranker initialization failed: {reranker_error}")
+                st.session_state.reranker_initialized = False
+            
         except Exception as e:
             logger.error(f"Failed to initialize resources: {e}")
             st.error(f"⚠️ Resource initialization failed: {e}")
             st.error("Performance will be degraded. Please refresh the page.")
             st.session_state.resources = None
             st.session_state.resources_initialized = False
+            st.session_state.reranker_initialized = False
 
 def render_header():
-    """Simple, clean header."""
-    st.markdown("""
+    """Simple, clean header with system status."""
+    # Get reranker status from session state
+    reranker_status = "✅ BGE Enhanced" if st.session_state.get("reranker_initialized", False) else "⚪ Standard"
+    
+    st.markdown(f"""
     <div class="header">
         <h1>Utilities Assistant</h1>
-        <p>Enterprise Knowledge Search</p>
+        <p>Enterprise Knowledge Search <span style="color: #666; font-size: 0.8em;">({reranker_status})</span></p>
     </div>
     """, unsafe_allow_html=True)
 
