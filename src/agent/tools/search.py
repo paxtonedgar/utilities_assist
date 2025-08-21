@@ -120,47 +120,56 @@ async def search_index_tool(
                     lambda_param=0.75
                 )
                 
-                # PERFORMANCE FIX: Check coverage on RRF results BEFORE expensive cross-encoder
-                # This prevents 7-8s reranking when results will fail coverage anyway
-                from src.quality.utils import run_coverage_evaluation
-                coverage_result = run_coverage_evaluation(query, rrf_result.results)
+                # CRITICAL FIX: Check unique docs in RRF BEFORE expensive cross-encoder
+                # Count unique doc_ids to avoid rerank→collapse→coverage fail loop
+                unique_docs = len(set(r.doc_id for r in rrf_result.results))
+                logger.info(f"RRF unique docs: {unique_docs} (need ≥3 for coverage)")
                 
-                if coverage_result["gate_pass"]:
-                    # Coverage passed - safe to run expensive cross-encoder reranking
-                    from src.services.retrieve import _cross_encoder_rerank
-                    import inspect
-                    
-                    # Check if function supports max_rerank_ms parameter (backwards compatibility)
-                    sig = inspect.signature(_cross_encoder_rerank)
-                    if 'max_rerank_ms' in sig.parameters:
+                if unique_docs >= 3:
+                    # Sufficient unique docs - safe to run cross-encoder reranking
+                    try:
+                        # Import the cross-encoder function directly (avoid import cache issues)
+                        from src.services.retrieve import _cross_encoder_rerank
+                        
+                        logger.info("Running cross-encoder reranking with timeout guardrail")
                         reranked_results = _cross_encoder_rerank(
                             query=query,
                             results=rrf_result.results,
                             top_k=4,  # Reduce from 8→4 for cheaper reranking
                             max_rerank_ms=2000   # Add timeout guardrail
                         )
+                    except TypeError as e:
+                        if "max_rerank_ms" in str(e):
+                            logger.warning("Function doesn't support max_rerank_ms yet, using fallback")
+                            from src.services.retrieve import _cross_encoder_rerank
+                            reranked_results = _cross_encoder_rerank(
+                                query=query,
+                                results=rrf_result.results,
+                                top_k=4
+                            )
+                        else:
+                            raise
+                    
+                    # If rerank collapses too much, fall back to RRF results
+                    if len(reranked_results) < 2:
+                        logger.warning(f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-6")
+                        final_results = rrf_result.results[:6]
+                        method_name = "enhanced_rrf_fallback"
                     else:
-                        # Fallback for older function signature
-                        logger.warning("Using older _cross_encoder_rerank without timeout guardrail")
-                        reranked_results = _cross_encoder_rerank(
-                            query=query,
-                            results=rrf_result.results,
-                            top_k=4  # Reduce from 8→4 for cheaper reranking
-                        )
-                    method_name = "enhanced_rrf_ce"
-                    final_results = reranked_results
+                        final_results = reranked_results
+                        method_name = "enhanced_rrf_ce"
                 else:
-                    # Coverage failed - skip expensive reranking, return RRF results
-                    logger.info(f"Coverage gate failed on RRF results (AR={coverage_result['aspect_recall']:.3f}), skipping cross-encoder to save ~7-8s")
+                    # Insufficient unique docs - skip expensive reranking
+                    logger.info(f"Insufficient unique docs ({unique_docs} < 3), skipping cross-encoder to save ~7-8s")
                     method_name = "enhanced_rrf_no_ce"
-                    final_results = rrf_result.results[:4]  # Consistent with rerank top_k
+                    final_results = rrf_result.results[:6]  # Return more docs when not reranking
                 
-                # Return result with coverage diagnostics
+                # Return result with diagnostics
                 diagnostics.update({
-                    "coverage_gate_pass": coverage_result["gate_pass"],
-                    "aspect_recall": coverage_result["aspect_recall"],
-                    "alpha_ndcg": coverage_result["alpha_ndcg"],
-                    "cross_encoder_skipped": not coverage_result["gate_pass"]
+                    "unique_docs_pre_rerank": unique_docs,
+                    "coverage_check": "unique_doc_count",
+                    "cross_encoder_skipped": unique_docs < 3,
+                    "method": method_name
                 })
                 
                 return RetrievalResult(
