@@ -131,7 +131,7 @@ async def search_index_tool(
                     reranked_results = _cross_encoder_rerank(
                         query=query,
                         results=rrf_result.results,
-                        top_k=min(top_k, 4),  # Reduce candidates for cheaper reranking
+                        top_k=4,  # Reduce from 8→4 for cheaper reranking
                         max_rerank_ms=2000   # Add timeout guardrail
                     )
                     method_name = "enhanced_rrf_ce"
@@ -140,7 +140,7 @@ async def search_index_tool(
                     # Coverage failed - skip expensive reranking, return RRF results
                     logger.info(f"Coverage gate failed on RRF results (AR={coverage_result['aspect_recall']:.3f}), skipping cross-encoder to save ~7-8s")
                     method_name = "enhanced_rrf_no_ce"
-                    final_results = rrf_result.results[:top_k]
+                    final_results = rrf_result.results[:4]  # Consistent with rerank top_k
                 
                 # Return result with coverage diagnostics
                 diagnostics.update({

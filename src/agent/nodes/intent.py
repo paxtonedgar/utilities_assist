@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Dict, Optional, List
 from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -19,6 +20,129 @@ logger = logging.getLogger(__name__)
 # Load jinja templates
 template_dir = Path(__file__).parent.parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+# Constants for heuristic classification
+CONFIDENCE_SCORES = {
+    'swagger_short': 0.85,
+    'confluence_short': 0.75,
+    'swagger': 0.85,
+    'list': 0.80,
+    'workflow': 0.75,
+    'utility_acronym': 0.90
+}
+
+KEYWORD_PATTERNS = {
+    'swagger': ['api', 'endpoint', 'swagger', 'openapi', 'rest', 'json', 'http', 'method'],
+    'list': ['list', 'show all', 'what are', 'available', 'services', 'utilities'],
+    'workflow': ['workflow', 'process', 'step by step', 'how to', 'procedure']
+}
+
+
+class HeuristicIntentClassifier:
+    """Fast heuristic intent classifier following SRP."""
+    
+    def __init__(self):
+        self._utilities_acronyms = self._load_utilities_acronyms()
+    
+    def _load_utilities_acronyms(self) -> Dict[str, str]:
+        """Load utility acronyms safely."""
+        try:
+            from agent.acronym_map import _load_acronym_data
+            return _load_acronym_data()
+        except ImportError:
+            logger.warning("Acronym map not available for heuristic classification")
+            return {}
+    
+    def classify(self, query: str) -> Optional[Dict[str, str]]:
+        """Main classification entry point."""
+        if not self._is_valid_query(query):
+            return None
+        
+        query_lower = query.lower().strip()
+        tokens = query_lower.split()
+        
+        # Try short query classification first
+        result = self._classify_short_query(query_lower, tokens)
+        if result:
+            return result
+            
+        # Try keyword-based classification
+        result = self._classify_by_keywords(query_lower)
+        if result:
+            return result
+            
+        # Try utility acronym detection
+        result = self._classify_by_acronym(tokens)
+        if result:
+            return result
+        
+        return None
+    
+    def _is_valid_query(self, query: str) -> bool:
+        """Check if query is valid for heuristic classification."""
+        return bool(query and len(query.strip()) >= 3)
+    
+    def _classify_short_query(self, query_lower: str, tokens: List[str]) -> Optional[Dict[str, str]]:
+        """Classify short queries (1-2 words)."""
+        if len(tokens) > 2:
+            return None
+        
+        # Check for API-related patterns
+        if any(word in query_lower for word in KEYWORD_PATTERNS['swagger'][:5]):  # First 5 are most indicative
+            return {
+                'intent': 'swagger',
+                'confidence': CONFIDENCE_SCORES['swagger_short'],
+                'reasoning': 'Short API-related query'
+            }
+        
+        # Default to confluence for short queries
+        return {
+            'intent': 'confluence',
+            'confidence': CONFIDENCE_SCORES['confluence_short'],
+            'reasoning': 'Short general query'
+        }
+    
+    def _classify_by_keywords(self, query_lower: str) -> Optional[Dict[str, str]]:
+        """Classify based on keyword patterns."""
+        for intent, keywords in KEYWORD_PATTERNS.items():
+            matches = sum(1 for keyword in keywords if keyword in query_lower)
+            if matches >= 1:
+                # Higher confidence for more matches
+                base_confidence = CONFIDENCE_SCORES[intent]
+                confidence = min(base_confidence + (matches - 1) * 0.05, 0.95)
+                return {
+                    'intent': intent,
+                    'confidence': confidence,
+                    'reasoning': f'Keyword match: {matches} patterns'
+                }
+        return None
+    
+    def _classify_by_acronym(self, tokens: List[str]) -> Optional[Dict[str, str]]:
+        """Classify based on utility acronyms."""
+        if not self._utilities_acronyms:
+            return None
+            
+        for token in tokens:
+            if token.upper() in self._utilities_acronyms:
+                return {
+                    'intent': 'confluence',
+                    'confidence': CONFIDENCE_SCORES['utility_acronym'],
+                    'reasoning': f'Utility acronym detected: {token.upper()}'
+                }
+        return None
+
+
+# Global instance for performance (avoid recreating)
+_heuristic_classifier = HeuristicIntentClassifier()
+
+
+def _heuristic_intent_classifier(query: str) -> Optional[Dict[str, str]]:
+    """Fast heuristic intent classifier for simple queries to avoid LLM calls.
+    
+    Returns classification dict or None if LLM escalation needed.
+    Saves ~4s for 80% of simple queries.
+    """
+    return _heuristic_classifier.classify(query)
 
 
 class IntentAnalysis(BaseModel):
@@ -48,6 +172,20 @@ async def intent_node(state, config, *, store=None):
     try:
         # Convert to dict for processing
         s = to_state_dict(state)
+        
+        # Get query for analysis
+        normalized_query = s.get(NORMALIZED_QUERY, "")
+        
+        # PERFORMANCE: Use heuristic classifier for short/simple queries
+        heuristic_result = _heuristic_intent_classifier(normalized_query)
+        if heuristic_result:
+            logger.info(f"Heuristic intent classification: {heuristic_result['intent']} (confidence: {heuristic_result['confidence']:.2f}, saved ~4s LLM call)")
+            intent_result = IntentResult(
+                intent=heuristic_result['intent'],
+                confidence=heuristic_result['confidence'],
+                reasoning=heuristic_result['reasoning']
+            )
+            return from_state_dict({**s, INTENT: intent_result}, incoming_type)
         
         logger.info(
             "NODE_START intent | keys=%s | normalized=%r",

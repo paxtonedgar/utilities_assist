@@ -7,6 +7,7 @@ Replaces individual wrapper functions with clean, testable classes.
 
 from typing import Dict, Any, List
 import logging
+import re
 
 from .base_node import SearchNodeHandler
 from src.agent.nodes.summarize import summarize_node
@@ -21,6 +22,22 @@ from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
 from src.infra.resource_manager import get_resources
 from agent.nodes.base_node import get_intent_confidence
 from src.infra.search_config import OpenSearchConfig
+
+# Constants for query expansion
+UTILITY_SYNONYMS = {
+    'api': ['service', 'endpoint', 'interface'],
+    'service': ['api', 'utility', 'tool'],
+    'onboard': ['setup', 'configure', 'integrate'],
+    'setup': ['onboard', 'configure', 'install'],
+    'guide': ['documentation', 'instructions', 'tutorial'],
+    'help': ['documentation', 'guide', 'support'],
+    'client': ['application', 'integration', 'consumer'],
+    'auth': ['authentication', 'authorization', 'security'],
+    'config': ['configuration', 'settings', 'properties'],
+    'error': ['issue', 'problem', 'troubleshooting']
+}
+
+SEARCH_OPERATORS = ['AND', 'OR', 'NOT', '"', '(', ')', '*', '?']
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +336,19 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
                 rewrite_attempts=state.get("rewrite_attempts", 0) + 1
             )
         
-        # Perform query rewriting
+        # Check if we can use lightweight expansion instead of expensive LLM rewrite
+        if len(normalized_query) < 32 and not self._has_operators(normalized_query):
+            logger.info(f"Short query detected ({len(normalized_query)} chars), trying lightweight expansion first")
+            expanded_query = self._lightweight_query_expansion(normalized_query)
+            if expanded_query != normalized_query:
+                logger.info(f"Lightweight expansion: '{normalized_query}' -> '{expanded_query}'")
+                return self._preserve_state_with_path(state, "rewrite_query",
+                    **{NORMALIZED_QUERY: expanded_query},
+                    loop_count=loop_count + 1,
+                    rewrite_attempts=state.get("rewrite_attempts", 0) + 1
+                )
+        
+        # Perform full LLM query rewriting
         rewritten_query = await self._rewrite_query(
             original_query, normalized_query, search_results
         )
@@ -498,6 +527,53 @@ IMPORTANT: This is JPMorgan utilities documentation.
         cleaned = ' '.join(cleaned.split())
         
         return cleaned
+    
+    def _has_operators(self, query: str) -> bool:
+        """Check if query already has search operators."""
+        query_upper = query.upper()
+        return any(op in query_upper for op in SEARCH_OPERATORS)
+    
+    def _lightweight_query_expansion(self, query: str) -> str:
+        """Lightweight query expansion using synonyms and domain context."""
+        # Try acronym expansion first (most specific)
+        acronym_result = self._try_acronym_expansion(query)
+        if acronym_result != query:
+            return acronym_result
+        
+        # Try synonym expansion
+        return self._apply_synonym_expansion(query)
+    
+    def _try_acronym_expansion(self, query: str) -> str:
+        """Try to expand utility acronyms."""
+        try:
+            from agent.acronym_map import expand_acronym
+            expanded_query, expansions = expand_acronym(query)
+            if expansions:
+                return f"{query} {expansions[0]} onboarding"
+        except ImportError:
+            logger.debug("Acronym map not available for query expansion")
+        except Exception as e:
+            logger.debug(f"Acronym expansion failed: {e}")
+        return query
+    
+    def _apply_synonym_expansion(self, query: str) -> str:
+        """Apply synonym expansion to query terms."""
+        tokens = query.lower().split()
+        expanded_terms = []
+        
+        # Add synonyms for key terms
+        for token in tokens:
+            if token in UTILITY_SYNONYMS:
+                # Add one synonym to broaden search
+                expanded_terms.extend([token, UTILITY_SYNONYMS[token][0]])
+            else:
+                expanded_terms.append(token)
+        
+        # Add common utility search terms if query is very short
+        if len(tokens) <= 2:
+            expanded_terms.extend(['documentation', 'guide'])
+        
+        return ' '.join(expanded_terms)
     
     def _fallback_rewrite(self, query: str) -> str:
         """Fallback rewrite strategy when LLM is unavailable - REAL implementation."""

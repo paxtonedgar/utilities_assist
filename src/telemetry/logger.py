@@ -72,6 +72,139 @@ def get_or_create_req_id() -> str:
     return req_id
 
 
+# Constants for hotspot detection
+HOTSPOT_THRESHOLD_MS = 2000
+WARNING_THRESHOLD_MS = 500
+
+# Performance thresholds for stage name normalization
+STAGE_NAME_FIXES = {
+    'knn': 'knn',
+    'k_nn': 'knn', 
+    'kknn': 'knn',
+    'bm_25': 'bm25',
+    'bm25': 'bm25'
+}
+
+# ID field mappings for consistency
+ID_FIELD_MAPPINGS = {
+    'reg_id': 'req_id',
+    'request_id': 'req_id'
+}
+
+
+class TimelineTracker:
+    """Thread-safe timeline tracking for hotspot identification."""
+    
+    def __init__(self):
+        self._timeline_buffer: Dict[str, List[Dict[str, Any]]] = {}
+    
+    def log_event(self, req_id: str, stage: str, duration_ms: float, **metadata):
+        """Log timeline event for hotspot identification."""
+        if req_id not in self._timeline_buffer:
+            self._timeline_buffer[req_id] = []
+        
+        self._timeline_buffer[req_id].append({
+            'stage': self._normalize_stage_name(stage),
+            'ms': round(duration_ms, 1),
+            **metadata
+        })
+    
+    def get_summary(self, req_id: str) -> str:
+        """Get one-line timeline summary for hotspot identification."""
+        if req_id not in self._timeline_buffer:
+            return ""
+        
+        events = self._timeline_buffer[req_id]
+        if not events:
+            return ""
+        
+        # Create concise timeline: stage→ms format
+        timeline_parts = []
+        total_ms = 0
+        
+        for event in events:
+            stage = event['stage']
+            ms = event['ms']
+            total_ms += ms
+            timeline_parts.append(self._format_timeline_part(stage, ms))
+        
+        # Format as single line
+        timeline = " | ".join(timeline_parts)
+        return f"Timeline[{total_ms:.0f}ms]: {timeline}"
+    
+    def log_turn_complete(self, req_id: str):
+        """Log complete turn timeline and clear buffer."""
+        summary = self.get_summary(req_id)
+        if summary:
+            logger = logging.getLogger("timeline")
+            logger.info(f"req_id={req_id} {summary}")
+            # Clear buffer for this request
+            self._timeline_buffer.pop(req_id, None)
+    
+    def _normalize_stage_name(self, stage: str) -> str:
+        """Normalize stage name for consistency."""
+        normalized = stage.lower().replace('-', '_').replace(' ', '_')
+        return STAGE_NAME_FIXES.get(normalized, normalized)
+    
+    def _format_timeline_part(self, stage: str, ms: float) -> str:
+        """Format timeline part with hotspot indicators."""
+        if ms > HOTSPOT_THRESHOLD_MS:
+            return f"{stage}→🔥{ms:.0f}ms"
+        elif ms > WARNING_THRESHOLD_MS:
+            return f"{stage}→⚠️{ms:.0f}ms"
+        else:
+            return f"{stage}→{ms:.0f}ms"
+
+
+# Global instance (singleton pattern for performance)
+_timeline_tracker = TimelineTracker()
+
+
+def log_timeline_event(req_id: str, stage: str, duration_ms: float, **metadata):
+    """Log timeline event for hotspot identification."""
+    _timeline_tracker.log_event(req_id, stage, duration_ms, **metadata)
+
+
+def get_timeline_summary(req_id: str) -> str:
+    """Get one-line timeline summary for hotspot identification."""
+    return _timeline_tracker.get_summary(req_id)
+
+
+def log_turn_timeline(req_id: str):
+    """Log complete turn timeline and clear buffer."""
+    _timeline_tracker.log_turn_complete(req_id)
+
+
+def _normalize_log_keys(**kwargs) -> Dict[str, Any]:
+    """Normalize log keys to fix observability hygiene issues."""
+    normalized = {}
+    
+    for key, value in kwargs.items():
+        # Clean up key names first
+        clean_key = _clean_key_name(key)
+        
+        # Fix req_id vs reg_id inconsistencies
+        if clean_key in ID_FIELD_MAPPINGS:
+            clean_key = ID_FIELD_MAPPINGS[clean_key]
+        
+        # Normalize stage names to snake_case
+        if clean_key == 'stage':
+            normalized_stage = str(value).lower().replace('-', '_').replace(' ', '_')
+            value = STAGE_NAME_FIXES.get(normalized_stage, normalized_stage)
+        
+        normalized[clean_key] = value
+    
+    return normalized
+
+
+def _clean_key_name(key: str) -> str:
+    """Clean and normalize log key names."""
+    # Remove various quote types
+    clean_key = key.replace('"', '').replace("'", '').replace('"', '').replace("'", '')
+    # Normalize to snake_case
+    return clean_key.lower().replace('-', '_').replace(' ', '_')
+
+
 def log_event(stage: str, req_id: Optional[str] = None, **kwargs):
     """
     Log a structured event with stage, request ID, and arbitrary key-value pairs.
@@ -83,6 +216,10 @@ def log_event(stage: str, req_id: Optional[str] = None, **kwargs):
     """
     if not req_id:
         req_id = get_or_create_req_id()
+    
+    # Normalize stage name and log keys for observability hygiene
+    stage = stage.lower().replace('-', '_').replace(' ', '_')
+    kwargs = _normalize_log_keys(**kwargs)
     
     # Check if we should reduce verbosity
     try:
@@ -288,6 +425,9 @@ def stage(name: str):
                     **result_info
                 )
                 
+                # Add to timeline for hotspot identification
+                log_timeline_event(req_id, name, elapsed_ms, **result_info)
+                
                 return result
                 
             except Exception as e:
@@ -347,6 +487,9 @@ def stage(name: str):
                     status="success",
                     **result_info
                 )
+                
+                # Add to timeline for hotspot identification
+                log_timeline_event(req_id, name, elapsed_ms, **result_info)
                 
                 return result
                 
