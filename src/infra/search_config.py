@@ -12,6 +12,7 @@ from dataclasses import dataclass
 @dataclass
 class IndexConfig:
     """Configuration for a specific OpenSearch index."""
+
     name: str
     content_fields: List[str]  # Fields that contain document content
     metadata_fields: List[str]  # Fields for metadata/filtering
@@ -19,145 +20,188 @@ class IndexConfig:
     title_fields: List[str]  # Fields to use for document titles
 
 
-@dataclass 
+@dataclass
 class SearchStrategy:
     """Configuration for search strategies."""
+
     name: str
     description: str
     uses_vector: bool
     timeout_seconds: float
 
 
-@dataclass 
+@dataclass
 class FilterConfig:
     """Configuration for search filters."""
+
     name: str
-    field_path: str  # OpenSearch field path (e.g., "content_type", "metadata.space_key")
+    field_path: (
+        str  # OpenSearch field path (e.g., "content_type", "metadata.space_key")
+    )
     description: str
 
 
 class OpenSearchConfig:
     """Centralized OpenSearch configuration."""
-    
+
     # === INDEX DEFINITIONS ===
     # Khub cluster embedding dimensions (confirmed from colleague's mapping)
     EMBEDDING_DIMENSIONS = 1536
-    
+
     MAIN_INDEX = IndexConfig(
         name="khub-opensearch-index",
         # Content fields: Using nested structure as found in v1-working-code
         content_fields=["sections.content"],
-        # Metadata fields: From mapping + fields actively used in codebase  
+        # Metadata fields: From mapping + fields actively used in codebase
         metadata_fields=[
             # From actual mapping
-            "title", "updated_at", "page_id", "canonical_id", "acl_hash", "content_type", "source", "section_anchor",
+            "title",
+            "updated_at",
+            "page_id",
+            "canonical_id",
+            "acl_hash",
+            "content_type",
+            "source",
+            "section_anchor",
             # From codebase usage (may be added during indexing)
-            "api_name", "utility_name", "page_url", "path", "space", "url", "app_name",
+            "api_name",
+            "utility_name",
+            "page_url",
+            "path",
+            "space",
+            "url",
+            "app_name",
             # From metadata object structure
-            "author", "space_key", "version", "labels"
+            "author",
+            "space_key",
+            "version",
+            "labels",
         ],
         vector_field="sections.embedding",
         # Title fields: Fields used to extract document titles
-        title_fields=["title", "api_name", "utility_name", "app_name"]
+        title_fields=["title", "api_name", "utility_name", "app_name"],
     )
-    
+
     SWAGGER_INDEX = IndexConfig(
-        name="khub-opensearch-swagger-index", 
+        name="khub-opensearch-swagger-index",
         content_fields=["body", "content", "text", "description", "summary"],
-        metadata_fields=["title", "app_name", "utility_name", "api_name", "page_url", "path", "method", "endpoint"],
+        metadata_fields=[
+            "title",
+            "app_name",
+            "utility_name",
+            "api_name",
+            "page_url",
+            "path",
+            "method",
+            "endpoint",
+        ],
         vector_field=None,  # Swagger index does not have proper knn_vector mapping - BM25 only
-        title_fields=["title", "app_name", "api_name"]
+        title_fields=["title", "app_name", "api_name"],
     )
-    
+
     # === SEARCH STRATEGIES ===
     STRATEGIES = {
         "hybrid": SearchStrategy("hybrid", "BM25 + KNN hybrid search", True, 3.0),
-        "enhanced_rrf": SearchStrategy("enhanced_rrf", "RRF fusion of BM25 and KNN", True, 2.5),
+        "enhanced_rrf": SearchStrategy(
+            "enhanced_rrf", "RRF fusion of BM25 and KNN", True, 2.5
+        ),
         "bm25": SearchStrategy("bm25", "Pure BM25 text search", False, 2.0),
-        "knn": SearchStrategy("knn", "Pure vector similarity search", True, 2.0)
+        "knn": SearchStrategy("knn", "Pure vector similarity search", True, 2.0),
     }
-    
+
     # === FILTER CONFIGURATIONS ===
     FILTERS = {
-        "content_type": FilterConfig("content_type", "content_type", "Filter by document content type"),
-        "acl_hash": FilterConfig("acl_hash", "acl_hash", "Filter by access control hash"),
-        "space_key": FilterConfig("space_key", "metadata.space_key", "Filter by Confluence space"),
-        "updated_after": FilterConfig("updated_after", "updated_at", "Filter by minimum update date"),
-        "updated_before": FilterConfig("updated_before", "updated_at", "Filter by maximum update date")
+        "content_type": FilterConfig(
+            "content_type", "content_type", "Filter by document content type"
+        ),
+        "acl_hash": FilterConfig(
+            "acl_hash", "acl_hash", "Filter by access control hash"
+        ),
+        "space_key": FilterConfig(
+            "space_key", "metadata.space_key", "Filter by Confluence space"
+        ),
+        "updated_after": FilterConfig(
+            "updated_after", "updated_at", "Filter by minimum update date"
+        ),
+        "updated_before": FilterConfig(
+            "updated_before", "updated_at", "Filter by maximum update date"
+        ),
     }
-    
+
     # === INTENT-BASED FILTER VALUES ===
     INTENT_FILTERS = {
         "confluence": {"content_type": "confluence"},
         "swagger": {"content_type": "api_spec"},
-        "api_spec": {"content_type": "api_spec"}  # Alias for swagger
+        "api_spec": {"content_type": "api_spec"},  # Alias for swagger
     }
-    
+
     # === FIELD CONFIGURATIONS ===
-    
+
     @classmethod
     def get_source_fields(cls, index_name: str) -> List[str]:
         """Get all fields to request in _source for an index."""
         index_config = cls._get_index_config(index_name)
         return index_config.content_fields + index_config.metadata_fields
-    
+
     @classmethod
     def get_content_fields(cls, index_name: str) -> List[str]:
         """Get content fields for an index (for content extraction)."""
         index_config = cls._get_index_config(index_name)
         return index_config.content_fields
-    
+
     @classmethod
     def get_vector_field(cls, index_name: str) -> str:
         """Get vector field name for an index."""
         index_config = cls._get_index_config(index_name)
         return index_config.vector_field
-    
+
     @classmethod
     def get_title_fields(cls, index_name: str) -> List[str]:
         """Get title fields for an index."""
         index_config = cls._get_index_config(index_name)
         return index_config.title_fields
-    
+
     @classmethod
     def get_search_strategy(cls, strategy_name: str) -> SearchStrategy:
         """Get search strategy configuration."""
         return cls.STRATEGIES.get(strategy_name, cls.STRATEGIES["enhanced_rrf"])
-    
+
     @classmethod
     def get_filter_config(cls, filter_name: str) -> Optional[FilterConfig]:
         """Get filter configuration by name."""
         return cls.FILTERS.get(filter_name)
-    
+
     @classmethod
     def get_intent_filters(cls, intent_type: str) -> Dict[str, Any]:
         """Get default filters for an intent type."""
         return cls.INTENT_FILTERS.get(intent_type, {}).copy()
-    
+
     @classmethod
-    def build_filter_clause(cls, filter_name: str, value: Any) -> Optional[Dict[str, Any]]:
+    def build_filter_clause(
+        cls, filter_name: str, value: Any
+    ) -> Optional[Dict[str, Any]]:
         """Build a single filter clause for OpenSearch."""
         filter_config = cls.get_filter_config(filter_name)
         if not filter_config:
             return None
-            
+
         if filter_name in ["updated_after", "updated_before"]:
             # Handle date range filters specially
             return None  # Handled by existing range filter logic
         else:
             # Standard term filter
             return {"term": {filter_config.field_path: value}}
-    
+
     @classmethod
     def get_default_index(cls) -> str:
         """Get default index name."""
         return cls.MAIN_INDEX.name
-    
+
     @classmethod
     def get_swagger_index(cls) -> str:
-        """Get Swagger API index name.""" 
+        """Get Swagger API index name."""
         return cls.SWAGGER_INDEX.name
-    
+
     @classmethod
     def _get_index_config(cls, index_name: str) -> IndexConfig:
         """Get index configuration by name."""
@@ -172,19 +216,17 @@ class OpenSearchConfig:
 
 # === QUERY TEMPLATES ===
 
+
 class QueryTemplates:
     """Reusable query templates for different search types."""
-    
+
     @staticmethod
     def build_hybrid_query(
-        text_query: str,
-        vector_query: List[float],
-        index_name: str,
-        k: int = 10
+        text_query: str, vector_query: List[float], index_name: str, k: int = 10
     ) -> Dict[str, Any]:
         """Build a hybrid search query with nested structure for kNN."""
         config = OpenSearchConfig._get_index_config(index_name)
-        
+
         # Build content query - use nested with inner_hits for sections
         content_query = None
         if any("sections." in field for field in config.content_fields):
@@ -192,19 +234,13 @@ class QueryTemplates:
             content_query = {
                 "nested": {
                     "path": "sections",
-                    "query": {
-                        "match": {
-                            "sections.content": {"query": text_query}
-                        }
-                    },
+                    "query": {"match": {"sections.content": {"query": text_query}}},
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
-                        "highlight": {
-                            "fields": {"sections.content": {}}
-                        },
-                        "sort": [{"_score": "desc"}]
-                    }
+                        "highlight": {"fields": {"sections.content": {}}},
+                        "sort": [{"_score": "desc"}],
+                    },
                 }
             }
         else:
@@ -212,12 +248,12 @@ class QueryTemplates:
             content_query = {
                 "multi_match": {
                     "query": text_query,
-                    "fields": [f"{field}^3" for field in config.content_fields] + 
-                             [f"{field}^4" for field in config.title_fields],
-                    "type": "best_fields"
+                    "fields": [f"{field}^3" for field in config.content_fields]
+                    + [f"{field}^4" for field in config.title_fields],
+                    "type": "best_fields",
                 }
             }
-        
+
         # Build vector query - only if index supports vectors
         vector_query_clause = None
         if config.vector_field and "sections." in config.vector_field:
@@ -229,77 +265,65 @@ class QueryTemplates:
                         "knn": {
                             "sections.embedding": {
                                 "vector": vector_query,
-                                "k": min(k, 20)
+                                "k": min(k, 20),
                             }
                         }
                     },
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
-                        "sort": [{"_score": "desc"}]
-                    }
+                        "sort": [{"_score": "desc"}],
+                    },
                 }
             }
         elif config.vector_field:
             # Use native knn for flat fields (if properly mapped)
             vector_query_clause = {
-                "knn": {
-                    config.vector_field: {
-                        "vector": vector_query,
-                        "k": min(k, 20)
-                    }
-                }
+                "knn": {config.vector_field: {"vector": vector_query, "k": min(k, 20)}}
             }
         # If vector_field is None, skip vector search entirely (BM25-only)
-        
+
         # Build query structure - handle case where vector search is disabled
         if vector_query_clause:
             # Hybrid search (BM25 + KNN)
             query_structure = {
                 "bool": {
                     "should": [content_query, vector_query_clause],
-                    "minimum_should_match": 1
+                    "minimum_should_match": 1,
                 }
             }
         else:
             # BM25-only search (when vector search is disabled)
             query_structure = content_query
-        
+
         return {
             "size": min(k, 20),  # Limit size to reduce over-fetching
             "query": query_structure,
-            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name),
+            "_source": ["api_name", "page_url", "title", "utility_name"]
+            + OpenSearchConfig.get_source_fields(index_name),
             "track_total_hits": True,  # Enable for proper error handling
         }
-    
-    @staticmethod 
+
+    @staticmethod
     def build_bm25_query(
-        text_query: str,
-        index_name: str,
-        k: int = 10
+        text_query: str, index_name: str, k: int = 10
     ) -> Dict[str, Any]:
         """Build a BM25-only search query."""
         config = OpenSearchConfig._get_index_config(index_name)
-        
+
         # Build content query - use nested with inner_hits if content fields have nested structure
         if any("sections." in field for field in config.content_fields):
             # Use nested query for sections with inner_hits (based on colleague's working code)
             query_clause = {
                 "nested": {
                     "path": "sections",
-                    "query": {
-                        "match": {
-                            "sections.content": {"query": text_query}
-                        }
-                    },
+                    "query": {"match": {"sections.content": {"query": text_query}}},
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
-                        "highlight": {
-                            "fields": {"sections.content": {}}
-                        },
-                        "sort": [{"_score": "desc"}]
-                    }
+                        "highlight": {"fields": {"sections.content": {}}},
+                        "sort": [{"_score": "desc"}],
+                    },
                 }
             }
         else:
@@ -307,92 +331,88 @@ class QueryTemplates:
             query_clause = {
                 "multi_match": {
                     "query": text_query,
-                    "fields": [f"{field}^2" for field in config.content_fields] + 
-                             [f"{field}^6" for field in config.title_fields],
-                    "type": "best_fields"
+                    "fields": [f"{field}^2" for field in config.content_fields]
+                    + [f"{field}^6" for field in config.title_fields],
+                    "type": "best_fields",
                 }
             }
-        
+
         return {
             "size": k,
             "query": query_clause,
-            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name)
+            "_source": ["api_name", "page_url", "title", "utility_name"]
+            + OpenSearchConfig.get_source_fields(index_name),
         }
-    
+
     @staticmethod
     def build_knn_query(
-        vector_query: List[float],
-        index_name: str,
-        k: int = 10
+        vector_query: List[float], index_name: str, k: int = 10
     ) -> Dict[str, Any]:
         """Build a KNN-only search query."""
         config = OpenSearchConfig._get_index_config(index_name)
-        
+
         # Build vector query - only if index supports vectors
         if not config.vector_field:
             # Index doesn't support vector search - return None to indicate KNN not available
             return None
-            
+
         if "sections." in config.vector_field:
             # Use nested with native knn query for sections.embedding (main index structure)
             query_clause = {
                 "nested": {
                     "path": "sections",
                     "query": {
-                        "knn": {
-                            "sections.embedding": {
-                                "vector": vector_query,
-                                "k": k
-                            }
-                        }
+                        "knn": {"sections.embedding": {"vector": vector_query, "k": k}}
                     },
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
-                        "sort": [{"_score": "desc"}]
-                    }
+                        "sort": [{"_score": "desc"}],
+                    },
                 }
             }
         else:
             # Use native knn for flat fields (if properly mapped)
             query_clause = {
-                "knn": {
-                    config.vector_field: {
-                        "vector": vector_query,
-                        "k": min(k, 20)
-                    }
-                }
+                "knn": {config.vector_field: {"vector": vector_query, "k": min(k, 20)}}
             }
-        
+
         return {
             "size": k,
             "query": query_clause,
-            "_source": ["api_name", "page_url", "title", "utility_name"] + OpenSearchConfig.get_source_fields(index_name),
-            "track_scores": True
+            "_source": ["api_name", "page_url", "title", "utility_name"]
+            + OpenSearchConfig.get_source_fields(index_name),
+            "track_scores": True,
         }
 
 
 # === CONVENIENCE FUNCTIONS ===
 
+
 def get_main_index() -> str:
     """Get main index name."""
     return OpenSearchConfig.get_default_index()
+
 
 def get_swagger_index() -> str:
     """Get Swagger index name."""
     return OpenSearchConfig.get_swagger_index()
 
+
 def get_content_fields(index_name: str) -> List[str]:
     """Get content fields for content extraction."""
     return OpenSearchConfig.get_content_fields(index_name)
+
 
 def get_source_fields(index_name: str) -> List[str]:
     """Get all _source fields to request."""
     return OpenSearchConfig.get_source_fields(index_name)
 
+
 def get_intent_filters(intent_type: str) -> Dict[str, Any]:
     """Get default filters for an intent type."""
     return OpenSearchConfig.get_intent_filters(intent_type)
+
 
 def build_filter_clause(filter_name: str, value: Any) -> Optional[Dict[str, Any]]:
     """Build a single filter clause for OpenSearch."""

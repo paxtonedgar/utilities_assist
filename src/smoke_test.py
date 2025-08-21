@@ -1,4 +1,3 @@
-import os, json
 import cdao
 
 # ---- pick one from your catalog UI ----
@@ -17,6 +16,7 @@ tok = AutoTokenizer.from_pretrained(local_path, use_fast=True)
 model = AutoModelForSequenceClassification.from_pretrained(local_path)
 model.eval()
 
+
 def score_pair(query: str, passage: str) -> float:
     # Works for pair-classification cross-encoders
     inputs = tok(query, passage, return_tensors="pt", truncation=True, max_length=512)
@@ -28,6 +28,7 @@ def score_pair(query: str, passage: str) -> float:
         else:
             score = torch.softmax(logits, dim=-1)[0, 1].item()
     return float(score)
+
 
 query = "what is ETU"
 candidates = [

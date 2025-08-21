@@ -1,0 +1,52 @@
+# ServiceNow tool suite manifest
+# Detects request creation, catalog browsing, and ITSM patterns  
+
+suite: servicenow
+hints:
+  - "(?i)\\bservicenow\\b|\\bsnow\\b"
+  - "(?i)\\bcatalog\\b|\\brequest\\b"
+  - "(?i)\\bincident\\b|\\bticket\\b"
+  - "(?i)servicenow\\.com|\\bitsm\\b"
+
+extractors:
+  - name: request_create
+    capability: request.create
+    weight: 3.0
+    patterns:
+      - "(?i)create\\s+(?:a\\s+)?(?:servicenow\\s+)?(?:request|ticket)"
+      - "(?i)submit\\s+(?:a\\s+)?(?:servicenow\\s+)?(?:request|ticket)"
+      - "(?i)open\\s+(?:a\\s+)?(?:servicenow\\s+)?(?:request|ticket|incident)"
+      - "(?i)raise\\s+(?:a\\s+)?(?:servicenow\\s+)?(?:request|incident)"
+      - "(?i)file\\s+(?:a\\s+)?(?:servicenow\\s+)?(?:request|incident)"
+    attrs:
+      request_type: "(?i)(request|ticket|incident)"
+
+  - name: catalog_browse
+    capability: catalog.browse
+    weight: 2.2
+    patterns:
+      - "(?i)browse\\s+(?:the\\s+)?(?:servicenow\\s+)?catalog"
+      - "(?i)(?:servicenow\\s+)?catalog\\s+(?:item|request)"
+      - "(?i)request\\s+from\\s+catalog"
+      - "(?i)service\\s+catalog\\s+(?:item|request)"
+    attrs:
+      catalog_item: "(?i)catalog\\s+(?:item\\s+)?([\\w\\s-]+)"
+
+  - name: incident_view
+    capability: request.view
+    weight: 1.5
+    patterns:
+      - "(?i)view\\s+(?:servicenow\\s+)?(?:incident|request)\\s+(INC\\d+|REQ\\d+|RITM\\d+)"
+      - "(?i)check\\s+(?:servicenow\\s+)?(?:incident|request)\\s+(INC\\d+|REQ\\d+|RITM\\d+)"
+      - "(INC\\d{7,}|REQ\\d{7,}|RITM\\d{7,})"  # Direct incident reference
+    attrs:
+      incident_number: "(INC\\d{7,}|REQ\\d{7,}|RITM\\d{7,})"
+
+  - name: servicenow_link
+    capability: request.view
+    weight: 1.2
+    patterns:
+      - "(https?://[^\\s]*servicenow\\.com/[^\\s]*)"
+      - "(https?://[^\\s]*\\.service-now\\.com/[^\\s]*)"
+    attrs:
+      snow_url: "(https?://[^\\s]*servicenow[^\\s]*)"

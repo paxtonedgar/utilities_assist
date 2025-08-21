@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def _matches_patterns(text: str, patterns: List[str]) -> bool:
     """Check if text matches any of the provided regex patterns.
-    
+
     Centralizes pattern matching logic used by intent detection functions.
     """
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
@@ -18,7 +18,7 @@ def _matches_patterns(text: str, patterns: List[str]) -> bool:
 
 def _extract_from_response(response: str, field: str, pattern: str, default_value=None):
     """Extract a field from LLM response using regex pattern.
-    
+
     Centralizes response parsing logic used in _parse_intent_response.
     """
     if f"{field}:" in response:
@@ -28,55 +28,58 @@ def _extract_from_response(response: str, field: str, pattern: str, default_valu
     return default_value
 
 
-async def determine_intent(text: str, chat_client: Any, utilities_list: List[str] = None, model_name: str = "gpt-4o-mini") -> IntentResult:
+async def determine_intent(
+    text: str,
+    chat_client: Any,
+    utilities_list: List[str] = None,
+    model_name: str = "gpt-4o-mini",
+) -> IntentResult:
     """Determine user intent from query text.
-    
+
     Args:
         text: Normalized user query
         chat_client: LLM client for intent classification
         utilities_list: List of known utilities/APIs
-        
+
     Returns:
         IntentResult with classified intent and confidence
     """
     if not text or not text.strip():
         return IntentResult(intent="unknown", confidence=0.0, reasoning="Empty query")
-    
+
     text = text.strip().lower()
-    
+
     # Check for restart intent first
     if text in ["start over", "restart", "reset", "clear"]:
         return IntentResult(
-            intent="restart", 
-            confidence=1.0, 
-            reasoning="Direct restart command"
+            intent="restart", confidence=1.0, reasoning="Direct restart command"
         )
-    
+
     # Rule-based intent detection for common patterns
     if _is_list_intent(text):
         return IntentResult(
             intent="list",
             confidence=0.9,
-            reasoning="Query asks for enumeration/listing"
+            reasoning="Query asks for enumeration/listing",
         )
-    
+
     if _is_swagger_intent(text):
         return IntentResult(
-            intent="swagger", 
-            confidence=0.8,
-            reasoning="Query about API specifications"
+            intent="swagger", confidence=0.8, reasoning="Query about API specifications"
         )
-    
+
     # Use LLM for ambiguous cases
     try:
-        return await _classify_with_llm(text, chat_client, utilities_list or [], model_name)
+        return await _classify_with_llm(
+            text, chat_client, utilities_list or [], model_name
+        )
     except Exception as e:
         logger.error(f"LLM intent classification failed: {e}")
         # Fallback to confluence for general queries
         return IntentResult(
             intent="confluence",
             confidence=0.5,
-            reasoning=f"Fallback after LLM error: {e}"
+            reasoning=f"Fallback after LLM error: {e}",
         )
 
 
@@ -91,14 +94,14 @@ def _is_list_intent(text: str) -> bool:
         r"\bgive\s+me\s+(all|the)\b",
         r"\benumerate\b",
         r"\bapis?\s+are\s+there\b",
-        r"\butil\w*\s+are\s+(available|there)\b"
+        r"\butil\w*\s+are\s+(available|there)\b",
     ]
-    
+
     return _matches_patterns(text, list_patterns)
 
 
 def _is_swagger_intent(text: str) -> bool:
-    """Check if query is about API specifications.""" 
+    """Check if query is about API specifications."""
     swagger_patterns = [
         r"\bendpoint\b",
         r"\brequest\b",
@@ -109,17 +112,22 @@ def _is_swagger_intent(text: str) -> bool:
         r"\bswagger\b",
         r"\bopenapi\b",
         r"\bschema\b",
-        r"\bjson\b.*\bstructure\b"
+        r"\bjson\b.*\bstructure\b",
     ]
-    
+
     return _matches_patterns(text, swagger_patterns)
 
 
-async def _classify_with_llm(text: str, chat_client: Any, utilities_list: List[str], model_name: str = "gpt-4o-mini") -> IntentResult:
+async def _classify_with_llm(
+    text: str,
+    chat_client: Any,
+    utilities_list: List[str],
+    model_name: str = "gpt-4o-mini",
+) -> IntentResult:
     """Use LLM to classify complex intents."""
-    
+
     utilities_str = ", ".join(utilities_list[:10])  # Limit for prompt size
-    
+
     system_prompt = f"""
 You are an intelligent assistant that classifies user queries about enterprise utilities and APIs.
 
@@ -142,30 +150,35 @@ Reasoning: [brief explanation]
     try:
         # Create messages for chat completion
         messages = [{"role": "user", "content": system_prompt}]
-        
+
         # Get LLM parameters from config
         temperature = 0.1  # Default for intent classification
-        max_tokens = 100   # Default for intent classification
+        max_tokens = 100  # Default for intent classification
         try:
             from utils import load_config
+
             config = load_config()
-            if config.has_section('azure_openai'):
-                temperature = config.getfloat('azure_openai', 'temperature', fallback=0.1)
-                max_tokens = config.getint('azure_openai', 'max_tokens_500', fallback=100)
+            if config.has_section("azure_openai"):
+                temperature = config.getfloat(
+                    "azure_openai", "temperature", fallback=0.1
+                )
+                max_tokens = config.getint(
+                    "azure_openai", "max_tokens_500", fallback=100
+                )
         except:
             pass  # Use defaults if config loading fails
-        
+
         # Get LLM response (OpenAI client is sync, not async)
         response = chat_client.chat.completions.create(
             model=model_name,
             messages=messages,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
         )
-        
+
         content = response.choices[0].message.content.strip()
         return _parse_intent_response(content)
-        
+
     except Exception as e:
         logger.error(f"LLM intent classification error: {e}")
         raise
@@ -176,19 +189,23 @@ def _parse_intent_response(response: str) -> IntentResult:
     intent = "confluence"  # Default fallback
     confidence = 0.5
     reasoning = "Parsed from LLM response"
-    
+
     try:
         # Extract fields using centralized pattern matching
-        intent = _extract_from_response(response, "Intent", r"Intent:\s*(\w+)", "confluence").lower()
-        
-        conf_str = _extract_from_response(response, "Confidence", r"Confidence:\s*([\d.]+)", "0.5")
+        intent = _extract_from_response(
+            response, "Intent", r"Intent:\s*(\w+)", "confluence"
+        ).lower()
+
+        conf_str = _extract_from_response(
+            response, "Confidence", r"Confidence:\s*([\d.]+)", "0.5"
+        )
         confidence = float(conf_str)
-        
+
         reasoning = _extract_from_response(
             response, "Reasoning", r"Reasoning:\s*(.+)$", "Parsed from LLM response"
         ).strip()
-                
+
     except Exception as e:
         logger.warning(f"Failed to parse LLM response: {e}")
-    
+
     return IntentResult(intent=intent, confidence=confidence, reasoning=reasoning)

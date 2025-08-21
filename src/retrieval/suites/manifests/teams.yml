@@ -1,0 +1,54 @@
+# Microsoft Teams tool suite manifest
+# Detects channel joining, meeting scheduling, and collaboration patterns
+
+suite: teams
+hints:
+  - "(?i)\\bteams\\b|microsoft\\s+teams"
+  - "(?i)\\bchannel\\b|\\bchat\\b"
+  - "(?i)\\bmeeting\\b|\\bcall\\b"
+  - "(?i)teams\\.microsoft\\.com"
+
+extractors:
+  - name: channel_join
+    capability: channel.open
+    weight: 2.5
+    patterns:
+      - "(?i)join\\s+(?:the\\s+)?(?:teams\\s+)?channel\\s+([#@]?[\\w\\s-]+)"
+      - "(?i)access\\s+(?:the\\s+)?(?:teams\\s+)?channel\\s+([#@]?[\\w\\s-]+)"
+      - "(?i)contact\\s+(?:the\\s+)?([\\w\\s-]+)\\s+(?:team|channel)"
+      - "(?i)reach\\s+out\\s+(?:to\\s+)?(?:the\\s+)?([\\w\\s-]+)\\s+(?:team|channel)"
+    attrs:
+      channel_name: "([#@]?[\\w\\s-]+)"
+    url_patterns:
+      - "(https?://teams\\.microsoft\\.com/[^\\s]*)"
+
+  - name: meeting_schedule  
+    capability: meeting.schedule
+    weight: 2.0
+    patterns:
+      - "(?i)schedule\\s+(?:a\\s+)?(?:teams\\s+)?meeting"
+      - "(?i)set\\s+up\\s+(?:a\\s+)?(?:teams\\s+)?(?:meeting|call)"
+      - "(?i)book\\s+(?:a\\s+)?(?:teams\\s+)?(?:meeting|call)"
+      - "(?i)arrange\\s+(?:a\\s+)?(?:teams\\s+)?(?:meeting|call)"
+    attrs:
+      meeting_type: "(?i)(meeting|call|standup|review|demo)"
+
+  - name: contact_team
+    capability: contact.open
+    weight: 1.8
+    patterns:
+      - "(?i)contact\\s+(?:the\\s+)?([\\w\\s-]+)\\s+team"
+      - "(?i)reach\\s+(?:out\\s+to\\s+)?(?:the\\s+)?([\\w\\s-]+)\\s+team" 
+      - "(?i)ask\\s+(?:the\\s+)?([\\w\\s-]+)\\s+team"
+      - "(?i)([\\w\\s-]+)\\s+(?:support|help)\\s+(?:team|channel)"
+    attrs:
+      team_name: "([\\w\\s-]+)"
+
+  - name: teams_link
+    capability: channel.open
+    weight: 1.5
+    patterns:
+      - "(https?://teams\\.microsoft\\.com/l/[^\\s]+)"
+      - "(https?://teams\\.microsoft\\.com/[^\\s]*channel[^\\s]*)"
+    attrs:
+      teams_url: "(https?://teams\\.microsoft\\.com/[^\\s]+)"

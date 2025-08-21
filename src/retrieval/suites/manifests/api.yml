@@ -1,0 +1,58 @@
+# API endpoints tool suite manifest  
+# Detects REST endpoints, authentication, and API testing patterns
+
+suite: api
+hints:
+  - "(?i)\\bapi\\b|\\bendpoint\\b"
+  - "(?i)\\brest\\b|\\bhttp\\b"
+  - "(?i)\\bauthentication\\b|\\bauth\\b"
+  - "(?i)/api/|swagger|openapi"
+
+extractors:
+  - name: http_endpoint
+    capability: api.try
+    weight: 2.5
+    patterns:
+      - "(?i)\\b(GET|POST|PUT|DELETE|PATCH)\\s+(/\\S+)"
+      - "(?i)\\b(GET|POST|PUT|DELETE|PATCH)\\s+(https?://\\S+)"
+      - "(?i)call\\s+(?:the\\s+)?(/\\S+)\\s+(?:endpoint|api)"
+      - "(?i)invoke\\s+(?:the\\s+)?(/\\S+)\\s+(?:endpoint|api)"
+    attrs:
+      method: "\\b(GET|POST|PUT|DELETE|PATCH)\\b"
+      path: "(/\\S+)"
+      full_url: "(https?://\\S+)"
+
+  - name: api_key
+    capability: auth.setup
+    weight: 2.8
+    patterns:
+      - "(?i)api\\s+key\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)authentication\\s+(?:for\\s+)?([\\w\\s-]+)\\s+(?:api|service)"
+      - "(?i)get\\s+(?:an?\\s+)?api\\s+key\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)create\\s+(?:an?\\s+)?api\\s+key\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)generate\\s+(?:an?\\s+)?api\\s+key\\s+(?:for\\s+)?([\\w\\s-]+)"
+    attrs:
+      service_name: "(?:for\\s+)?([\\w\\s-]+)"
+
+  - name: swagger_docs
+    capability: api.docs
+    weight: 1.8
+    patterns:
+      - "(?i)swagger\\s+(?:docs|documentation)"
+      - "(?i)api\\s+(?:docs|documentation)"
+      - "(?i)openapi\\s+(?:spec|specification)"
+      - "(https?://[^\\s]*swagger[^\\s]*)"
+      - "(https?://[^\\s]*api[^\\s]*docs[^\\s]*)"
+    attrs:
+      docs_url: "(https?://[^\\s]*(?:swagger|api[^\\s]*docs)[^\\s]*)"
+
+  - name: client_id
+    capability: auth.setup
+    weight: 2.5
+    patterns:
+      - "(?i)client\\s+id\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)create\\s+(?:a\\s+)?client\\s+id\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)register\\s+(?:a\\s+)?client\\s+(?:for\\s+)?([\\w\\s-]+)"
+      - "(?i)app\\s+registration\\s+(?:for\\s+)?([\\w\\s-]+)"
+    attrs:
+      service_name: "(?:for\\s+)?([\\w\\s-]+)"

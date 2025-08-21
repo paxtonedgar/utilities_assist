@@ -14,7 +14,6 @@ Features:
 """
 
 import logging
-import re
 import time
 
 from datetime import datetime
@@ -35,7 +34,7 @@ logger = logging.getLogger(__name__)
 def get_total_hits(response_data: Dict[str, Any]) -> int:
     """
     Safely extract total hits count from OpenSearch response.
-    
+
     Handles both formats:
     - Legacy: {"hits": {"total": 42}}
     - Modern: {"hits": {"total": {"value": 42, "relation": "eq"}}}
@@ -43,7 +42,7 @@ def get_total_hits(response_data: Dict[str, Any]) -> int:
     try:
         hits_section = response_data.get("hits", {})
         total = hits_section.get("total", 0)
-        
+
         if isinstance(total, int):
             return total
         elif isinstance(total, dict):
@@ -57,6 +56,7 @@ def get_total_hits(response_data: Dict[str, Any]) -> int:
 @dataclass
 class SearchFilters:
     """Search filters for ACL, space, and time-based filtering."""
+
     acl_hash: Optional[str] = None
     space_key: Optional[str] = None
     content_type: Optional[str] = None
@@ -67,6 +67,7 @@ class SearchFilters:
 @dataclass
 class SearchResponse:
     """Search response with results and metadata."""
+
     results: List[Any]  # Will contain SearchResult objects (imported locally)
     total_hits: int
     took_ms: int
@@ -75,15 +76,15 @@ class SearchResponse:
 
 class OpenSearchClient:
     """Production-ready OpenSearch client with enterprise features."""
-    
+
     def __init__(self, settings: Optional[object] = None):
         """Initialize OpenSearch client with centralized settings."""
         if settings is None:
             settings = get_settings()
-        
+
         self.settings = settings
-        self.base_url = settings.opensearch_host.rstrip('/')
-        
+        self.base_url = settings.opensearch_host.rstrip("/")
+
         # Create session with proper authentication for the current profile
         if settings.requires_aws_auth:
             # Will use AWS authentication via clients module
@@ -92,9 +93,10 @@ class OpenSearchClient:
         else:
             # Local development - create simple session
             import requests
+
             self.session = requests.Session()
-            self.session.headers.update({'Content-Type': 'application/json'})
-        
+            self.session.headers.update({"Content-Type": "application/json"})
+
     @stage("bm25")
     def bm25_search(
         self,
@@ -102,25 +104,25 @@ class OpenSearchClient:
         filters: Optional[SearchFilters] = None,
         index: Optional[str] = None,
         k: int = 50,
-        time_decay_half_life_days: int = 120
+        time_decay_half_life_days: int = 120,
     ) -> SearchResponse:
         """
         BM25 full-text search with ACL filters and time decay.
-        
+
         Args:
             query: Search query string
             filters: ACL, space, and time filters
             index: Index name or alias to search
             k: Number of results to return
             time_decay_half_life_days: Half-life for time decay in days
-            
+
         Returns:
             SearchResponse with BM25 results
         """
         # Use configured index alias if not specified
         if index is None:
             index = self.settings.search_index_alias
-        
+
         # Log search start
         log_event(
             stage="bm25",
@@ -129,69 +131,80 @@ class OpenSearchClient:
             query_type="simple_match",
             k=k,
             filters_enabled=filters is not None,
-            query_length=len(query)
+            query_length=len(query),
         )
-        
+
         # Build BM25 query matching working v1 branch structure
         search_body = self._build_simple_bm25_query(query, k, index)
-        
+
         try:
             url = f"{self.base_url}/{index}/_search"
             start_time = time.time()
-            
+
             # EXPLICIT OS QUERY LOG - for debugging query preservation
             logger.info(
                 "OS_QUERY index=%s strategy=%s q=%r query_len=%d",
-                index, "bm25", query, len(query)
+                index,
+                "bm25",
+                query,
+                len(query),
             )
-            
+
             # Use POST request for search with body
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
-            headers = {'Content-Type': 'application/json'}
+            headers = {"Content-Type": "application/json"}
             if aws_auth:
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
+                response = requests.post(
+                    url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
+                )
             else:
-                response = self.session.post(url, json=search_body, timeout=30.0, headers=headers)
-            
+                response = self.session.post(
+                    url, json=search_body, timeout=30.0, headers=headers
+                )
+
             took_ms = (time.time() - start_time) * 1000
             status_code = response.status_code
-            
+
             # Log HTTP response details
             log_event(
-                stage="bm25", 
+                stage="bm25",
                 event="http_response",
                 status=status_code,
                 took_ms=took_ms,
-                index=index
+                index=index,
             )
-            
+
             # Handle HTTP errors
             if not response.ok:
                 error_body = response.text[:500]  # Snippet only
                 log_event(
                     stage="bm25",
-                    event="error", 
+                    event="error",
                     status=status_code,
                     took_ms=took_ms,
                     err=True,
                     error_type="HTTPError",
                     error_message=f"HTTP {status_code}",
                     error_body_snippet=error_body,
-                    index=index
+                    index=index,
                 )
                 response.raise_for_status()
-            
+
             data = response.json()
             results = self._parse_search_response(data, index)
-            
+
             # EXPLICIT OS RESPONSE LOG - for debugging query results
             top_result_title = results[0].title if results else None
             logger.info(
                 "OS_RESPONSE index=%s took_ms=%.1f status=%s hits=%d top=%r",
-                index, took_ms, status_code, len(results), top_result_title
+                index,
+                took_ms,
+                status_code,
+                len(results),
+                top_result_title,
             )
-            
+
             # Log successful completion
             total_hits = get_total_hits(data)
             log_event(
@@ -201,26 +214,28 @@ class OpenSearchClient:
                 result_count=len(results),
                 total_hits=total_hits,
                 index=index,
-                elasticsearch_took=data.get("took", 0)
+                elasticsearch_took=data.get("took", 0),
             )
-            
+
             return SearchResponse(
                 results=results,
                 total_hits=total_hits,
                 took_ms=int(took_ms),
-                method="bm25"
+                method="bm25",
             )
-            
+
         except requests.exceptions.HTTPError as e:
             # Special handling for 404 - index not found
-            if hasattr(e.response, 'status_code') and e.response.status_code == 404:
-                logger.warning(f"Index not found: {index}. Continuing with empty results.")
+            if hasattr(e.response, "status_code") and e.response.status_code == 404:
+                logger.warning(
+                    f"Index not found: {index}. Continuing with empty results."
+                )
                 log_event(
                     stage="bm25",
                     event="index_not_found",
                     index=index,
                     status_code=404,
-                    message=f"Index {index} not found, returning empty results"
+                    message=f"Index {index} not found, returning empty results",
                 )
             else:
                 log_event(
@@ -230,11 +245,13 @@ class OpenSearchClient:
                     error_type="HTTPError",
                     error_message=str(e)[:200],
                     index=index,
-                    status_code=e.response.status_code if hasattr(e.response, 'status_code') else None
+                    status_code=e.response.status_code
+                    if hasattr(e.response, "status_code")
+                    else None,
                 )
-            
+
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
-            
+
         except Exception as e:
             # Log other errors
             log_event(
@@ -244,24 +261,26 @@ class OpenSearchClient:
                 error_type=type(e).__name__,
                 error_message=str(e)[:200],
                 index=index,
-                status_code=getattr(response, 'status_code', None) if 'response' in locals() else None
+                status_code=getattr(response, "status_code", None)
+                if "response" in locals()
+                else None,
             )
-            
+
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
-    
+
     @stage("knn")
     def knn_search(
         self,
         query_vector: List[float],
         filters: Optional[SearchFilters] = None,
-        index: Optional[str] = None, 
+        index: Optional[str] = None,
         k: int = 50,
         ef_search: int = 256,
-        time_decay_half_life_days: int = 120
+        time_decay_half_life_days: int = 120,
     ) -> SearchResponse:
         """
         kNN vector similarity search with ACL filters and time decay.
-        
+
         Args:
             query_vector: Query embedding vector (dimensions defined by OpenSearchConfig.EMBEDDING_DIMENSIONS)
             filters: ACL, space, and time filters
@@ -269,14 +288,14 @@ class OpenSearchClient:
             k: Number of results to return
             ef_search: ef_search parameter for HNSW (trade-off: accuracy vs speed)
             time_decay_half_life_days: Half-life for time decay in days (uniform with BM25)
-            
+
         Returns:
             SearchResponse with kNN results
         """
         # Use configured index alias if not specified
         if index is None:
             index = self.settings.search_index_alias
-        
+
         # Log search start
         log_event(
             stage="knn",
@@ -286,37 +305,41 @@ class OpenSearchClient:
             k=k,
             vector_dims=len(query_vector),
             ef_search=ef_search,
-            filters_enabled=filters is not None
+            filters_enabled=filters is not None,
         )
-        
+
         # Build simple kNN query (like main branch)
         search_body = self._build_simple_knn_query(query_vector, k, index)
-        
+
         try:
             url = f"{self.base_url}/{index}/_search"
             start_time = time.time()
-            
+
             # Use direct requests with auth (like main branch) instead of session
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
-            headers = {'Content-Type': 'application/json'}
+            headers = {"Content-Type": "application/json"}
             if aws_auth:
-                response = requests.post(url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
+                response = requests.post(
+                    url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
+                )
             else:
-                response = self.session.post(url, json=search_body, timeout=30.0, headers=headers)
-            
+                response = self.session.post(
+                    url, json=search_body, timeout=30.0, headers=headers
+                )
+
             took_ms = (time.time() - start_time) * 1000
             status_code = response.status_code
-            
+
             # Log HTTP response details
             log_event(
                 stage="knn",
-                event="http_response", 
+                event="http_response",
                 status=status_code,
                 took_ms=took_ms,
-                index=index
+                index=index,
             )
-            
+
             # Handle HTTP errors
             if not response.ok:
                 error_body = response.text[:500]  # Snippet only
@@ -329,13 +352,13 @@ class OpenSearchClient:
                     error_type="HTTPError",
                     error_message=f"HTTP {status_code}",
                     error_body_snippet=error_body,
-                    index=index
+                    index=index,
                 )
                 response.raise_for_status()
-            
+
             data = response.json()
             results = self._parse_search_response(data, index)
-            
+
             # Log successful completion
             total_hits = get_total_hits(data)
             log_event(
@@ -345,26 +368,28 @@ class OpenSearchClient:
                 result_count=len(results),
                 total_hits=total_hits,
                 index=index,
-                elasticsearch_took=data.get("took", 0)
+                elasticsearch_took=data.get("took", 0),
             )
-            
+
             return SearchResponse(
                 results=results,
                 total_hits=total_hits,
                 took_ms=int(took_ms),
-                method="knn"
+                method="knn",
             )
-            
+
         except requests.exceptions.HTTPError as e:
             # Special handling for 404 - index not found
-            if hasattr(e.response, 'status_code') and e.response.status_code == 404:
-                logger.warning(f"Index not found: {index}. Continuing with empty results.")
+            if hasattr(e.response, "status_code") and e.response.status_code == 404:
+                logger.warning(
+                    f"Index not found: {index}. Continuing with empty results."
+                )
                 log_event(
                     stage="knn",
                     event="index_not_found",
                     index=index,
                     status_code=404,
-                    message=f"Index {index} not found, returning empty results"
+                    message=f"Index {index} not found, returning empty results",
                 )
             else:
                 log_event(
@@ -374,11 +399,13 @@ class OpenSearchClient:
                     error_type="HTTPError",
                     error_message=str(e)[:200],
                     index=index,
-                    status_code=e.response.status_code if hasattr(e.response, 'status_code') else None
+                    status_code=e.response.status_code
+                    if hasattr(e.response, "status_code")
+                    else None,
                 )
-            
+
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
-            
+
         except Exception as e:
             # Log other errors
             log_event(
@@ -388,65 +415,71 @@ class OpenSearchClient:
                 error_type=type(e).__name__,
                 error_message=str(e)[:200],
                 index=index,
-                status_code=getattr(response, 'status_code', None) if 'response' in locals() else None
+                status_code=getattr(response, "status_code", None)
+                if "response" in locals()
+                else None,
             )
-            
+
             return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
-    
+
     def rrf_fuse(
         self,
         bm25_response: SearchResponse,
         knn_response: SearchResponse,
         k: int = 8,
-        rrf_k: int = 60
+        rrf_k: int = 60,
     ) -> SearchResponse:
         """
         Reciprocal Rank Fusion (RRF) for hybrid search.
-        
+
         Pure Python implementation combining BM25 and kNN results.
-        
+
         Args:
             bm25_response: BM25 search results
             knn_response: kNN search results
             k: Final number of results to return
             rrf_k: RRF constant (typically 60, higher = less aggressive fusion)
-            
+
         Returns:
             SearchResponse with fused results
         """
         start_time = time.time()
-        
+
         # Create rank maps for both result sets
-        bm25_ranks = {result.doc_id: idx + 1 for idx, result in enumerate(bm25_response.results)}
-        knn_ranks = {result.doc_id: idx + 1 for idx, result in enumerate(knn_response.results)}
-        
+        bm25_ranks = {
+            result.doc_id: idx + 1 for idx, result in enumerate(bm25_response.results)
+        }
+        knn_ranks = {
+            result.doc_id: idx + 1 for idx, result in enumerate(knn_response.results)
+        }
+
         # Create document map for result data
         doc_map = {}
         for result in bm25_response.results:
             doc_map[result.doc_id] = result
         for result in knn_response.results:
             doc_map[result.doc_id] = result
-        
+
         # Calculate RRF scores
         rrf_scores = {}
         all_doc_ids = set(bm25_ranks.keys()) | set(knn_ranks.keys())
-        
+
         for doc_id in all_doc_ids:
             rrf_score = 0.0
-            
+
             # Add BM25 contribution: 1 / (k + rank)
             if doc_id in bm25_ranks:
                 rrf_score += 1.0 / (rrf_k + bm25_ranks[doc_id])
-            
+
             # Add kNN contribution: 1 / (k + rank)
             if doc_id in knn_ranks:
                 rrf_score += 1.0 / (rrf_k + knn_ranks[doc_id])
-            
+
             rrf_scores[doc_id] = rrf_score
-        
+
         # Sort by RRF score (descending) and take top k
         sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-        
+
         # Build final results with RRF scores
         fused_results = []
         for doc_id, rrf_score in sorted_docs:
@@ -455,26 +488,30 @@ class OpenSearchClient:
                 # Create new result with RRF score - include all required fields
                 # Import locally to avoid cross-layer coupling
                 from src.services.models import SearchResult as ServiceSearchResult
-                
+
                 fused_result = ServiceSearchResult(
                     doc_id=result.doc_id,
-                    title=result.title,        # REQUIRED: Include title from original result
-                    url=result.url,           # REQUIRED: Include URL from original result
-                    score=rrf_score,          # Use RRF-computed score
-                    content=result.content,   # Use content field
-                    metadata=result.metadata
+                    title=result.title,  # REQUIRED: Include title from original result
+                    url=result.url,  # REQUIRED: Include URL from original result
+                    score=rrf_score,  # Use RRF-computed score
+                    content=result.content,  # Use content field
+                    metadata=result.metadata,
                 )
                 fused_results.append(fused_result)
-        
-        logger.info(f"RRF fusion: {len(bm25_response.results)} BM25 + {len(knn_response.results)} kNN → {len(fused_results)} fused")
-        
+
+        logger.info(
+            f"RRF fusion: {len(bm25_response.results)} BM25 + {len(knn_response.results)} kNN → {len(fused_results)} fused"
+        )
+
         return SearchResponse(
             results=fused_results,
             total_hits=len(fused_results),
-            took_ms=int((time.time() - start_time) * 1000) + bm25_response.took_ms + knn_response.took_ms,
-            method="rrf"
+            took_ms=int((time.time() - start_time) * 1000)
+            + bm25_response.took_ms
+            + knn_response.took_ms,
+            method="rrf",
         )
-    
+
     @stage("hybrid")
     def hybrid_search(
         self,
@@ -483,12 +520,12 @@ class OpenSearchClient:
         filters: Optional[SearchFilters] = None,
         index: Optional[str] = None,
         k: int = 50,
-        time_decay_half_life_days: int = 120
+        time_decay_half_life_days: int = 120,
     ) -> SearchResponse:
         """
         Hybrid search using RRF fusion of separate BM25 and kNN searches.
         This approach avoids OpenSearch parsing issues with nested knn queries.
-        
+
         Args:
             query: Search query string
             query_vector: Optional query embedding vector
@@ -496,14 +533,14 @@ class OpenSearchClient:
             index: Index name or alias to search
             k: Number of results to return
             time_decay_half_life_days: Half-life for time decay in days
-            
+
         Returns:
             SearchResponse with hybrid search results
         """
         # Use configured index alias if not specified
         if index is None:
             index = self.settings.search_index_alias
-        
+
         # Log search start
         log_event(
             stage="hybrid",
@@ -513,44 +550,50 @@ class OpenSearchClient:
             k=k,
             filters_enabled=filters is not None,
             query_length=len(query),
-            has_vector=query_vector is not None
+            has_vector=query_vector is not None,
         )
-        
+
         # If no vector provided, fall back to BM25 search
         if not query_vector:
             logger.info("Hybrid search falling back to BM25 (no vector provided)")
             return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
-        
+
         try:
             # Perform separate BM25 and kNN searches
             logger.info("Performing separate BM25 and kNN searches for RRF fusion")
-            
+
             # BM25 search
-            bm25_response = self.bm25_search(query, filters, index, k, time_decay_half_life_days)
-            
+            bm25_response = self.bm25_search(
+                query, filters, index, k, time_decay_half_life_days
+            )
+
             # kNN search
-            knn_response = self.knn_search(query_vector, filters, index, k, time_decay_half_life_days)
-            
+            knn_response = self.knn_search(
+                query_vector, filters, index, k, time_decay_half_life_days
+            )
+
             # RRF fusion
             hybrid_response = self.rrf_fuse(bm25_response, knn_response, k=k, rrf_k=60)
             hybrid_response.method = "hybrid_rrf"
-            
+
             logger.info(
                 "Hybrid RRF fusion completed: BM25=%d hits, kNN=%d hits, fused=%d hits",
-                bm25_response.total_hits, knn_response.total_hits, hybrid_response.total_hits
+                bm25_response.total_hits,
+                knn_response.total_hits,
+                hybrid_response.total_hits,
             )
-            
+
             return hybrid_response
-            
+
         except Exception as e:
             logger.error(f"Hybrid search failed, falling back to BM25: {e}")
             return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
-    
+
     def _get_boosted_fields(self, index: Optional[str], search_type: str) -> List[str]:
         """Get boosted field list using centralized configuration."""
         index_name = index or self.settings.search_index_alias
         config = OpenSearchConfig._get_index_config(index_name)
-        
+
         if search_type == "hybrid" or search_type == "mvrs":
             # MVRS boosting strategy: title^4, headings^2, body^1
             fields = []
@@ -585,107 +628,119 @@ class OpenSearchClient:
             return fields
         else:
             # Default field configuration
-            return [f"{field}^2" for field in config.content_fields] + [f"{field}^3" for field in config.title_fields]
+            return [f"{field}^2" for field in config.content_fields] + [
+                f"{field}^3" for field in config.title_fields
+            ]
 
-
-    
-    
     def _build_filter_clauses(self, filters: SearchFilters) -> List[Dict[str, Any]]:
         """Build filter clauses from SearchFilters."""
         clauses = []
-        
+
         # ACL hash filter
         if filters.acl_hash:
-            clauses.append({
-                "term": {"acl_hash": filters.acl_hash}
-            })
-        
+            clauses.append({"term": {"acl_hash": filters.acl_hash}})
+
         # Space key filter
         if filters.space_key:
-            clauses.append({
-                "term": {"metadata.space_key": filters.space_key}
-            })
-        
+            clauses.append({"term": {"metadata.space_key": filters.space_key}})
+
         # Content type filter
         if filters.content_type:
-            clauses.append({
-                "term": {"content_type": filters.content_type}
-            })
-        
+            clauses.append({"term": {"content_type": filters.content_type}})
+
         # Time range filters - use consistent YYYY-MM-DD format
         if filters.updated_after or filters.updated_before:
             range_filter = {"range": {"updated_at": {}}}
-            
+
             if filters.updated_after:
-                range_filter["range"]["updated_at"]["gte"] = filters.updated_after.strftime('%Y-%m-%d')
-            
+                range_filter["range"]["updated_at"]["gte"] = (
+                    filters.updated_after.strftime("%Y-%m-%d")
+                )
+
             if filters.updated_before:
-                range_filter["range"]["updated_at"]["lte"] = filters.updated_before.strftime('%Y-%m-%d')
-            
+                range_filter["range"]["updated_at"]["lte"] = (
+                    filters.updated_before.strftime("%Y-%m-%d")
+                )
+
             clauses.append(range_filter)
-        
+
         return clauses
-    
-    def _parse_search_response(self, data: Dict[str, Any], index: Optional[str] = None) -> List[Any]:
+
+    def _parse_search_response(
+        self, data: Dict[str, Any], index: Optional[str] = None
+    ) -> List[Any]:
         """Parse OpenSearch response into SearchResult objects with canonical schema."""
         # Import locally to avoid cross-layer coupling
         from src.services.models import SearchResult as ServiceSearchResult
-        
+
         results = []
-        
+
         # DEBUG: Log the OpenSearch response structure
         logger.info(f"OPENSEARCH_RESPONSE_DEBUG: response_keys={list(data.keys())}")
         hits_section = data.get("hits", {})
         logger.info(f"HITS_SECTION_DEBUG: hits_keys={list(hits_section.keys())}")
-        
+
         # Safely extract hits array
         hits = data.get("hits", {}).get("hits", [])
         if not isinstance(hits, list):
             logger.warning("Invalid hits format in OpenSearch response")
             return []
-        
+
         # DEBUG: Log first hit structure if available
         if hits:
             first_hit = hits[0]
             logger.info(f"FIRST_HIT_DEBUG: hit_keys={list(first_hit.keys())}")
             source = first_hit.get("_source", {})
             logger.info(f"FIRST_SOURCE_DEBUG: source_keys={list(source.keys())}")
-            logger.info(f"INNER_HITS_DEBUG: has_inner_hits={bool(first_hit.get('inner_hits'))}")
-            if first_hit.get('inner_hits'):
-                inner_hits = first_hit.get('inner_hits', {})
+            logger.info(
+                f"INNER_HITS_DEBUG: has_inner_hits={bool(first_hit.get('inner_hits'))}"
+            )
+            if first_hit.get("inner_hits"):
+                inner_hits = first_hit.get("inner_hits", {})
                 logger.info(f"INNER_HITS_STRUCTURE: {list(inner_hits.keys())}")
                 # Log the first inner hit structure
                 for inner_key, inner_data in inner_hits.items():
-                    inner_hits_list = inner_data.get('hits', {}).get('hits', [])
+                    inner_hits_list = inner_data.get("hits", {}).get("hits", [])
                     if inner_hits_list:
                         first_inner = inner_hits_list[0]
-                        inner_source = first_inner.get('_source', {})
-                        logger.info(f"INNER_HIT_{inner_key}_DEBUG: inner_source_keys={list(inner_source.keys())}")
+                        inner_source = first_inner.get("_source", {})
+                        logger.info(
+                            f"INNER_HIT_{inner_key}_DEBUG: inner_source_keys={list(inner_source.keys())}"
+                        )
                         # Check for content in inner hits
-                        if 'content' in inner_source:
-                            content_len = len(str(inner_source['content']))
-                            logger.info(f"INNER_CONTENT_FOUND: {inner_key} content_len={content_len}")
+                        if "content" in inner_source:
+                            content_len = len(str(inner_source["content"]))
+                            logger.info(
+                                f"INNER_CONTENT_FOUND: {inner_key} content_len={content_len}"
+                            )
                         break
         else:
             logger.info("NO_HITS_DEBUG: Empty hits array")
-        
+
         for hit in hits:
             source = hit.get("_source", {})
-            
+
             # Extract title with fallbacks - REQUIRED field in canonical schema
-            title = (source.get("api_name") or 
-                    source.get("title") or 
-                    source.get("utility_name") or 
-                    f"Document {len(results)+1}")  # Always provide a title
-            
+            title = (
+                source.get("api_name")
+                or source.get("title")
+                or source.get("utility_name")
+                or f"Document {len(results) + 1}"
+            )  # Always provide a title
+
             # Handle nested structure with inner_hits (like v1 working branch)
             body_parts = []
-            
+
             # Extract content from inner_hits (matched sections) with section metadata
-            inner_hits = hit.get("inner_hits", {}).get("matched_sections", {}).get("hits", {}).get("hits", [])
+            inner_hits = (
+                hit.get("inner_hits", {})
+                .get("matched_sections", {})
+                .get("hits", {})
+                .get("hits", [])
+            )
             section_paths = []
             anchors = []
-            
+
             # If we have inner_hits, use nested content structure
             if inner_hits:
                 for section_hit in inner_hits:
@@ -693,12 +748,14 @@ class OpenSearchClient:
                     heading = section_source.get("heading", "")
                     content = section_source.get("content", "")
                     anchor = section_source.get("anchor", "")  # URL anchor/slug
-                    section_path = section_source.get("section_path", "")  # e.g., "CIU > Onboarding > Create Client IDs"
-                    
+                    section_path = section_source.get(
+                        "section_path", ""
+                    )  # e.g., "CIU > Onboarding > Create Client IDs"
+
                     if content:
                         section_text = f"{heading}\n{content}" if heading else content
                         body_parts.append(section_text)
-                        
+
                         # Track section metadata for actionable answers
                         if section_path:
                             section_paths.append(section_path)
@@ -706,45 +763,55 @@ class OpenSearchClient:
                             anchors.append(anchor)
             else:
                 # Fallback: Extract from root-level fields using centralized config
-                content_fields = OpenSearchConfig.get_content_fields(index or self.settings.search_index_alias)
-                logger.info(f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}")
+                content_fields = OpenSearchConfig.get_content_fields(
+                    index or self.settings.search_index_alias
+                )
+                logger.info(
+                    f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}"
+                )
                 found_content = False
                 for field in content_fields:
                     if field in source and source[field]:
                         content_value = source[field]
-                        logger.info(f"FOUND_CONTENT_DEBUG: field={field} content_len={len(str(content_value))} content_preview={str(content_value)[:100]}")
+                        logger.info(
+                            f"FOUND_CONTENT_DEBUG: field={field} content_len={len(str(content_value))} content_preview={str(content_value)[:100]}"
+                        )
                         body_parts.append(str(content_value))
                         found_content = True
                         break  # Use the first available content field
-                
+
                 if not found_content:
-                    logger.warning(f"NO_CONTENT_FOUND: doc_id={hit.get('_id')} tried_fields={content_fields} available_fields={list(source.keys())}")
-                
+                    logger.warning(
+                        f"NO_CONTENT_FOUND: doc_id={hit.get('_id')} tried_fields={content_fields} available_fields={list(source.keys())}"
+                    )
+
                 # Also check if there are sections array at root level
-                sections = source.get('sections', [])
+                sections = source.get("sections", [])
                 if sections and isinstance(sections, list):
                     for section in sections[:3]:  # Limit to first 3 sections
                         if isinstance(section, dict):
-                            heading = section.get('heading', '')
-                            content = section.get('content', '')
+                            heading = section.get("heading", "")
+                            content = section.get("content", "")
                             if content:
-                                section_text = f"{heading}\n{content}" if heading else content
+                                section_text = (
+                                    f"{heading}\n{content}" if heading else content
+                                )
                                 body_parts.append(section_text)
-            
+
             body = "\n\n".join(body_parts) if body_parts else ""
-            
+
             # Extract real URL with fallbacks - REQUIRED field in canonical schema
             url = source.get("page_url") or source.get("url")
             if not url or url == "#":
                 # Construct a meaningful URL using doc_id
-                doc_id = hit.get("_id") or f"doc_{len(results)+1}"
+                doc_id = hit.get("_id") or f"doc_{len(results) + 1}"
                 url = f"#doc-{doc_id}"
-            
+
             # Ensure doc_id is always valid and non-empty - CRITICAL for TurnResult validation
-            doc_id = hit.get("_id") or f"doc_{len(results)+1}"
+            doc_id = hit.get("_id") or f"doc_{len(results) + 1}"
             if not doc_id or doc_id.strip() == "":
-                doc_id = f"doc_{len(results)+1}"
-            
+                doc_id = f"doc_{len(results) + 1}"
+
             # Build metadata from source fields (preserving existing structure)
             metadata = {
                 "page_url": source.get("page_url", ""),
@@ -757,47 +824,49 @@ class OpenSearchClient:
                 # Preserve backward compatibility
                 "page_title": title,
             }
-            
+
             # CANONICAL SCHEMA: Always populate required fields
             result = ServiceSearchResult(
-                doc_id=doc_id,      # REQUIRED: Always populated and non-empty
-                title=title,        # REQUIRED: Always populated with fallback
-                url=url,           # REQUIRED: Always populated with fallback  
+                doc_id=doc_id,  # REQUIRED: Always populated and non-empty
+                title=title,  # REQUIRED: Always populated with fallback
+                url=url,  # REQUIRED: Always populated with fallback
                 score=hit.get("_score", 0.0),  # REQUIRED: Handle missing scores
-                content=body,       # REQUIRED: Use body as content
-                metadata=metadata   # Additional fields for backward compatibility
+                content=body,  # REQUIRED: Use body as content
+                metadata=metadata,  # Additional fields for backward compatibility
             )
             results.append(result)
-        
+
         return results
-    
-    def _build_simple_bm25_query(self, query: str, k: int, index: Optional[str] = None) -> Dict[str, Any]:
+
+    def _build_simple_bm25_query(
+        self, query: str, k: int, index: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Build optimized BM25 query using centralized templates for nested structure support."""
-        
+
         # Use our centralized query template for nested structure support
         search_body = QueryTemplates.build_bm25_query(
-            text_query=query,
-            index_name=index or self.settings.search_index_alias,
-            k=k
+            text_query=query, index_name=index or self.settings.search_index_alias, k=k
         )
         return search_body
-    
-    def _build_simple_knn_query(self, query_vector: List[float], k: int, index: Optional[str] = None) -> Dict[str, Any]:
+
+    def _build_simple_knn_query(
+        self, query_vector: List[float], k: int, index: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Build optimized kNN query using centralized templates for nested structure support."""
-        
+
         # Use our centralized query template for nested structure support
         search_body = QueryTemplates.build_knn_query(
             vector_query=query_vector,
             index_name=index or self.settings.search_index_alias,
-            k=k
+            k=k,
         )
         return search_body
-    
+
     def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         """Get the mapping (schema) for a specific index to discover field names."""
         try:
             url = f"{self.base_url}/{index_name}/_mapping"
-            
+
             # Use direct requests with auth (like main branch)
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
@@ -807,23 +876,25 @@ class OpenSearchClient:
             else:
                 logger.warning("No AWS auth available, using session for mapping")
                 response = self.session.get(url, timeout=30.0)
-            
+
             if not response.ok:
                 error_body = response.text
-                logger.error(f"Get mapping failed with {response.status_code}: {error_body}")
+                logger.error(
+                    f"Get mapping failed with {response.status_code}: {error_body}"
+                )
                 return {}
-            
+
             return response.json()
-            
+
         except Exception as e:
             logger.error(f"Error getting index mapping for {index_name}: {e}")
             return {}
-    
+
     def _check_index_exists(self, index_name: str) -> bool:
         """Check if an index exists in OpenSearch."""
         try:
             url = f"{self.base_url}/{index_name}"
-            
+
             # Use direct requests with auth (like main branch)
             _setup_jpmc_proxy()  # Ensure proxy is configured
             aws_auth = _get_aws_auth()
@@ -831,19 +902,19 @@ class OpenSearchClient:
                 response = requests.head(url, auth=aws_auth, timeout=5.0)
             else:
                 response = self.session.head(url, timeout=5.0)
-            
+
             # 200 = exists, 404 = doesn't exist, other = error
             return response.status_code == 200
-            
+
         except Exception as e:
             logger.warning(f"Error checking index existence for {index_name}: {e}")
             return False
-    
+
     def health_check(self) -> Dict[str, Any]:
         """Comprehensive health check for JPMC-aware OpenSearch connectivity."""
         try:
             health_url = f"{self.base_url}/_cluster/health"
-            
+
             if self.settings.requires_aws_auth:
                 # Use AWS auth for JPMC
                 _setup_jpmc_proxy()  # Ensure proxy is configured
@@ -855,28 +926,32 @@ class OpenSearchClient:
                     raise ValueError("No authentication available for JPMC profile")
             else:
                 response = self.session.get(health_url, timeout=5.0)
-                
+
             response.raise_for_status()
-            
+
             health = response.json()
-            
+
             # Check if health data is valid
             if not health or not isinstance(health, dict):
                 raise ValueError("Invalid health response format")
-            
+
             # Test default index exists
             index_exists = self._check_index_exists(self.settings.search_index_alias)
-            
+
             # Authentication status
             auth_status = "none"
             try:
-                if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
+                if (
+                    self.session is not None
+                    and hasattr(self.session, "auth")
+                    and self.session.auth
+                ):
                     auth_status = "session_configured"
                 elif self.settings.requires_aws_auth:
                     auth_status = "aws_auth_configured"
             except:
                 pass
-                
+
             return {
                 "status": "healthy",
                 "cluster_name": health.get("cluster_name", "unknown"),
@@ -884,26 +959,30 @@ class OpenSearchClient:
                 "node_count": health.get("number_of_nodes", 0),
                 "data_nodes": health.get("number_of_data_nodes", 0),
                 "index_exists": index_exists,
-                "authentication": auth_status
+                "authentication": auth_status,
             }
-            
+
         except Exception as e:
             logger.error(f"Health check failed: {e}")
-            
+
             # Safe authentication status for error case
             auth_status = "none"
             try:
-                if self.session is not None and hasattr(self.session, 'auth') and self.session.auth:
+                if (
+                    self.session is not None
+                    and hasattr(self.session, "auth")
+                    and self.session.auth
+                ):
                     auth_status = "session_configured"
                 elif self.settings.requires_aws_auth:
                     auth_status = "aws_auth_configured"
             except:
                 pass
-                
+
             return {
                 "status": "unhealthy",
                 "error": str(e),
-                "authentication": auth_status
+                "authentication": auth_status,
             }
 
 

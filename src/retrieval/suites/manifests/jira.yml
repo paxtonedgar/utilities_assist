@@ -1,0 +1,47 @@
+# JIRA tool suite manifest
+# Detects ticket creation, viewing, and project management patterns
+
+suite: jira
+hints:
+  - "(?i)\\bjira\\b|atlassian\\.net"
+  - "(?i)\\bproject\\s*key\\b|issue\\s*type\\b"
+  - "(?i)\\bticket\\b|\\bissue\\b"
+  - "(?i)\\bbacklog\\b|\\bsprint\\b"
+
+extractors:
+  - name: ticket_create
+    capability: ticket.create
+    weight: 3.0
+    patterns:
+      - "(?i)create\\s+(?:a\\s+)?(?:jira\\s+)?ticket"
+      - "(?i)submit\\s+(?:an?\\s+)?(?:intake|jira)\\s+(?:form|ticket)"
+      - "(?i)open\\s+(?:a\\s+)?(?:new\\s+)?(?:jira\\s+)?(?:issue|ticket)"
+      - "(?i)file\\s+(?:a\\s+)?(?:jira\\s+)?(?:ticket|issue)"
+      - "(?i)raise\\s+(?:a\\s+)?(?:jira\\s+)?(?:ticket|issue)"
+    attrs:
+      project_key: "(?i)project\\s*(?:key)?\\s*[:=]?\\s*([A-Z][A-Z0-9]+)"
+      issue_type: "(?i)issue\\s*type\\s*[:=]?\\s*([A-Za-z][A-Za-z\\s]+)"
+    url_patterns:
+      - "(https?://[^\\s]+\\.atlassian\\.net/[^\\s]*)"
+      - "(https?://[^\\s]+/jira/[^\\s]*)"
+
+  - name: ticket_view
+    capability: ticket.view
+    weight: 1.5
+    patterns:
+      - "(https?://[^\\s]+/browse/[A-Z][A-Z0-9]+-\\d+)"
+      - "(?i)view\\s+(?:jira\\s+)?(?:ticket|issue)\\s+([A-Z][A-Z0-9]+-\\d+)"
+      - "(?i)check\\s+(?:jira\\s+)?(?:ticket|issue)\\s+([A-Z][A-Z0-9]+-\\d+)"
+      - "([A-Z][A-Z0-9]+-\\d+)"  # Direct ticket reference
+    attrs:
+      ticket_id: "([A-Z][A-Z0-9]+-\\d+)"
+
+  - name: project_access
+    capability: project.access
+    weight: 2.0
+    patterns:
+      - "(?i)access\\s+(?:to\\s+)?(?:jira\\s+)?project\\s+([A-Z][A-Z0-9]+)"
+      - "(?i)join\\s+(?:jira\\s+)?project\\s+([A-Z][A-Z0-9]+)"
+      - "(?i)request\\s+access\\s+(?:to\\s+)?([A-Z][A-Z0-9]+)"
+    attrs:
+      project_key: "([A-Z][A-Z0-9]+)"

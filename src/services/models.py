@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class IntentResult(BaseModel):
     """Result of intent classification."""
+
     intent: str  # "confluence", "swagger", "list", "info", "restart"
     confidence: float = 0.0
     reasoning: Optional[str] = None
@@ -13,6 +14,7 @@ class IntentResult(BaseModel):
 
 class SearchResult(BaseModel):
     """Individual search result with canonical schema."""
+
     doc_id: str
     title: str
     url: Optional[str] = None
@@ -24,6 +26,7 @@ class SearchResult(BaseModel):
 
 class RetrievalResult(BaseModel):
     """Combined retrieval results."""
+
     results: List[SearchResult]
     total_found: int
     retrieval_time_ms: float
@@ -33,6 +36,7 @@ class RetrievalResult(BaseModel):
 
 class SourceChip(BaseModel):
     """Source citation chip for UI."""
+
     title: str
     url: Optional[str] = None
     doc_id: str
@@ -41,6 +45,7 @@ class SourceChip(BaseModel):
 
 class TurnResult(BaseModel):
     """Complete result of a conversation turn."""
+
     answer: str
     sources: List[SourceChip] = []
     intent: IntentResult

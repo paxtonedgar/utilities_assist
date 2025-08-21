@@ -1,0 +1,72 @@
+Assuming the corresponding module name of package 'atlassian-python-api' is 'atlassian_python_api'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'azure_storage' is 'azure_storage'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'faiss-cpu' is 'faiss_cpu'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'langchain' is 'langchain'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'langchain_openai' is 'langchain_openai'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'nest-asyncio' is 'nest_asyncio'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'requests-aws4auth' is 'requests_aws4auth'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'requests_oauthlib' is 'requests_oauthlib'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'tiktoken' is 'tiktoken'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'sumy' is 'sumy'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'fuzzywuzzy' is 'fuzzywuzzy'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'pytest' is 'pytest'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'levenshtein' is 'levenshtein'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'python-Levenshtein' is 'python_levenshtein'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'nltk' is 'nltk'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'rank-bm25' is 'rank_bm25'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'torch' is 'torch'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'sentence-transformers' is 'sentence_transformers'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Assuming the corresponding module name of package 'regex' is 'regex'. Install the package or configure a package_module_name_map entry to override this behaviour.
+Scanning 77 files...
+
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'aiohttp' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'atlassian-python-api' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'azure_storage' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'beautifulsoup4' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'faiss-cpu' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'langchain' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'nest-asyncio' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'requests_oauthlib' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'tiktoken' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'sumy' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'pandas' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'fuzzywuzzy' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'cachetools' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'pytest' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'levenshtein' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'python-Levenshtein' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'nltk' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'rank-bm25' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'opensearch-py' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'tqdm' defined as a dependency but not used in the codebase
+[1mrequirements.txt[m[36m:[m [1m[31mDEP002[m 'rich' defined as a dependency but not used in the codebase
+[1msrc/agent/nodes/combine.py[m[36m:[m49[36m:[m13[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/nodes/processing_nodes.py[m[36m:[m20[36m:[m1[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/nodes/search_nodes.py[m[36m:[m89[36m:[m9[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/nodes/search_nodes.py[m[36m:[m159[36m:[m9[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/nodes/search_nodes.py[m[36m:[m467[36m:[m13[36m:[m [1m[31mDEP003[m 'langchain_core' imported but it is a transitive dependency
+[1msrc/agent/nodes/search_nodes.py[m[36m:[m470[36m:[m13[36m:[m [1m[31mDEP001[m 'utils' imported but missing from the dependency definitions
+[1msrc/agent/nodes/search_nodes.py[m[36m:[m599[36m:[m13[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/nodes/summarize.py[m[36m:[m6[36m:[m1[36m:[m [1m[31mDEP003[m 'langchain_core' imported but it is a transitive dependency
+[1msrc/agent/nodes/summarize.py[m[36m:[m88[36m:[m13[36m:[m [1m[31mDEP001[m 'utils' imported but missing from the dependency definitions
+[1msrc/agent/routing/router.py[m[36m:[m51[36m:[m9[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/routing/router.py[m[36m:[m126[36m:[m13[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/agent/tools/search.py[m[36m:[m5[36m:[m1[36m:[m [1m[31mDEP003[m 'langchain_core' imported but it is a transitive dependency
+[1msrc/agent/tools/search.py[m[36m:[m63[36m:[m9[36m:[m [1m[31mDEP001[m 'agent' imported but missing from the dependency definitions
+[1msrc/infra/clients.py[m[36m:[m16[36m:[m1[36m:[m [1m[31mDEP003[m 'urllib3' imported but it is a transitive dependency
+[1msrc/infra/clients.py[m[36m:[m20[36m:[m5[36m:[m [1m[31mDEP003[m 'openai' imported but it is a transitive dependency
+[1msrc/infra/settings.py[m[36m:[m37[36m:[m9[36m:[m [1m[31mDEP001[m 'utils' imported but missing from the dependency definitions
+[1msrc/list_names.py[m[36m:[m18[36m:[m5[36m:[m [1m[31mDEP001[m 'FlagEmbedding' imported but missing from the dependency definitions
+[1msrc/retrieval/suites/registry.py[m[36m:[m7[36m:[m8[36m:[m [1m[31mDEP003[m 'yaml' imported but it is a transitive dependency
+[1msrc/services/intent.py[m[36m:[m150[36m:[m13[36m:[m [1m[31mDEP001[m 'utils' imported but missing from the dependency definitions
+[1msrc/smoke_test.py[m[36m:[m2[36m:[m8[36m:[m [1m[31mDEP001[m 'cdao' imported but missing from the dependency definitions
+[1msrc/smoke_test.py[m[36m:[m13[36m:[m1[36m:[m [1m[31mDEP001[m 'transformers' imported but missing from the dependency definitions
+[1mstreamlit_app.py[m[36m:[m22[36m:[m1[36m:[m [1m[31mDEP001[m 'app' imported but missing from the dependency definitions
+[1mtest_hybrid_search_validation.py[m[36m:[m11[36m:[m1[36m:[m [1m[31mDEP001[m 'infra' imported but missing from the dependency definitions
+[1mtest_hybrid_search_validation.py[m[36m:[m12[36m:[m1[36m:[m [1m[31mDEP001[m 'infra' imported but missing from the dependency definitions
+[1mtest_hybrid_search_validation.py[m[36m:[m13[36m:[m1[36m:[m [1m[31mDEP001[m 'services' imported but missing from the dependency definitions
+[1mtools/coverage_cli.py[m[36m:[m9[36m:[m1[36m:[m [1m[31mDEP001[m 'quality' imported but missing from the dependency definitions
+[1mtools/coverage_cli.py[m[36m:[m10[36m:[m1[36m:[m [1m[31mDEP001[m 'quality' imported but missing from the dependency definitions
+[1m[31mFound 48 dependency issues.[m
+
+For more information, see the documentation: https://deptry.com/

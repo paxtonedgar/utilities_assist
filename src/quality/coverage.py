@@ -1,7 +1,9 @@
 # src/quality/coverage.py
 from dataclasses import dataclass
-from typing import List, Dict, Tuple
-import math, regex as re, numpy as np
+from typing import List, Dict
+import math
+import regex as re
+import numpy as np
 
 # Use our BGE reranker instead of sentence_transformers
 from src.services.reranker import get_reranker, is_reranker_available
@@ -9,18 +11,23 @@ from src.services.reranker import get_reranker, is_reranker_available
 _ACTION_PATTERNS = {
     "steps": re.compile(r"(?m)^\s*(?:\d+\.|[-*])\s+\S+"),
     "endpoint": re.compile(r"\b(GET|POST|PUT|DELETE|PATCH)\s+\/[^\s#]+"),
-    "jira": re.compile(r"\b(jira|servicenow|request\s+form|intake|project\s*key)\b", re.I),
+    "jira": re.compile(
+        r"\b(jira|servicenow|request\s+form|intake|project\s*key)\b", re.I
+    ),
     "owner": re.compile(r"\b(owner|team|contact|dl|email|slack|channel)\b", re.I),
     "table": re.compile(r"\n\|.+\|\n\|[- :|]+\|\n", re.M),  # Markdown table-ish
 }
 
+
 def _sigmoid(x: float) -> float:
     return 1 / (1 + math.exp(-x))
+
 
 @dataclass
 class Passage:
     text: str
     meta: Dict  # should include at least {"rank": int, "url": str, "title": str, "heading": str}
+
 
 class CoverageGate:
     """
@@ -29,6 +36,7 @@ class CoverageGate:
       - alpha-nDCG (diversity-aware gain)
     Then selects passages for composition.
     """
+
     def __init__(
         self,
         model_name: str = "BAAI/bge-reranker-v2-m3",
@@ -47,10 +55,17 @@ class CoverageGate:
         self.min_actionable_spans = min_actionable_spans
         self.gate_ar = gate_ar
         self.gate_andcg = gate_andcg
-        self.w = {"w0": 1.0, "steps": 0.20, "endpoint": 0.15, "jira": 0.15, "owner": 0.10, "table": 0.05}
+        self.w = {
+            "w0": 1.0,
+            "steps": 0.20,
+            "endpoint": 0.15,
+            "jira": 0.15,
+            "owner": 0.10,
+            "table": 0.05,
+        }
         if weights:
             self.w.update(weights)
-        
+
         # Initialize BGE reranker
         self.reranker = None
         self._init_reranker()
@@ -62,17 +77,21 @@ class CoverageGate:
                 self.reranker = get_reranker(
                     model_id=self.model_name,
                     device=self.device,
-                    batch_size=32  # Can be tuned
+                    batch_size=32,  # Can be tuned
                 )
             except Exception as e:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to initialize BGE reranker: {e}")
                 self.reranker = None
         else:
             import logging
+
             logger = logging.getLogger(__name__)
-            logger.warning("BGE reranker not available, coverage evaluation will be limited")
+            logger.warning(
+                "BGE reranker not available, coverage evaluation will be limited"
+            )
             self.reranker = None
 
     # ---------- feature helpers ----------
@@ -87,30 +106,31 @@ class CoverageGate:
 
         passage_texts = [p.text for p in passages]
         mat = np.zeros((len(subqs), len(passages)), dtype="float32")
-        
+
         if self.reranker is not None:
             # Use BGE reranker for cross-encoder scores
             for i, subq in enumerate(subqs):
                 try:
                     # Get BGE scores for this subquery against all passages
                     scores = self.reranker.score(subq, passage_texts)
-                    
+
                     # Convert BGE scores to [0,1] range and apply feature weighting
                     feats = [self._features(p.text) for p in passages]
                     for j, (score, feat_dict) in enumerate(zip(scores, feats)):
                         # BGE scores are typically in range [0, 1], but may exceed
                         # Normalize and apply sigmoid for calibration
                         ce_score = max(0.0, min(1.0, float(score)))  # Clamp to [0,1]
-                        
+
                         # Apply feature weighting
                         s = self.w["w0"] * ce_score
                         for name in ("steps", "endpoint", "jira", "owner", "table"):
                             s += self.w[name] * feat_dict[name]
-                        
+
                         mat[i, j] = _sigmoid(s)  # calibrated into 0..1
-                        
+
                 except Exception as e:
                     import logging
+
                     logger = logging.getLogger(__name__)
                     logger.warning(f"BGE scoring failed for subquery {i}: {e}")
                     # Fallback to zero scores for this subquery
@@ -118,16 +138,20 @@ class CoverageGate:
         else:
             # Fallback to basic feature-only scoring if BGE not available
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning("BGE reranker not available, using feature-only scoring")
-            
+
             feats = [self._features(p.text) for p in passages]
             for i in range(len(subqs)):
                 for j, feat_dict in enumerate(feats):
                     # No cross-encoder score, just features
-                    s = sum(self.w[name] * feat_dict[name] for name in ("steps", "endpoint", "jira", "owner", "table"))
+                    s = sum(
+                        self.w[name] * feat_dict[name]
+                        for name in ("steps", "endpoint", "jira", "owner", "table")
+                    )
                     mat[i, j] = _sigmoid(s * 0.5)  # Scale down since no CE score
-        
+
         return mat
 
     def aspect_recall(self, mat: np.ndarray) -> float:
@@ -137,7 +161,9 @@ class CoverageGate:
         covered = (mat.max(axis=1) >= self.tau).sum()
         return float(covered) / mat.shape[0]
 
-    def alpha_ndcg(self, mat: np.ndarray, ranks: List[int], alpha: float = None) -> float:
+    def alpha_ndcg(
+        self, mat: np.ndarray, ranks: List[int], alpha: float = None
+    ) -> float:
         """
         Diversity-aware nDCG using per-aspect gains from the score matrix and a ranking.
         ranks: lower is better (1-based). Provide len(passages) ranks consistent with your fusion order.
@@ -154,7 +180,7 @@ class CoverageGate:
         seen = np.zeros(m, dtype="int32")
         for r_idx, j in enumerate(order, start=1):
             # gain for each aspect decreases if already covered
-            g_i = ( (1 - alpha) ** seen ) * mat[:, j]
+            g_i = ((1 - alpha) ** seen) * mat[:, j]
             gains.append(g_i.sum() / math.log2(1 + r_idx))
             # update "seen" as if we pick the max aspect per step
             seen = seen + (mat[:, j] > 0).astype("int32")
@@ -164,7 +190,7 @@ class CoverageGate:
         ideal_per_aspect = np.sort(mat.max(axis=1))[::-1]
         seen = np.zeros_like(ideal_per_aspect, dtype="int32")
         ideal_terms = []
-        for r_idx in range(1, len(order)+1):
+        for r_idx in range(1, len(order) + 1):
             # pick next best remaining aspect (cyclic approx): this upper bounds the real ideal DCG
             i = (r_idx - 1) % len(ideal_per_aspect)
             g = ((1 - alpha) ** seen[i]) * ideal_per_aspect[i]
@@ -173,7 +199,13 @@ class CoverageGate:
         idcg = float(np.sum(ideal_terms)) or 1.0
         return dcg / idcg
 
-    def select_passages(self, mat: np.ndarray, subqs: List[str], passages: List[Passage], top_n_per_aspect: int = 1) -> Dict[int, List[int]]:
+    def select_passages(
+        self,
+        mat: np.ndarray,
+        subqs: List[str],
+        passages: List[Passage],
+        top_n_per_aspect: int = 1,
+    ) -> Dict[int, List[int]]:
         """
         For each aspect i, return indices of top passages j (<= top_n_per_aspect).
         """
@@ -186,9 +218,11 @@ class CoverageGate:
     def count_actionable_spans(self, passages: List[Passage]) -> int:
         return sum(any(v for v in self._features(p.text).values()) for p in passages)
 
-    def evaluate(self, user_query: str, subqs: List[str], passages: List[Passage]) -> Dict:
+    def evaluate(
+        self, user_query: str, subqs: List[str], passages: List[Passage]
+    ) -> Dict:
         mat = self.score_matrix(subqs, passages)
-        ranks = [int(p.meta.get("rank", idx+1)) for idx, p in enumerate(passages)]
+        ranks = [int(p.meta.get("rank", idx + 1)) for idx, p in enumerate(passages)]
         C_AR = self.aspect_recall(mat)
         C_aNDCG = self.alpha_ndcg(mat, ranks)
         actionable = self.count_actionable_spans(passages)

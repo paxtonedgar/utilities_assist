@@ -1,0 +1,54 @@
+# Microsoft Outlook tool suite manifest
+# Detects email sending, calendar scheduling, and distribution list patterns
+
+suite: outlook
+hints:
+  - "(?i)\\boutlook\\b|\\bemail\\b"
+  - "(?i)\\bcalendar\\b|\\bappointment\\b"
+  - "(?i)\\bdl\\b|distribution\\s+list"
+  - "(?i)outlook\\.office365\\.com|outlook\\.live\\.com"
+
+extractors:
+  - name: email_send
+    capability: email.send
+    weight: 2.0
+    patterns:
+      - "(?i)send\\s+(?:an?\\s+)?email\\s+to\\s+([\\w\\s@.-]+)"
+      - "(?i)email\\s+(?:the\\s+)?([\\w\\s@.-]+)"
+      - "(?i)contact\\s+([\\w\\s@.-]+)\\s+(?:via\\s+)?(?:email|outlook)"
+      - "(?i)reach\\s+out\\s+(?:to\\s+)?([\\w\\s@.-]+)\\s+(?:via\\s+)?email"
+    attrs:
+      recipient: "([\\w\\s@.-]+)"
+      email_address: "([\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,})"
+
+  - name: calendar_create
+    capability: calendar.create
+    weight: 2.2
+    patterns:
+      - "(?i)schedule\\s+(?:a\\s+)?(?:calendar\\s+)?(?:meeting|appointment)"
+      - "(?i)book\\s+(?:a\\s+)?(?:calendar\\s+)?(?:meeting|appointment)"
+      - "(?i)create\\s+(?:a\\s+)?(?:calendar\\s+)?(?:event|meeting|appointment)"
+      - "(?i)set\\s+up\\s+(?:a\\s+)?(?:calendar\\s+)?(?:meeting|appointment)"
+    attrs:
+      event_type: "(?i)(meeting|appointment|event|call|review)"
+
+  - name: distribution_list
+    capability: contact.open
+    weight: 1.8
+    patterns:
+      - "(?i)contact\\s+(?:the\\s+)?([\\w\\s-]+)\\s+(?:dl|distribution\\s+list)"
+      - "(?i)email\\s+(?:the\\s+)?([\\w\\s-]+)\\s+(?:dl|distribution\\s+list|team)"
+      - "(?i)reach\\s+out\\s+to\\s+(?:the\\s+)?([\\w\\s-]+)\\s+(?:dl|team)"
+      - "(?i)([\\w\\s-]+)[-_]?(dl|team|support)@[\\w.-]+"
+    attrs:
+      dl_name: "([\\w\\s-]+)"
+      dl_email: "([\\w\\s-]+[-_]?(?:dl|team|support)@[\\w.-]+)"
+
+  - name: calendar_link
+    capability: calendar.create
+    weight: 1.0
+    patterns:
+      - "(https?://outlook\\.office365\\.com/[^\\s]*calendar[^\\s]*)"
+      - "(https?://outlook\\.live\\.com/[^\\s]*calendar[^\\s]*)"
+    attrs:
+      calendar_url: "(https?://outlook\\.[^\\s]+)"

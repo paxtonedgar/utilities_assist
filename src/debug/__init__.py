@@ -13,13 +13,13 @@ from .debug_client import OpenSearchDebugClient
 from .optimization_advisor import OptimizationAdvisor, OptimizationRecommendation
 
 __all__ = [
-    'ExplainAnalyzer',
-    'ExplanationResult', 
-    'ScoreBreakdown',
-    'ProfileAnalyzer',
-    'ProfileResult',
-    'QueryProfile',
-    'OpenSearchDebugClient',
-    'OptimizationAdvisor',
-    'OptimizationRecommendation'
+    "ExplainAnalyzer",
+    "ExplanationResult",
+    "ScoreBreakdown",
+    "ProfileAnalyzer",
+    "ProfileResult",
+    "QueryProfile",
+    "OpenSearchDebugClient",
+    "OptimizationAdvisor",
+    "OptimizationRecommendation",
 ]

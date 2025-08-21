@@ -14,7 +14,6 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from src.infra.settings import get_settings
 from src.infra.resource_manager import get_resources, RAGResources
 from src.services.models import TurnResult, IntentResult
-from src.infra.telemetry import generate_request_id, log_overall_stage
 from src.telemetry.logger import generate_req_id, set_context_var, stage
 
 # Initialize logger first to avoid NameError
@@ -23,36 +22,42 @@ logger = logging.getLogger(__name__)
 # Graceful import handling for persistence module
 try:
     from src.infra.persistence import (
-        get_checkpointer_and_store, 
-        extract_user_context, 
+        get_checkpointer_and_store,
+        extract_user_context,
         generate_thread_id,
-        create_langgraph_config
+        create_langgraph_config,
     )
+
     PERSISTENCE_AVAILABLE = True
     logger.info("Persistence module loaded successfully")
 except ImportError as e:
-    logger.warning(f"Persistence module not available: {e}. Using fallback implementations.")
+    logger.warning(
+        f"Persistence module not available: {e}. Using fallback implementations."
+    )
     PERSISTENCE_AVAILABLE = False
-    
+
     # Fallback implementations
     def get_checkpointer_and_store():
         return None, None
-    
+
     def extract_user_context(resources):
         return {"user_id": "fallback_user", "session_metadata": {}}
-    
+
     def generate_thread_id(user_id, session_context=None):
         import time
+
         return f"{user_id}_{int(time.time())}"
-    
+
     def create_langgraph_config(user_context, thread_id):
         return {"configurable": {"thread_id": thread_id}}
 
+
 # Import LangGraph components (traditional handler removed - LangGraph is now the only system)
-from src.agent.graph import create_graph, GraphState
+from src.agent.graph import create_graph
 
 # Import state key constants from centralized location
 from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
+
 
 # Environment flag for LangGraph control
 def _check_langgraph_enabled() -> bool:
@@ -64,6 +69,7 @@ def _check_langgraph_enabled() -> bool:
         # Fallback to environment variable
         return os.getenv("ENABLE_LANGGRAPH", "false").lower() == "true"
 
+
 LANGGRAPH_ENABLED = _check_langgraph_enabled()
 
 
@@ -74,39 +80,45 @@ def _validate_and_normalize_input(user_input: str, req_id: str) -> tuple[str, di
         error_response = {
             "type": "error",
             "message": "Please provide a valid query. Empty queries are not supported.",
-            "req_id": req_id
+            "req_id": req_id,
         }
         return None, error_response
-    
+
     # Optimize: only process if string contains problematic characters
-    if isinstance(user_input, str) and ('\\' in user_input or len(user_input) != len(user_input.strip())):
+    if isinstance(user_input, str) and (
+        "\\" in user_input or len(user_input) != len(user_input.strip())
+    ):
         # Fix common UI corruptions - only if needed
-        user_input = user_input.replace('\\\\', '').replace("\\'", "'").strip()
-        
+        user_input = user_input.replace("\\\\", "").replace("\\'", "'").strip()
+
         # Only filter control characters if we detect them (rare case)
-        if any(ord(c) < 32 and c not in '\t\n\r' for c in user_input[:50]):  # Sample first 50 chars
-            user_input = ''.join(char for char in user_input if ord(char) >= 32 or char in '\t\n\r')
+        if any(
+            ord(c) < 32 and c not in "\t\n\r" for c in user_input[:50]
+        ):  # Sample first 50 chars
+            user_input = "".join(
+                char for char in user_input if ord(char) >= 32 or char in "\t\n\r"
+            )
     else:
         user_input = user_input.strip()
-    
+
     # Final validation
     if not user_input:
         error_response = {
             "type": "error",
             "message": "Please provide a valid query. Empty or corrupted queries are not supported.",
-            "req_id": req_id
+            "req_id": req_id,
         }
         return None, error_response
-    
+
     return user_input, None
 
 
 def _convert_state_to_dict(state) -> dict:
     """Convert GraphState or Pydantic model to dict with consistent handling."""
-    if hasattr(state, 'model_dump'):
+    if hasattr(state, "model_dump"):
         # Pydantic v2
         return state.model_dump()
-    elif hasattr(state, 'dict'):
+    elif hasattr(state, "dict"):
         # Pydantic v1
         return state.dict()
     elif isinstance(state, dict):
@@ -118,47 +130,57 @@ def _convert_state_to_dict(state) -> dict:
 
 
 def _extract_user_context_and_thread(
-    user_context: Optional[Dict[str, Any]], 
-    thread_id: Optional[str], 
-    resources: RAGResources
+    user_context: Optional[Dict[str, Any]],
+    thread_id: Optional[str],
+    resources: RAGResources,
 ) -> tuple[Dict[str, Any], str]:
     """Extract and generate user context and thread ID with optimized logging."""
     # Extract user context from authentication if not provided
     if user_context is None:
         user_context = extract_user_context(resources)
-    
+
     # Generate thread ID if not provided
     if thread_id is None:
         thread_id = generate_thread_id(
-            user_context.get("user_id", "unknown"), 
-            user_context.get("session_metadata")
+            user_context.get("user_id", "unknown"), user_context.get("session_metadata")
         )
-    
+
     # Single consolidated log for context initialization
-    logger.info(f"Turn context: user_id={user_context.get('user_id', 'unknown')}, thread_id={thread_id}")
-    
+    logger.info(
+        f"Turn context: user_id={user_context.get('user_id', 'unknown')}, thread_id={thread_id}"
+    )
+
     return user_context, thread_id
 
 
-def _build_sources_from_results(combined_results: List, source_chips: List = None) -> List[Dict[str, Any]]:
+def _build_sources_from_results(
+    combined_results: List, source_chips: List = None
+) -> List[Dict[str, Any]]:
     """Build standardized sources from combined results with optimized attribute access."""
     if source_chips:
         return source_chips  # Use extracted source chips if available
-    
+
     # Fallback: Build sources from combined results with cached attribute access
     sources = []
     for i, result in enumerate(combined_results[:10]):  # Limit to top 10
         # Cache attribute access to avoid repeated hasattr/getattr calls
-        doc_id = getattr(result, 'doc_id', None) or f"unknown-{i}"
-        metadata = getattr(result, 'metadata', {})
-        content = getattr(result, 'content', "")
-        
+        doc_id = getattr(result, "doc_id", None) or f"unknown-{i}"
+        metadata = getattr(result, "metadata", {})
+        content = getattr(result, "content", "")
+
         # Extract URL with single metadata lookup using dict.get() chaining
-        url = metadata.get("url") or metadata.get("page_url") or metadata.get("link") or f"#doc-{doc_id}"
-        
+        url = (
+            metadata.get("url")
+            or metadata.get("page_url")
+            or metadata.get("link")
+            or f"#doc-{doc_id}"
+        )
+
         # Extract title with single metadata lookup
-        title = metadata.get("title") or metadata.get("page_title") or f"Document {i+1}"
-        
+        title = (
+            metadata.get("title") or metadata.get("page_title") or f"Document {i + 1}"
+        )
+
         # Optimize content excerpt generation
         if content and len(content) > 200:
             excerpt = content[:200] + "..."
@@ -166,14 +188,16 @@ def _build_sources_from_results(combined_results: List, source_chips: List = Non
             excerpt = content
         else:
             excerpt = "No content available"
-        
-        sources.append({
-            "doc_id": doc_id,  # Required field - always populated
-            "title": title,
-            "url": url,
-            "excerpt": excerpt
-        })
-    
+
+        sources.append(
+            {
+                "doc_id": doc_id,  # Required field - always populated
+                "title": title,
+                "url": url,
+                "excerpt": excerpt,
+            }
+        )
+
     return sources
 
 
@@ -183,28 +207,28 @@ async def handle_turn(
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
     thread_id: Optional[str] = None,
-    user_context: Optional[Dict[str, Any]] = None
+    user_context: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     LangGraph turn handler with enterprise authentication and persistence.
-    
+
     This is now the single, unified turn handler using LangGraph architecture
     with full enterprise features and conversation persistence.
-    
+
     Args:
         user_input: Raw user input
         resources: Pre-configured resource container (auto-fetched if None)
         chat_history: Recent conversation history
         thread_id: Optional thread ID for conversation persistence
         user_context: Optional user context from authentication
-        
+
     Yields:
         Dict with turn progress updates and final result
     """
     # Generate request ID and set context at the start
     req_id = generate_req_id()
     set_context_var("current_req_id", req_id)
-    
+
     # Validate and normalize input using shared utility
     normalized_input, error_response = _validate_and_normalize_input(user_input, req_id)
     if error_response:
@@ -212,7 +236,7 @@ async def handle_turn(
         yield error_response
         return
     user_input = normalized_input
-    
+
     # Get resources once at entry point to avoid duplicate lookups
     if resources is None:
         resources = get_resources()
@@ -220,23 +244,23 @@ async def handle_turn(
             yield {
                 "type": "error",
                 "message": "Resources not initialized. Call initialize_resources() at startup.",
-                "req_id": req_id
+                "req_id": req_id,
             }
             return
-    
+
     # Set telemetry context variables
     if user_context and user_context.get("user_id"):
         set_context_var("user_id", user_context["user_id"])
     if thread_id:
         set_context_var("thread_id", thread_id)
-    
+
     # Always use LangGraph (traditional pipeline has been fully migrated)
     async for update in handle_turn_with_graph(
         user_input=user_input,
         resources=resources,  # Pass validated resources
         chat_history=chat_history,
         thread_id=thread_id,
-        user_context=user_context
+        user_context=user_context,
     ):
         # Add request ID to updates
         if isinstance(update, dict):
@@ -249,113 +273,125 @@ async def handle_turn_with_graph(
     resources: Optional[RAGResources] = None,
     chat_history: List[Dict[str, str]] = None,
     thread_id: Optional[str] = None,
-    user_context: Optional[Dict[str, Any]] = None
+    user_context: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     LangGraph-based turn handler with authentication, persistence, and graceful fallback.
-    
+
     Integrates user context, thread management, and conversation persistence
     while maintaining streaming interface and fallback capabilities.
     """
     start_time = time.time()
     turn_id = f"graph_{int(start_time)}"
     req_id = generate_req_id()  # Use consistent req_id generator
-    
+
     try:
         # Resources should always be passed from handle_turn() - no need to re-fetch
         if resources is None:
-            raise RuntimeError("Resources should be passed from handle_turn(). This is a programming error.")
-        
-        # Extract user context and thread ID using shared utility  
-        user_context, thread_id = _extract_user_context_and_thread(user_context, thread_id, resources)
-        
+            raise RuntimeError(
+                "Resources should be passed from handle_turn(). This is a programming error."
+            )
+
+        # Extract user context and thread ID using shared utility
+        user_context, thread_id = _extract_user_context_and_thread(
+            user_context, thread_id, resources
+        )
+
         # Initialize persistence layer
         checkpointer, store = get_checkpointer_and_store()
         if checkpointer:
             logger.info("Using persistent checkpointer for conversation memory")
         if store:
             logger.info("Using persistent store for cross-thread user memory")
-        
+
         # Create LangGraph configuration with thread and user context
         langgraph_config = create_langgraph_config(user_context, thread_id)
-        
+
         # Create and configure graph with persistence
         graph = create_graph(
-            enable_loops=True,
-            min_results=3,
-            checkpointer=checkpointer,
-            store=store
+            enable_loops=True, min_results=3, checkpointer=checkpointer, store=store
         )
-        
+
         # Sanitize input once
         text = (user_input or "").strip()
-        
+
         # QUERY REWRITE FOR CONTEXT: Condense question when chat history exists
         if chat_history and len(chat_history) > 0:
             try:
                 # Simple context condensation - combine last exchange with current question
                 last_exchange = chat_history[-1] if chat_history else {}
-                if last_exchange.get("role") == "user" or last_exchange.get("role") == "assistant":
-                    context_summary = last_exchange.get("content", "")[:200]  # Keep it short
+                if (
+                    last_exchange.get("role") == "user"
+                    or last_exchange.get("role") == "assistant"
+                ):
+                    context_summary = last_exchange.get("content", "")[
+                        :200
+                    ]  # Keep it short
                     if context_summary.strip():
                         # Add context prefix for better search
                         text = f"Given context: {context_summary.strip()}... Current question: {text}"
                         logger.info(f"Query rewritten with context: {text[:100]}...")
             except Exception as e:
                 logger.warning(f"Query rewrite failed, using original: {e}")
-        
+
         # Initialize graph state as plain dict - NO GraphState construction
         # This prevents "GraphState object has no attribute 'get'" errors
         initial_state = {
-            ORIGINAL_QUERY: text,                 # Required by summarize_node 
-            NORMALIZED_QUERY: text,               # Start normalized as original
+            ORIGINAL_QUERY: text,  # Required by summarize_node
+            NORMALIZED_QUERY: text,  # Start normalized as original
             INTENT: None,
             "search_results": [],
             "combined_results": [],
             "final_context": None,
             "final_answer": None,
             "response_chunks": [],
-            
             # User context and authentication integration
             "user_id": user_context.get("user_id"),
             "thread_id": thread_id,
             "session_id": user_context.get("session_metadata", {}).get("cloud_profile"),
             "user_context": user_context,
             "user_preferences": user_context.get("user_preferences", {}),
-            
             "workflow_path": [],
             "loop_count": 0,
             "rewrite_attempts": 0,  # Track rewrite attempts to prevent infinite loops
             "min_results": 3,
             "error_messages": [],
-            "_use_mock_corpus": False  # CRITICAL: Turn mocks OFF - use real OpenSearch
+            "_use_mock_corpus": False,  # CRITICAL: Turn mocks OFF - use real OpenSearch
         }
-        
+
         # Guardrails: Verify state is dict-like before passing to LangGraph
         if not isinstance(initial_state, dict):
-            logger.error("Initial state is not a dict-like mapping: %r", type(initial_state))
-            raise TypeError(f"Expected dict-like initial state, got {type(initial_state)}")
-        
-        # Concise turn start log  
-        logger.info(f"LangGraph processing: {initial_state.get(ORIGINAL_QUERY, '')[:50]}...")
-        
+            logger.error(
+                "Initial state is not a dict-like mapping: %r", type(initial_state)
+            )
+            raise TypeError(
+                f"Expected dict-like initial state, got {type(initial_state)}"
+            )
+
+        # Concise turn start log
+        logger.info(
+            f"LangGraph processing: {initial_state.get(ORIGINAL_QUERY, '')[:50]}..."
+        )
+
         # Track progress and stream updates with user context
         yield {
-            "type": "status", 
-            "message": f"Processing with advanced workflow (user: {user_context.get('user_id', 'unknown')})...", 
-            "turn_id": turn_id, 
+            "type": "status",
+            "message": f"Processing with advanced workflow (user: {user_context.get('user_id', 'unknown')})...",
+            "turn_id": turn_id,
             "req_id": req_id,
             "thread_id": thread_id,
-            "user_id": user_context.get("user_id")
+            "user_id": user_context.get("user_id"),
         }
-        
+
         # Execute graph with streaming updates and persistence
         final_state = None
         async for chunk in graph.astream(initial_state, config=langgraph_config):
             for node_name, node_update in chunk.items():
                 # Stream progress updates
-                yield _format_graph_progress(node_name, node_update, turn_id, req_id, thread_id)
-                
+                yield _format_graph_progress(
+                    node_name, node_update, turn_id, req_id, thread_id
+                )
+
                 # If we have response chunks, stream them
                 if "response_chunks" in node_update:
                     for response_chunk in node_update["response_chunks"]:
@@ -364,81 +400,91 @@ async def handle_turn_with_graph(
                             "content": response_chunk,
                             "turn_id": turn_id,
                             "req_id": req_id,
-                            "thread_id": thread_id
+                            "thread_id": thread_id,
                         }
-                
+
                 # Update final state
                 if node_name != "__end__":
                     final_state = node_update
-        
+
         # Generate final result
         if final_state:
-            final_result = _format_graph_final_result(final_state, start_time, turn_id, req_id)
+            final_result = _format_graph_final_result(
+                final_state, start_time, turn_id, req_id
+            )
             yield final_result
         else:
             # No final state - something went wrong
             raise RuntimeError("Graph execution completed without final state")
-        
+
     except Exception as e:
         logger.error(f"LangGraph processing failed: {e}")
-        
+
         # Generate error response (no fallback - LangGraph is the primary system)
         error_result = TurnResult(
             answer=f"I encountered an error processing your request: {str(e)}",
             sources=[],
             intent=IntentResult(intent="error", confidence=0.0),
             response_time_ms=(time.time() - start_time) * 1000,
-            error=str(e)
+            error=str(e),
         )
-        
+
         yield {
             "type": "error",
             "result": error_result.dict(),
             "turn_id": turn_id,
             "req_id": req_id,
-            "message": f"LangGraph processing failed: {str(e)}"
+            "message": f"LangGraph processing failed: {str(e)}",
         }
 
 
-def _format_graph_progress(node_name: str, node_update: Dict[str, Any], turn_id: str, req_id: str, thread_id: str = None) -> Dict[str, Any]:
+def _format_graph_progress(
+    node_name: str,
+    node_update: Dict[str, Any],
+    turn_id: str,
+    req_id: str,
+    thread_id: str = None,
+) -> Dict[str, Any]:
     """Format graph node updates as progress messages with thread context."""
-    
+
     # Map node names to user-friendly messages
     status_messages = {
         "summarize": "Analyzing and normalizing query...",
-        "intent": "Determining query intent...", 
+        "intent": "Determining query intent...",
         "search_confluence": "Searching documentation...",
         "search_swagger": "Searching API specifications...",
         "search_multi": "Performing comprehensive search...",
         "rewrite_query": "Refining search strategy...",
         "combine": "Synthesizing results...",
-        "answer": "Generating response..."
+        "answer": "Generating response...",
     }
-    
+
     message = status_messages.get(node_name, f"Processing {node_name}...")
-    
+
     progress = {
         "type": "status",
         "message": message,
         "turn_id": turn_id,
         "req_id": req_id,
         "graph_node": node_name,
-        "workflow_path": node_update.get("workflow_path", [])
+        "workflow_path": node_update.get("workflow_path", []),
     }
-    
+
     if thread_id:
         progress["thread_id"] = thread_id
-    
+
     # Include user context if available
     if "user_id" in node_update:
         progress["user_id"] = node_update["user_id"]
-    
+
     return progress
 
 
-def _format_graph_final_result(final_state, start_time: float, turn_id: str, req_id: str) -> Dict[str, Any]:
+def _format_graph_final_result(
+    final_state, start_time: float, turn_id: str, req_id: str
+) -> Dict[str, Any]:
     """Format final graph state as TurnResult compatible response with optimized access."""
-    
+
     # Optimize: Access state attributes directly when possible, fallback to dict conversion
     def safe_get(obj, key, default=None):
         """Get attribute/key safely from state object or dict."""
@@ -449,46 +495,51 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
         else:
             # Only convert to dict as last resort
             return _convert_state_to_dict(obj).get(key, default)
-    
+
     # Extract results with optimized access
     final_answer = safe_get(final_state, "final_answer", "No answer generated.")
     combined_results = safe_get(final_state, "combined_results", [])
     workflow_path = safe_get(final_state, "workflow_path", [])
     source_chips = safe_get(final_state, "source_chips", [])
-    
+
     # Build sources using shared utility
     sources = _build_sources_from_results(combined_results, source_chips)
-    
+
     # MISSING: Include verification metrics (from traditional pipeline)
     verification_metrics = safe_get(final_state, "verification_metrics", {})
-    
+
     # Handle intent - always expect dict format and convert to IntentResult for TurnResult
-    intent_data = safe_get(final_state, "intent", {"intent": "unknown", "confidence": 0.0})
-    
+    intent_data = safe_get(
+        final_state, "intent", {"intent": "unknown", "confidence": 0.0}
+    )
+
     # Defensive handling for both dict and IntentResult formats
     if hasattr(intent_data, "dict"):
         # Pydantic model - convert to dict first
         intent_data = intent_data.dict()
     elif hasattr(intent_data, "intent"):
         # IntentResult object - extract values
-        intent_data = {"intent": intent_data.intent, "confidence": intent_data.confidence}
+        intent_data = {
+            "intent": intent_data.intent,
+            "confidence": intent_data.confidence,
+        }
     elif not isinstance(intent_data, dict):
         # Unknown format - fallback
         logger.warning(f"Unknown intent format: {type(intent_data)}, using default")
         intent_data = {"intent": "unknown", "confidence": 0.0}
-    
+
     # Now we have a dict, convert to IntentResult for TurnResult
     intent_result = IntentResult(
         intent=intent_data.get("intent", "unknown"),
-        confidence=intent_data.get("confidence", 0.0)
+        confidence=intent_data.get("confidence", 0.0),
     )
-    
+
     # Validate sources before TurnResult construction
     for i, source in enumerate(sources):
         if not source.get("doc_id"):
             logger.warning(f"Source {i} missing doc_id: {source}")
             source["doc_id"] = f"unknown-{i}"  # Fallback
-    
+
     # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
@@ -497,19 +548,21 @@ def _format_graph_final_result(final_state, start_time: float, turn_id: str, req
         response_time_ms=(time.time() - start_time) * 1000,
         graph_workflow_path=workflow_path,  # Additional field for graph tracking
         graph_loop_count=safe_get(final_state, "loop_count", 0),
-        verification=verification_metrics  # MISSING: Answer quality verification
+        verification=verification_metrics,  # MISSING: Answer quality verification
     )
-    
+
     # MISSING: Stream verification metrics (from traditional pipeline)
-    result_dict = turn_result.model_dump()  # Use model_dump instead of deprecated dict()
+    result_dict = (
+        turn_result.model_dump()
+    )  # Use model_dump instead of deprecated dict()
     if verification_metrics:
         result_dict["verification"] = verification_metrics
-    
+
     return {
         "type": "complete",
         "result": result_dict,
         "turn_id": turn_id,
-        "req_id": req_id
+        "req_id": req_id,
     }
 
 
@@ -534,19 +587,18 @@ def is_langgraph_enabled() -> bool:
 
 # Convenience functions for testing and development
 async def test_graph_vs_traditional(
-    test_query: str,
-    resources: Optional[RAGResources] = None
+    test_query: str, resources: Optional[RAGResources] = None
 ) -> Dict[str, Any]:
     """
     Test both graph and traditional processing for comparison.
-    
+
     Useful for A/B testing and performance comparison.
     """
     if not resources:
         resources = get_resources()
-    
+
     results = {"query": test_query}
-    
+
     # Test traditional
     start_time = time.time()
     traditional_updates = []
@@ -557,10 +609,10 @@ async def test_graph_vs_traditional(
     results["traditional"] = {
         "time_ms": (time.time() - start_time) * 1000,
         "final_result": traditional_updates[-1] if traditional_updates else None,
-        "update_count": len(traditional_updates)
+        "update_count": len(traditional_updates),
     }
-    
-    # Test graph 
+
+    # Test graph
     start_time = time.time()
     graph_updates = []
     async for update in handle_turn_with_graph(test_query, resources):
@@ -570,7 +622,7 @@ async def test_graph_vs_traditional(
     results["graph"] = {
         "time_ms": (time.time() - start_time) * 1000,
         "final_result": graph_updates[-1] if graph_updates else None,
-        "update_count": len(graph_updates)
+        "update_count": len(graph_updates),
     }
-    
+
     return results

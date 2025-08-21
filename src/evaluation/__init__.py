@@ -11,11 +11,11 @@ from .evaluation_client import OpenSearchEvaluationClient
 from .metrics import calculate_ndcg, calculate_recall, calculate_precision
 
 __all__ = [
-    'RankEvaluator',
-    'EvaluationMetrics', 
-    'EvaluationResult',
-    'OpenSearchEvaluationClient',
-    'calculate_ndcg',
-    'calculate_recall',
-    'calculate_precision'
+    "RankEvaluator",
+    "EvaluationMetrics",
+    "EvaluationResult",
+    "OpenSearchEvaluationClient",
+    "calculate_ndcg",
+    "calculate_recall",
+    "calculate_precision",
 ]

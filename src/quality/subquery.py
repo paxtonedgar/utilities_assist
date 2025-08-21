@@ -4,12 +4,16 @@ from typing import List
 
 _PROCEDURE_HINTS = [
     ("prerequisites", ["prerequisite", "requirement", "before you", "pre-req"]),
-    ("jira", ["jira", "servicenow", "request", "intake", "ticket", "form", "project key"]),
+    (
+        "jira",
+        ["jira", "servicenow", "request", "intake", "ticket", "form", "project key"],
+    ),
     ("owner", ["owner", "team", "contact", "dl", "email", "slack", "support"]),
     ("endpoints", ["endpoint", "api", "path", "url", "route"]),
     ("steps", ["step", "how to", "onboard", "enable", "configure", "setup"]),
     ("sla", ["sla", "timeline", "turnaround"]),
 ]
+
 
 def decompose(user_query: str, max_subqs: int = 6) -> List[str]:
     q = user_query.strip().lower()

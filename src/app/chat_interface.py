@@ -4,28 +4,28 @@
 
 import streamlit as st
 import asyncio
-import time
 import logging
 import os
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # Import only infra and controllers - no direct SDK imports
 # sys.path already configured by streamlit_app.py
 
 from src.infra.settings import get_settings
 from src.controllers.graph_integration import handle_turn
-from src.infra.telemetry import get_telemetry_collector, format_event_for_display
-from src.infra.resource_manager import initialize_resources, get_resources, health_check
+from src.infra.telemetry import get_telemetry_collector
+from src.infra.resource_manager import initialize_resources, health_check
 from src.telemetry.logger import get_stage_logs
 
 logger = logging.getLogger(__name__)
+
 
 def _extract_user_context() -> Dict[str, Any]:
     """Extract user context for the session with graceful fallback."""
     try:
         from src.infra.persistence import extract_user_context
-        # Pass None resources to extract from environment 
+
+        # Pass None resources to extract from environment
         return extract_user_context(None)
     except ImportError:
         logger.info("Persistence module not available, using local user context")
@@ -33,8 +33,8 @@ def _extract_user_context() -> Dict[str, Any]:
             "user_id": "streamlit_user",
             "session_metadata": {
                 "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
-                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini")
-            }
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini"),
+            },
         }
     except Exception as e:
         logger.warning(f"Failed to extract user context: {e}")
@@ -42,13 +42,15 @@ def _extract_user_context() -> Dict[str, Any]:
             "user_id": "streamlit_user",
             "session_metadata": {
                 "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
-                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini")
-            }
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini"),
+            },
         }
+
 
 def inject_minimal_css():
     """Clean, professional styling."""
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     /* Clean modern theme */
     .main {
@@ -148,76 +150,96 @@ def inject_minimal_css():
         50% { opacity: 1; }
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 def initialize_session():
     """Initialize Streamlit session state with user context and thread management."""
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    
+
     if "settings" not in st.session_state:
         st.session_state.settings = get_settings()
-        logger.info(f"Initialized with {st.session_state.settings.cloud_profile} profile")
-    
+        logger.info(
+            f"Initialized with {st.session_state.settings.cloud_profile} profile"
+        )
+
     # Removed mock corpus - only use production Confluence and OpenSearch
-    
+
     # Initialize user context and thread management
     if "user_context" not in st.session_state:
         st.session_state.user_context = _extract_user_context()
-        logger.info(f"Initialized user context: {st.session_state.user_context.get('user_id', 'unknown')}")
-    
+        logger.info(
+            f"Initialized user context: {st.session_state.user_context.get('user_id', 'unknown')}"
+        )
+
     if "thread_id" not in st.session_state:
         try:
             from src.infra.persistence import generate_thread_id
+
             st.session_state.thread_id = generate_thread_id(
                 st.session_state.user_context.get("user_id", "unknown"),
-                st.session_state.user_context.get("session_metadata")
+                st.session_state.user_context.get("session_metadata"),
             )
         except ImportError:
             # Fallback thread ID generation
             import time
+
             user_id = st.session_state.user_context.get("user_id", "unknown")
             st.session_state.thread_id = f"{user_id}_{int(time.time())}"
         logger.info(f"Generated new thread ID: {st.session_state.thread_id}")
-    
+
     if "conversation_history" not in st.session_state:
         st.session_state.conversation_history = []
-    
+
     # Phase 1 Optimization: Initialize shared resources once at startup (LangGraph pattern)
     if "resources_initialized" not in st.session_state:
         try:
-            logger.info("Phase 1: Initializing shared resources for performance optimization...")
+            logger.info(
+                "Phase 1: Initializing shared resources for performance optimization..."
+            )
             st.session_state.resources = initialize_resources(st.session_state.settings)
             st.session_state.resources_initialized = True
-            
+
             # Log resource health and performance benefits
             health = health_check()
-            logger.info(f"Resource health: {health['status']} (eliminates 25-50% response time overhead)")
-            
+            logger.info(
+                f"Resource health: {health['status']} (eliminates 25-50% response time overhead)"
+            )
+
             # Initialize reranker at startup to avoid delays during search
             try:
                 logger.info("Initializing BGE reranker at startup...")
                 from src.services.reranker import get_reranker, is_reranker_available
-                
-                if is_reranker_available() and st.session_state.settings.reranker.enabled:
+
+                if (
+                    is_reranker_available()
+                    and st.session_state.settings.reranker.enabled
+                ):
                     reranker = get_reranker()
                     if reranker:
                         st.session_state.reranker_initialized = True
-                        logger.info(f"✅ BGE reranker initialized successfully at startup (device: {reranker.device})")
+                        logger.info(
+                            f"✅ BGE reranker initialized successfully at startup (device: {reranker.device})"
+                        )
                     else:
                         st.session_state.reranker_initialized = False
-                        logger.warning("⚠️ BGE reranker failed to initialize - will use fallback scoring")
+                        logger.warning(
+                            "⚠️ BGE reranker failed to initialize - will use fallback scoring"
+                        )
                 else:
                     st.session_state.reranker_initialized = False
                     if not st.session_state.settings.reranker.enabled:
                         logger.info("BGE reranker disabled in settings")
                     else:
                         logger.info("BGE reranker dependencies not available")
-                        
+
             except Exception as reranker_error:
                 logger.warning(f"BGE reranker initialization failed: {reranker_error}")
                 st.session_state.reranker_initialized = False
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize resources: {e}")
             st.error(f"⚠️ Resource initialization failed: {e}")
@@ -226,59 +248,74 @@ def initialize_session():
             st.session_state.resources_initialized = False
             st.session_state.reranker_initialized = False
 
+
 def render_header():
     """Simple, clean header with system status."""
     # Get reranker status from session state
-    reranker_status = "✅ BGE Enhanced" if st.session_state.get("reranker_initialized", False) else "⚪ Standard"
-    
-    st.markdown(f"""
+    reranker_status = (
+        "✅ BGE Enhanced"
+        if st.session_state.get("reranker_initialized", False)
+        else "⚪ Standard"
+    )
+
+    st.markdown(
+        f"""
     <div class="header">
         <h1>Utilities Assistant</h1>
         <p>Enterprise Knowledge Search <span style="color: #666; font-size: 0.8em;">({reranker_status})</span></p>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_sources(sources: List[Dict[str, Any]]) -> None:
     """Simple source display."""
     if not sources:
         return
-    
-    st.markdown('<div class="sources"><strong>Sources:</strong><br>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="sources"><strong>Sources:</strong><br>', unsafe_allow_html=True
+    )
     for source in sources:
         title = source.get("title", "Source")
         url = source.get("url", "#")
-        st.markdown(f'<a href="{url}" class="source-item">{title}</a>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<a href="{url}" class="source-item">{title}</a>', unsafe_allow_html=True
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 def render_simple_stats(req_id: str):
     """Show basic performance stats if available."""
     if not req_id:
         return
-        
+
     collector = get_telemetry_collector()
     events = collector.get_events(req_id)
-    
+
     if not events:
         return
-    
+
     overall_event = next((e for e in events if e.stage == "overall"), None)
     if overall_event:
-        total_time = getattr(overall_event, 'ms', 0)
+        total_time = getattr(overall_event, "ms", 0)
         if total_time > 0:
             st.caption(f"⏱️ Response time: {total_time:.0f}ms")
+
 
 def render_stage_logs(req_id: str):
     """Render structured stage logs for the request."""
     if not req_id:
         return
-    
+
     try:
         # Get stage logs for this request
         stage_logs = get_stage_logs(req_id=req_id, last_n=20)
-        
+
         if not stage_logs:
             return
-        
+
         # Group logs by stage for better display
         stages = {}
         for log in stage_logs:
@@ -286,26 +323,33 @@ def render_stage_logs(req_id: str):
             if stage_name not in stages:
                 stages[stage_name] = []
             stages[stage_name].append(log)
-        
+
         # Only show if we have interesting stages to display
         if stages:
             with st.expander("🔍 Stage Details", expanded=False):
                 for stage_name, logs in stages.items():
                     st.subheader(f"📊 {stage_name.title()}")
-                    
+
                     # Find the main events (start/end pairs)
-                    start_log = next((log for log in logs if log.get("event") == "start"), None)
-                    end_log = next((log for log in logs if log.get("event") in ["success", "end"]), None)
-                    error_log = next((log for log in logs if log.get("event") == "error"), None)
-                    
+                    start_log = next(
+                        (log for log in logs if log.get("event") == "start"), None
+                    )
+                    end_log = next(
+                        (log for log in logs if log.get("event") in ["success", "end"]),
+                        None,
+                    )
+                    error_log = next(
+                        (log for log in logs if log.get("event") == "error"), None
+                    )
+
                     col1, col2, col3 = st.columns(3)
-                    
+
                     with col1:
                         if end_log and "ms" in end_log:
                             st.metric("Duration", f"{end_log['ms']:.0f}ms")
                         elif start_log:
                             st.metric("Status", "Started")
-                    
+
                     with col2:
                         if end_log and "result_count" in end_log:
                             st.metric("Results", f"{end_log['result_count']}")
@@ -313,7 +357,7 @@ def render_stage_logs(req_id: str):
                             st.metric("Hits", f"{end_log['hits']}")
                         elif start_log and "k" in start_log:
                             st.metric("Requested", f"{start_log['k']}")
-                    
+
                     with col3:
                         if error_log:
                             st.metric("Status", "❌ Error", delta="Failed")
@@ -321,7 +365,7 @@ def render_stage_logs(req_id: str):
                             st.metric("Status", "✅ Success")
                         else:
                             st.metric("Status", "🔄 Running")
-                    
+
                     # Show additional details
                     details = []
                     if start_log:
@@ -330,32 +374,37 @@ def render_stage_logs(req_id: str):
                         if "query_type" in start_log:
                             details.append(f"**Type**: {start_log['query_type']}")
                         if "filters_enabled" in start_log:
-                            details.append(f"**Filters**: {'Yes' if start_log['filters_enabled'] else 'No'}")
-                    
+                            details.append(
+                                f"**Filters**: {'Yes' if start_log['filters_enabled'] else 'No'}"
+                            )
+
                     if error_log:
-                        details.append(f"**Error**: {error_log.get('error_message', 'Unknown error')}")
-                    
+                        details.append(
+                            f"**Error**: {error_log.get('error_message', 'Unknown error')}"
+                        )
+
                     if details:
                         st.markdown(" • ".join(details))
-                    
+
                     st.divider()
-                        
+
     except Exception as e:
         logger.debug(f"Failed to render stage logs: {e}")
+
 
 def process_user_input(user_input: str) -> None:
     """Process user input with thinking animation."""
     # Don't add user message here - it's already added in main()
-    
-    # Show thinking animation 
+
+    # Show thinking animation
     with st.status("🤔 thinking...", expanded=False) as status:
         assistant_response = {
             "role": "assistant",
             "content": "",
             "sources": [],
-            "req_id": None
+            "req_id": None,
         }
-        
+
         try:
             # Create an async function to handle the streaming
             async def async_handler():
@@ -364,7 +413,7 @@ def process_user_input(user_input: str) -> None:
                     st.session_state.resources,
                     chat_history=st.session_state.conversation_history[-10:],
                     thread_id=st.session_state.thread_id,
-                    user_context=st.session_state.user_context
+                    user_context=st.session_state.user_context,
                 ):
                     if chunk["type"] == "response_chunk":
                         assistant_response["content"] += chunk["content"]
@@ -374,67 +423,80 @@ def process_user_input(user_input: str) -> None:
                         assistant_response["req_id"] = chunk.get("req_id")
                         break
                     elif chunk["type"] == "error":
-                        assistant_response["content"] = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+                        assistant_response["content"] = (
+                            f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+                        )
                         break
-            
-            # Run the async handler  
+
+            # Run the async handler
             asyncio.run(async_handler())
-            
+
             # Debug: log what we got
-            logger.info(f"Response content length: {len(assistant_response['content'])}")
-            logger.info(f"Response content preview: {assistant_response['content'][:100]}...")
-            
+            logger.info(
+                f"Response content length: {len(assistant_response['content'])}"
+            )
+            logger.info(
+                f"Response content preview: {assistant_response['content'][:100]}..."
+            )
+
         except Exception as e:
             assistant_response["content"] = f"❌ Error: {str(e)}"
             logger.error(f"Error in process_user_input: {e}")
-        
+
         status.update(label="✅ complete", state="complete")
-        
+
         # Add response to messages (always add something)
         if not assistant_response["content"]:
             assistant_response["content"] = "❌ No response generated"
-        
+
         st.session_state.messages.append(assistant_response)
-        st.session_state.conversation_history.append({"role": "assistant", "content": assistant_response["content"]})
+        st.session_state.conversation_history.append(
+            {"role": "assistant", "content": assistant_response["content"]}
+        )
+
 
 def main():
     """Simple chat interface."""
     st.set_page_config(
-        page_title="Utilities Assistant",
-        page_icon="🔧",
-        layout="centered"
+        page_title="Utilities Assistant", page_icon="🔧", layout="centered"
     )
-    
+
     inject_minimal_css()
     initialize_session()
     render_header()
-    
+
     # Chat history with thinking animation
     for i, message in enumerate(st.session_state.messages):
         if message["role"] == "user":
-            st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="user-message">{message["content"]}</div>',
+                unsafe_allow_html=True,
+            )
         else:
             # Handle assistant messages
-            content = message["content"] 
-            
+            content = message["content"]
+
             if content:
                 # Show final message
-                st.markdown(f'<div class="assistant-message">{content}</div>', unsafe_allow_html=True)
-                
+                st.markdown(
+                    f'<div class="assistant-message">{content}</div>',
+                    unsafe_allow_html=True,
+                )
+
                 # Show sources and stats for completed messages
                 if message.get("sources"):
                     render_sources(message["sources"])
                 if message.get("req_id"):
                     render_simple_stats(message["req_id"])
                     render_stage_logs(message["req_id"])
-    
+
     # Check if we need to process a pending query
     if st.session_state.get("processing_query"):
         query = st.session_state.processing_query
         del st.session_state.processing_query  # Clear it
         process_user_input(query)
         st.rerun()  # Show the response
-    
+
     # Input
     user_input = st.chat_input("Ask about utilities, APIs, or procedures...")
     if user_input:
@@ -442,10 +504,11 @@ def main():
         user_message = {"role": "user", "content": user_input}
         st.session_state.messages.append(user_message)
         st.session_state.conversation_history.append(user_message)
-        
+
         # Set flag to process on next run
         st.session_state.processing_query = user_input
         st.rerun()  # Show user message, then process will happen on next run
+
 
 if __name__ == "__main__":
     main()
