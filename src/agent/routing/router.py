@@ -14,8 +14,7 @@ import math
 from src.agent.constants import NORMALIZED_QUERY
 from src.agent.nodes.base_node import to_state_dict
 
-# Import centralized coverage utilities (eliminates duplication)
-from src.quality.utils import get_coverage_gate, run_coverage_evaluation, convert_search_results_to_passages
+# Coverage evaluation now handled upstream in search tool before cross-encoder
 
 
 logger = logging.getLogger(__name__)
@@ -207,43 +206,19 @@ class CoverageChecker:
             logger.info(f"Utility acronym query detected: '{normalized_query}' - skipping rewrite to preserve domain context")
             return "combine"
         
-        # Check result count
+        # PERFORMANCE FIX: Coverage gating now happens BEFORE cross-encoder in search tool
+        # This eliminates the expensive rerank→coverage fail→rewrite loop
+        # If we get here, coverage was already validated or cross-encoder was skipped
+        
+        # Simple result count check (much cheaper than full coverage evaluation)
         if len(search_results) < min_results:
             logger.info(f"Insufficient results ({len(search_results)} < {min_results}), rewriting query")
             return "rewrite"
         
-        # Use cross-encoder coverage evaluation (replaces old handwritten math)
-        coverage_result = cls._evaluate_coverage_with_gate(s)
-        
-        if not coverage_result["gate_pass"]:
-            logger.info(f"Coverage gate failed: AR={coverage_result['aspect_recall']:.3f}, αnDCG={coverage_result['alpha_ndcg']:.3f}, actionable={coverage_result['actionable_spans']} - rewriting query")
-            return "rewrite"
-        
-        logger.info(f"Coverage gate passed: AR={coverage_result['aspect_recall']:.3f}, αnDCG={coverage_result['alpha_ndcg']:.3f} - proceeding to combine")
+        # Coverage already validated upstream - proceed to combine
+        logger.info(f"Coverage validation completed upstream, proceeding to combine with {len(search_results)} results")
         return "combine"
     
-    @classmethod
-    def _calculate_coverage_score(cls, state_dict: Dict[str, Any]) -> float:
-        """Calculate coverage score using cross-encoder answerability and aspect recall."""
-        search_results = state_dict.get("search_results", [])
-        normalized_query = state_dict.get(NORMALIZED_QUERY, "")
-        
-        # Use centralized coverage evaluation (eliminates code duplication)
-        result = run_coverage_evaluation(normalized_query, search_results)
-        return result["aspect_recall"]
-    
-    @classmethod
-    def _evaluate_coverage_with_gate(cls, state_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """Full coverage evaluation using cross-encoder gate - replaces old coverage logic."""
-        search_results = state_dict.get("search_results", [])
-        normalized_query = state_dict.get(NORMALIZED_QUERY, "")
-        
-        # Use centralized coverage evaluation (eliminates code duplication)
-        result = run_coverage_evaluation(normalized_query, search_results)
-        
-        return {
-            "gate_pass": result["gate_pass"],
-            "aspect_recall": result["aspect_recall"],
-            "alpha_ndcg": result["alpha_ndcg"],
-            "actionable_spans": result["actionable_spans"]
-        }
+    # REMOVED: Old coverage evaluation methods
+    # Coverage gating now happens upstream in search tool before expensive cross-encoder
+    # This eliminates the rerank→coverage fail→rewrite loop that was causing 7-8s delays
