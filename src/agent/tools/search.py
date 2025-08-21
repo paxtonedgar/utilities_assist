@@ -108,17 +108,34 @@ async def search_index_tool(
                 # Use enhanced embedding utility
                 query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
                 
-                result, diagnostics = await enhanced_rrf_search(
+                # Get expanded candidates from RRF (up to 36)
+                rrf_result, diagnostics = await enhanced_rrf_search(
                     query=query,
                     query_embedding=query_embedding,
                     search_client=search_client,
                     index_name=index,
                     filters=filters,
-                    top_k=top_k,
+                    top_k=36,  # Expand candidates for cross-encoder
                     use_mmr=True,
                     lambda_param=0.75
                 )
-                return result
+                
+                # Apply cross-encoder reranking: 36 candidates → top_k
+                from src.services.retrieve import _cross_encoder_rerank
+                reranked_results = _cross_encoder_rerank(
+                    query=query,
+                    results=rrf_result.results,
+                    top_k=top_k
+                )
+                
+                # Return reranked result
+                return RetrievalResult(
+                    results=reranked_results,
+                    total_found=rrf_result.total_found,
+                    retrieval_time_ms=rrf_result.retrieval_time_ms,
+                    method="enhanced_rrf_ce",  # Updated method name
+                    diagnostics=diagnostics
+                )
                 
             except EmbeddingError as e:
                 logger.warning(f"Embedding failed, falling back to BM25: {e}")

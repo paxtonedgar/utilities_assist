@@ -18,6 +18,90 @@ from sklearn.metrics.pairwise import cosine_similarity
 logger = logging.getLogger(__name__)
 
 
+def _apply_light_scoring_hints(results: List[SearchResult]) -> None:
+    """Apply light scoring hints as pre-sort reweighting.
+    
+    +0.4 if matches step bullets (numbered/bulleted lists)
+    +0.3 if jira|servicenow|intake|request (form|ticket)|project key  
+    +0.2 if heading/title contains verbs (Onboard|Enable|Request|Configure)
+    """
+    import re
+    
+    step_pattern = re.compile(r'(?m)^\s*(\d+[\.\)]|\(\d+\)|[-–•*])\s+\S', re.MULTILINE)
+    jira_pattern = re.compile(r'\b(jira|servicenow|intake|request\s+(?:form|ticket)|project\s+key)\b', re.IGNORECASE)
+    verb_pattern = re.compile(r'\b(onboard|enable|request|configure)\b', re.IGNORECASE)
+    
+    for result in results:
+        bonus = 0.0
+        
+        # Check step bullets in content
+        if step_pattern.search(result.content):
+            bonus += 0.4
+            
+        # Check JIRA/ServiceNow terms in content
+        if jira_pattern.search(result.content):
+            bonus += 0.3
+            
+        # Check verbs in title/heading
+        title_text = f"{result.title} {result.metadata.get('heading', '')}"
+        if verb_pattern.search(title_text):
+            bonus += 0.2
+        
+        # Apply bonus to score
+        result.score += bonus
+
+
+def _cross_encoder_rerank(
+    query: str, 
+    results: List[SearchResult], 
+    top_k: int = 8
+) -> List[SearchResult]:
+    """Apply BGE cross-encoder reranking to RRF candidates.
+    
+    Takes up to 36 candidates from RRF, applies cross-encoder scoring,
+    and returns top_k results sorted by relevance.
+    """
+    if not results:
+        return []
+    
+    try:
+        from src.services.reranker import get_reranker
+        from src.infra.settings import get_settings
+        
+        settings = get_settings()
+        if not settings.reranker.enabled:
+            logger.info("Cross-encoder disabled, using RRF scores")
+            return results[:top_k]
+        
+        reranker = get_reranker()
+        if not reranker:
+            logger.warning("Cross-encoder not available, using RRF scores")  
+            return results[:top_k]
+        
+        # Apply light scoring hints before reranking
+        _apply_light_scoring_hints(results)
+        
+        # Rerank with cross-encoder
+        reranked_docs, rerank_result = reranker.rerank(
+            query=query,
+            docs=results,
+            min_score=settings.reranker.min_score,
+            top_k=top_k
+        )
+        
+        logger.info(
+            f"Cross-encoder: {len(results)} → {len(reranked_docs)} docs "
+            f"(dropped: {rerank_result.dropped_count}, avg_score: {rerank_result.avg_score:.3f}, "
+            f"took: {rerank_result.took_ms:.1f}ms)"
+        )
+        
+        return reranked_docs
+        
+    except Exception as e:
+        logger.warning(f"Cross-encoder reranking failed: {e}")
+        return results[:top_k]
+
+
 def _create_search_result(client_result) -> SearchResult:
     """Factory function to create SearchResult from client result.
     
@@ -789,7 +873,7 @@ async def enhanced_rrf_search(
                 search_client=search_client,
                 index_name=index_name,
                 filters=filters,
-                top_k=50,  # Get more candidates for better fusion
+                top_k=50,  # Get more candidates for RRF fusion
                 time_decay_days=120,
                 timeout_seconds=1.8  # Aggressive timeout
             )
@@ -810,7 +894,7 @@ async def enhanced_rrf_search(
                 knn_hits=knn_hits,
                 all_results=all_results,
                 query=query,
-                k_final=top_k,
+                k_final=36,  # Expand to 36 candidates for cross-encoder
                 rrf_k=rrf_k,
                 lambda_param=lambda_param
             )
