@@ -329,6 +329,9 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
             logger.warning("Rewrite produced empty query, using fallback")
             rewritten_query = normalized_query or original_query or "general information"
         
+        # Strip quotes and clean query for better BM25 recall
+        rewritten_query = self._clean_rewritten_query(rewritten_query)
+        
         logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
         
         return self._preserve_state_with_path(state, "rewrite_query",
@@ -472,6 +475,29 @@ IMPORTANT: This is JPMorgan utilities documentation.
         # If all else fails, use fallback
         logger.warning("Could not extract query from LLM response, using fallback")
         return self._fallback_rewrite(original_query)
+    
+    def _clean_rewritten_query(self, query: str) -> str:
+        """Clean rewritten query by removing quotes and operators that hurt BM25 recall."""
+        if not query:
+            return query
+            
+        cleaned = query.strip()
+        
+        # Strip surrounding quotes that reduce BM25 recall
+        if (cleaned.startswith('"') and cleaned.endswith('"')) or \
+           (cleaned.startswith("'") and cleaned.endswith("'")):
+            cleaned = cleaned[1:-1]
+        
+        # Remove operator-style syntax that may confuse BM25
+        import re
+        # Remove explicit AND/OR operators (let BM25 handle naturally)
+        cleaned = re.sub(r'\s+AND\s+', ' ', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\s+OR\s+', ' ', cleaned, flags=re.IGNORECASE)
+        
+        # Clean up multiple spaces
+        cleaned = ' '.join(cleaned.split())
+        
+        return cleaned
     
     def _fallback_rewrite(self, query: str) -> str:
         """Fallback rewrite strategy when LLM is unavailable - REAL implementation."""

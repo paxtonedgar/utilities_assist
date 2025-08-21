@@ -54,7 +54,8 @@ def _apply_light_scoring_hints(results: List[SearchResult]) -> None:
 def _cross_encoder_rerank(
     query: str, 
     results: List[SearchResult], 
-    top_k: int = 8
+    top_k: int = 8,
+    max_rerank_ms: Optional[int] = 2000
 ) -> List[SearchResult]:
     """Apply BGE cross-encoder reranking to RRF candidates.
     
@@ -81,13 +82,29 @@ def _cross_encoder_rerank(
         # Apply light scoring hints before reranking
         _apply_light_scoring_hints(results)
         
-        # Rerank with cross-encoder
-        reranked_docs, rerank_result = reranker.rerank(
-            query=query,
-            docs=results,
-            min_score=settings.reranker.min_score,
-            top_k=top_k
-        )
+        # Add timeout guardrail for cross-encoder reranking
+        import time
+        start_time = time.time() * 1000  # Convert to ms
+        
+        try:
+            # Rerank with cross-encoder
+            reranked_docs, rerank_result = reranker.rerank(
+                query=query,
+                docs=results,
+                min_score=settings.reranker.min_score,
+                top_k=top_k
+            )
+            
+            # Check if reranking exceeded timeout
+            elapsed_ms = (time.time() * 1000) - start_time
+            if max_rerank_ms and elapsed_ms > max_rerank_ms:
+                logger.warning(f"Cross-encoder timeout ({elapsed_ms:.1f}ms > {max_rerank_ms}ms), falling back to original ranking")
+                return results[:top_k]
+                
+        except Exception as rerank_error:
+            elapsed_ms = (time.time() * 1000) - start_time
+            logger.warning(f"Cross-encoder failed after {elapsed_ms:.1f}ms: {rerank_error}")
+            return results[:top_k]
         
         logger.info(
             f"Cross-encoder: {len(results)} → {len(reranked_docs)} docs "
@@ -841,8 +858,8 @@ async def enhanced_rrf_search(
             search_client=search_client,
             index_name=index_name,
             filters=filters,
-            top_k=50,  # Get more candidates for better fusion
-            ef_search=256,
+            top_k=20,  # Reduced from 50 to 20 for better performance
+            ef_search=80,  # Reduced from 256 to 80 for faster search
             timeout_seconds=1.8  # Aggressive timeout
         )
         
@@ -873,7 +890,7 @@ async def enhanced_rrf_search(
                 search_client=search_client,
                 index_name=index_name,
                 filters=filters,
-                top_k=50,  # Get more candidates for RRF fusion
+                top_k=20,  # Reduced from 50 to 20 for better performance
                 time_decay_days=120,
                 timeout_seconds=1.8  # Aggressive timeout
             )

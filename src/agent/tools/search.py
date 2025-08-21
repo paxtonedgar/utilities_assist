@@ -120,20 +120,41 @@ async def search_index_tool(
                     lambda_param=0.75
                 )
                 
-                # Apply cross-encoder reranking: 36 candidates → top_k
-                from src.services.retrieve import _cross_encoder_rerank
-                reranked_results = _cross_encoder_rerank(
-                    query=query,
-                    results=rrf_result.results,
-                    top_k=top_k
-                )
+                # PERFORMANCE FIX: Check coverage on RRF results BEFORE expensive cross-encoder
+                # This prevents 7-8s reranking when results will fail coverage anyway
+                from src.quality.utils import run_coverage_evaluation
+                coverage_result = run_coverage_evaluation(query, rrf_result.results)
                 
-                # Return reranked result
+                if coverage_result["gate_pass"]:
+                    # Coverage passed - safe to run expensive cross-encoder reranking
+                    from src.services.retrieve import _cross_encoder_rerank
+                    reranked_results = _cross_encoder_rerank(
+                        query=query,
+                        results=rrf_result.results,
+                        top_k=min(top_k, 4),  # Reduce candidates for cheaper reranking
+                        max_rerank_ms=2000   # Add timeout guardrail
+                    )
+                    method_name = "enhanced_rrf_ce"
+                    final_results = reranked_results
+                else:
+                    # Coverage failed - skip expensive reranking, return RRF results
+                    logger.info(f"Coverage gate failed on RRF results (AR={coverage_result['aspect_recall']:.3f}), skipping cross-encoder to save ~7-8s")
+                    method_name = "enhanced_rrf_no_ce"
+                    final_results = rrf_result.results[:top_k]
+                
+                # Return result with coverage diagnostics
+                diagnostics.update({
+                    "coverage_gate_pass": coverage_result["gate_pass"],
+                    "aspect_recall": coverage_result["aspect_recall"],
+                    "alpha_ndcg": coverage_result["alpha_ndcg"],
+                    "cross_encoder_skipped": not coverage_result["gate_pass"]
+                })
+                
                 return RetrievalResult(
-                    results=reranked_results,
+                    results=final_results,
                     total_found=rrf_result.total_found,
                     retrieval_time_ms=rrf_result.retrieval_time_ms,
-                    method="enhanced_rrf_ce",  # Updated method name
+                    method=method_name,
                     diagnostics=diagnostics
                 )
                 
