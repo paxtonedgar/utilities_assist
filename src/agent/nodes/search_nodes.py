@@ -210,26 +210,50 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
             if not query or query.strip() == "":
                 return self._handle_empty_query(state, "search_confluence")
 
-            # Determine search approach based on intent
-            slot_result = getattr(intent, "reasoning", "") if intent else ""
-            is_procedure_query = (
-                "procedure" in slot_result.lower()
-                or "how" in query.lower()
-                or "onboard" in query.lower()
-                or "setup" in query.lower()
-            )
+            # NEW: Use colors for planning which views to build
+            from src.retrieval.tuning import should_build_procedure_view
+            
+            # Extract slot_result from intent (if available)
+            slot_result = intent if hasattr(intent, 'colors') else None
+            
+            if slot_result:
+                is_procedure_query = should_build_procedure_view(slot_result)
+                logger.info(
+                    f"Colors-based planning: procedure_view={is_procedure_query}, "
+                    f"actionability={slot_result.colors.actionability_est:.1f}, "
+                    f"suites={list(slot_result.colors.suite_affinity.keys())[:3]}"
+                )
+            else:
+                # Fallback to simple heuristics if no slot_result
+                is_procedure_query = (
+                    "procedure" in query.lower()
+                    or "how" in query.lower()
+                    or "onboard" in query.lower()
+                    or "setup" in query.lower()
+                )
+                logger.info("Using fallback heuristics for procedure view planning")
 
             logger.info(
                 f"Confluence search: procedure_query={is_procedure_query}, intent={getattr(intent, 'intent', 'unknown')}"
             )
 
-            # Run both views in parallel for better coverage
+            # Run views with color-based tuning
+            info_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
+            procedure_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
+            
+            # Apply color-based tuning if available
+            if slot_result and hasattr(slot_result, 'colors'):
+                from src.retrieval.tuning import tune_for_colors
+                tune_for_colors(info_knobs, slot_result.colors)
+                tune_for_colors(procedure_knobs, slot_result.colors)
+            
             info_view_task = run_info_view(
                 query=query,
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
                 top_k=10,
+                # TODO: Pass knobs to view functions when they support it
             )
 
             procedure_view_task = (

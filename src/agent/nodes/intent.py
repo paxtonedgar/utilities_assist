@@ -1,12 +1,9 @@
-"""Intent node - intent classification using regex-first slotter."""
+"""Intent node - intent classification using regex-only slotter."""
 
 import logging
-from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
 from src.services.models import IntentResult
-from src.services.intent import determine_intent  # Keep as fallback
 from src.telemetry.logger import stage
 from .base_node import to_state_dict, from_state_dict
 from src.agent.intent.slotter import slot, SlotResult
@@ -15,10 +12,6 @@ from src.agent.intent.slotter import slot, SlotResult
 from src.agent.constants import NORMALIZED_QUERY, INTENT
 
 logger = logging.getLogger(__name__)
-
-# Load jinja templates for LLM fallback (when slotter fails)
-template_dir = Path(__file__).parent.parent / "prompts"
-jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
 def _map_slot_to_legacy_intent(slot_result: SlotResult) -> str:
@@ -63,7 +56,7 @@ class IntentAnalysis(BaseModel):
 @stage("classify_intent")
 async def intent_node(state, config, *, store=None):
     """
-    Classify query intent using regex-first slotter (eliminates LLM call).
+    Classify query intent using regex-only slotter (eliminates ALL LLM calls).
 
     Follows LangGraph pattern with config parameter and optional store injection.
 
@@ -76,21 +69,24 @@ async def intent_node(state, config, *, store=None):
         State update with intent classification (same type as input)
     """
     incoming_type = type(state)
+    s = to_state_dict(state)
 
+    # Get query for analysis
+    normalized_query = s.get(NORMALIZED_QUERY, "")
+
+    if not normalized_query or normalized_query.strip() == "":
+        logger.warning(
+            "intent_node: normalized_query missing/empty; using default confluence intent"
+        )
+        default_intent = IntentResult(
+            intent="confluence",
+            confidence=0.5,
+            reasoning="Default intent for empty query",
+        )
+        return from_state_dict({**s, INTENT: default_intent}, incoming_type)
+
+    # PERFORMANCE: Use regex-only slotter for ALL queries (eliminates LLM calls)
     try:
-        # Convert to dict for processing
-        s = to_state_dict(state)
-
-        # Get query for analysis
-        normalized_query = s.get(NORMALIZED_QUERY, "")
-
-        if not normalized_query or normalized_query.strip() == "":
-            logger.warning(
-                "intent_node: normalized_query missing/empty; setting intent=None and routing to search fallback."
-            )
-            return from_state_dict({**s, INTENT: None}, incoming_type)
-
-        # PERFORMANCE: Use regex-first slotter for ALL queries (eliminates LLM call)
         slot_result = slot(normalized_query)
         logger.info(
             f"Regex slotter classification: {slot_result.intent} (confidence: {slot_result.confidence:.2f}, reasons: {slot_result.reasons}, saved ~4s LLM call)"
@@ -107,26 +103,14 @@ async def intent_node(state, config, *, store=None):
         return from_state_dict({**s, INTENT: intent_result}, incoming_type)
 
     except Exception as e:
-        logger.error(f"Intent classification error: {e}")
-        # Fallback to LLM classification only on error
-        try:
-            logger.info("Falling back to LLM intent classification due to error")
-            s = to_state_dict(state)
-            normalized_query = s.get(NORMALIZED_QUERY, "")
-
-            # Use existing LLM fallback
-            intent_result = await determine_intent(normalized_query)
-            return from_state_dict({**s, INTENT: intent_result}, incoming_type)
-
-        except Exception as fallback_error:
-            logger.error(f"LLM fallback also failed: {fallback_error}")
-            # Final fallback
-            default_intent = IntentResult(
-                intent="confluence",
-                confidence=0.5,
-                reasoning="Default fallback after classification failure",
-            )
-            return from_state_dict({**s, INTENT: default_intent}, incoming_type)
+        logger.error(f"Regex slotter failed: {e}")
+        # Hard fallback to default intent (no LLM)
+        default_intent = IntentResult(
+            intent="confluence",
+            confidence=0.5,
+            reasoning=f"Default fallback after slotter failure: {e}",
+        )
+        return from_state_dict({**s, INTENT: default_intent}, incoming_type)
 
 
 # Wrapper for LangGraph tool registration

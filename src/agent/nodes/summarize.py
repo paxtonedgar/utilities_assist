@@ -1,11 +1,8 @@
-"""Summarize node - query normalization using jinja template."""
+"""Summarize node - query normalization using simple rules (no LLM)."""
 
 import logging
-from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
-from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.services.normalize import normalize_query  # Keep existing logic as fallback
+from src.services.normalize import normalize_query
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
@@ -14,15 +11,11 @@ from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
 
 logger = logging.getLogger(__name__)
 
-# Load jinja templates
-template_dir = Path(__file__).parent.parent / "prompts"
-jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
-
 
 @stage("normalize")
 async def summarize_node(state, config, *, store=None):
     """
-    Summarize/normalize the user query using LLM with jinja template.
+    Summarize/normalize the user query using simple rules (eliminates ALL LLM calls).
 
     Follows LangGraph pattern with config parameter and optional store injection.
 
@@ -41,130 +34,65 @@ async def summarize_node(state, config, *, store=None):
     req_id = getattr(config, "run_id", "unknown") if config else "unknown"
     incoming_type = type(state)
 
-    try:
-        # Convert to dict for processing
-        s = to_state_dict(state)
+    # Convert to dict for processing
+    s = to_state_dict(state)
 
-        # STATE_CHECK: Verify query preservation before processing
-        logger.info(
-            "NODE_START summarize | keys=%s | original=%r | normalized=%r",
+    # STATE_CHECK: Verify query preservation before processing
+    logger.info(
+        "NODE_START summarize | keys=%s | original=%r | normalized=%r",
+        list(s.keys()),
+        s.get(ORIGINAL_QUERY),
+        s.get(NORMALIZED_QUERY),
+    )
+
+    # Use consistent state keys with fallback
+    user_input = s.get(ORIGINAL_QUERY) or s.get(NORMALIZED_QUERY, "")
+    if not user_input:
+        logger.warning(
+            "summarize_node: empty input; keys=%s original=%r normalized=%r",
             list(s.keys()),
-            s.get(ORIGINAL_QUERY),
-            s.get(NORMALIZED_QUERY),
+            s.get(ORIGINAL_QUERY, None),
+            s.get(NORMALIZED_QUERY, None),
         )
-
-        # Use consistent state keys with fallback
-        user_input = s.get(ORIGINAL_QUERY) or s.get(NORMALIZED_QUERY, "")
-        if not user_input:
-            logger.warning(
-                "summarize_node: empty input; keys=%s original=%r normalized=%r",
-                list(s.keys()),
-                s.get(ORIGINAL_QUERY, None),
-                s.get(NORMALIZED_QUERY, None),
-            )
-            # CRITICAL: Preserve ALL existing state fields and return proper type
-            merged = {
-                **s,  # Preserve all existing state
-                NORMALIZED_QUERY: "",
-                "workflow_path": s.get("workflow_path", []) + ["summarize_empty"],
-            }
-            return from_state_dict(incoming_type, merged)
-
-        # Try LLM-based normalization first
-        try:
-            template = jinja_env.get_template("summarize.jinja")
-            prompt = template.render(user_input=user_input)
-
-            # Extract resources from config
-            from src.infra.resource_manager import get_resources
-
-            resources = get_resources()
-
-            # Use the working Azure OpenAI client configuration for LangChain
-            from langchain_openai import AzureChatOpenAI
-
-            # Get authentication parameters from working clients.py approach
-            from utils import load_config
-            import os
-
-            # Load config for API key (matching clients.py pattern)
-            auth_config = load_config()
-            api_key = auth_config.get("azure_openai", "api_key", fallback=None)
-
-            # Get Bearer token from token provider if available
-            headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
-            if resources.token_provider:
-                try:
-                    bearer_token = resources.token_provider()
-                    headers["Authorization"] = f"Bearer {bearer_token}"
-                except Exception as e:
-                    logger.warning(f"Bearer token failed, using API key only: {e}")
-
-            # Create LangChain client with same auth pattern as clients.py
-            langchain_client = AzureChatOpenAI(
-                api_version=resources.settings.chat.api_version,
-                azure_deployment=resources.settings.chat.model,
-                azure_endpoint=resources.settings.chat.api_base,
-                api_key=api_key,
-                default_headers=headers,
-                temperature=0.1,
-                max_tokens=500,
-            )
-
-            response = await langchain_client.ainvoke(
-                [
-                    SystemMessage(content="You are a query normalization assistant."),
-                    HumanMessage(content=prompt),
-                ]
-            )
-
-            normalized = response.content.strip()
-
-            # Sanity check - if LLM response is too different or empty, use fallback
-            if not normalized or len(normalized) < 3:
-                raise ValueError("LLM normalization produced empty result")
-
-            logger.info(f"LLM normalized: '{user_input}' -> '{normalized}'")
-
-        except Exception as e:
-            logger.warning(f"LLM normalization failed, using fallback: {e}")
-            normalized = normalize_query(user_input)
-
-        # MISSING: Add telemetry logging (from traditional pipeline)
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-        log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
-
-        # STATE_CHECK: Verify result before return
+        # CRITICAL: Preserve ALL existing state fields and return proper type
         merged = {
             **s,  # Preserve all existing state
-            NORMALIZED_QUERY: normalized,
-            "workflow_path": s.get("workflow_path", []) + ["summarize"],
+            NORMALIZED_QUERY: "",
+            "workflow_path": s.get("workflow_path", []) + ["summarize_empty"],
         }
+        return from_state_dict(incoming_type, merged)
 
+    # PERFORMANCE: Use simple rule-based normalization (eliminates LLM calls)
+    try:
+        normalized = normalize_query(user_input)
         logger.info(
-            "NODE_END summarize | normalized=%r | workflow_path=%s",
-            normalized,
-            merged.get("workflow_path", []),
+            f"Rule-based normalized: '{user_input}' -> '{normalized}' (saved ~2s LLM call)"
         )
-
-        # CRITICAL: Preserve ALL existing state fields and return proper type
-        return from_state_dict(incoming_type, merged)
-
     except Exception as e:
-        logger.error(f"Summarize node failed: {e}")
-        # Convert to dict if not already done (in case exception happened early)
-        s = to_state_dict(state) if "s" not in locals() else s
+        logger.error(f"Rule-based normalization failed: {e}")
+        # Ultimate fallback: use original query
+        normalized = user_input
+        logger.info(f"Using original query as normalized: '{normalized}'")
 
-        # Fallback to original query with resilient key access
-        fallback_query = s.get(ORIGINAL_QUERY) or s.get(NORMALIZED_QUERY, "")
-        # CRITICAL: Preserve ALL existing state fields and return proper type
-        merged = {
-            **s,  # Preserve all existing state
-            NORMALIZED_QUERY: fallback_query,
-            "workflow_path": s.get("workflow_path", []) + ["summarize_error"],
-            "error_messages": s.get("error_messages", []) + [f"Summarize failed: {e}"],
-        }
-        return from_state_dict(incoming_type, merged)
+    # Add telemetry logging
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    log_normalize_stage(req_id, user_input, normalized, elapsed_ms)
+
+    # STATE_CHECK: Verify result before return
+    merged = {
+        **s,  # Preserve all existing state
+        NORMALIZED_QUERY: normalized,
+        "workflow_path": s.get("workflow_path", []) + ["summarize"],
+    }
+
+    logger.info(
+        "NODE_END summarize | normalized=%r | workflow_path=%s",
+        normalized,
+        merged.get("workflow_path", []),
+    )
+
+    # CRITICAL: Preserve ALL existing state fields and return proper type
+    return from_state_dict(incoming_type, merged)
 
 
 class SummarizeNode(BaseNodeHandler):

@@ -7,23 +7,51 @@ Provides fast (<1ms) intent classification with optional ONNX fallback for ambig
 import re
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Set
 from src.util.cache import slot_cache
 
 logger = logging.getLogger(__name__)
 
 Intent = Literal["info", "procedure", "mixed"]
+Specificity = Literal["low", "med", "high"]
+TimeUrgency = Literal["none", "soft", "hard"]
+
+
+@dataclass(frozen=True)
+class Colors:
+    """Coloring attributes that steer retrieval and presentation."""
+
+    actionability_est: float  # [0,3] from verbs/steps/endpoints
+    suite_affinity: Dict[str, float]  # {"jira":0.9,"api":0.7,"teams":0.4}
+    artifact_types: Set[str]  # {"endpoint","ticket","form","runbook","channel","table"}
+    specificity: Specificity  # "low|med|high" anchor presence
+    troubleshoot_flag: bool  # error codes, stack traces
+    time_urgency: TimeUrgency  # "none|soft|hard" urgency level
+    safety_flags: Set[str]  # {"pii","cred","secrets"}
+
+
+# Stable default for backward compatibility
+DEFAULT_COLORS = Colors(
+    actionability_est=0.0,
+    suite_affinity={},
+    artifact_types=set(),
+    specificity="low",
+    troubleshoot_flag=False,
+    time_urgency="none",
+    safety_flags=set(),
+)
 
 
 @dataclass(frozen=True)
 class SlotResult:
-    """Result of intent classification."""
+    """Result of intent classification with coloring."""
 
     intent: Intent
     doish: bool  # "sounds like a task"
     reasons: List[str]  # short flags explaining the route
     features: Dict[str, int]  # debug: binary features used
     confidence: float  # 0.0-1.0 confidence in classification
+    colors: Colors  # NEW: coloring attributes for retrieval steering
 
 
 # Compile regex patterns once for performance
@@ -179,12 +207,16 @@ def slot(user_text: str, onnx_model=None) -> SlotResult:
             reasons.append("default_info")
             confidence = 0.4
 
+    # NEW: Compute coloring attributes
+    colors = _compute_colors(user_text, features)
+
     result = SlotResult(
         intent=intent,
         doish=doish,
         reasons=reasons,
         features=features,
         confidence=confidence,
+        colors=colors,  # Always include colors (never None)
     )
 
     # Cache result
@@ -269,3 +301,15 @@ def get_intent_confidence(slot_result: SlotResult) -> float:
 def get_intent_label(slot_result: SlotResult) -> str:
     """Extract intent label for backward compatibility."""
     return slot_result.intent
+
+
+def _compute_colors(text: str, features: Dict[str, int]) -> Colors:
+    """Compute coloring attributes using ColorsBuilder singleton."""
+    try:
+        from .coloring.builder import get_colors_builder
+
+        builder = get_colors_builder()
+        return builder.compute(text, features)
+    except Exception as e:
+        logger.error(f"Colors computation failed: {e}")
+        return DEFAULT_COLORS
