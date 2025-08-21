@@ -1,5 +1,5 @@
 {
-  "_name_or_path": "BAAI/bge-m3",
+  "_name_or_path": "BAAI/bge-reranker-v2-m3",
   "architectures": [
     "XLMRobertaForSequenceClassification"
   ],

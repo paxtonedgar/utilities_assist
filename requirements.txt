@@ -1,12 +1,12 @@
---index-url https://artifacts.jpmchase.net/artifactory/api/pypi/pypi/simple
+# --index-url https://artifacts.jpmchase.net/artifactory/api/pypi/pypi/simple
 aiohttp==3.11.10
 atlassian-python-api==3.41.19
 azure-identity==1.21.0
 azure_storage==0.36.0
 beautifulsoup4==4.13.4
 boto3==1.37.10
-faiss_cpu==1.10.0
-langchain==0.3.24
+faiss-cpu==1.10.0
+langchain>=0.3.26
 langchain_openai==0.3.14
 langgraph==0.6.0
 # langgraph-checkpoint-sqlite==2.0.9  # Not available in deployment
@@ -15,7 +15,7 @@ jinja2==3.1.4
 nest-asyncio==1.6.0
 #nltk==3.9.1
 numpy<2.0  # Pin to avoid NumPy 2.x ABI warnings
-openai==1.77.0
+# openai==1.77.0  # Will be installed via langchain_openai dependencies
 Requests==2.32.3
 requests-aws4auth==1.3.1
 requests_oauthlib==2.0.0
@@ -34,8 +34,8 @@ azure-core
 nltk
 rank-bm25
 opensearch-py
-faiss-cpu
-boto3
+# faiss-cpu  # Already specified above
+# boto3  # Already specified above
 python-dotenv
 orjson
 # BGE v2-m3 Reranker Dependencies (pinned for stability)

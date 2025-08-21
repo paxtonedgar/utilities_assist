@@ -129,14 +129,30 @@ class CrossEncodeReranker:
                 # Extract only the model.safetensors file
                 for file in zip_ref.namelist():
                     if file.endswith('model.safetensors'):
-                        # Extract with correct path
+                        # Extract to temporary location first
                         zip_ref.extract(file, extract_to.parent)
-                        # Move to correct location if needed
+                        # Move to the correct location in the model directory
                         extracted_file = extract_to.parent / file
                         target_file = extract_to / "model.safetensors"
-                        if extracted_file != target_file:
+                        
+                        # Ensure target directory exists
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        # Move the extracted file to the target location
+                        if extracted_file.exists():
+                            if target_file.exists():
+                                target_file.unlink()  # Remove existing file
                             extracted_file.rename(target_file)
-                        logger.info(f"Extracted model weights to: {target_file}")
+                            logger.info(f"Extracted model weights to: {target_file}")
+                            
+                            # Clean up any nested directory structure that was created
+                            try:
+                                nested_dir = extracted_file.parent
+                                if nested_dir != extract_to.parent and nested_dir.name in file:
+                                    import shutil
+                                    shutil.rmtree(nested_dir, ignore_errors=True)
+                            except:
+                                pass  # Ignore cleanup errors
                         break
         except Exception as e:
             logger.error(f"Failed to extract model zip: {e}")
@@ -165,10 +181,12 @@ class CrossEncodeReranker:
             start_time = time.time()
             
             # Load model from determined path (local or HuggingFace)
+            # Use standard sentence-transformers CrossEncoder loading
             self.model = CrossEncoder(
                 self.model_path,
                 max_length=self.max_length,
-                device=self.device
+                device=self.device,
+                local_files_only=True  # Force local-only loading
             )
             
             # Apply FP16 precision on GPU (not CPU)
