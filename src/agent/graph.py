@@ -20,8 +20,8 @@ from jinja2 import Environment, FileSystemLoader
 
 # Import new modular components
 from src.agent.nodes.summarize import SummarizeNode
-from src.agent.nodes.intent import IntentNode
 from src.agent.nodes.search_nodes import (
+    IntentNode,
     ConfluenceSearchNode,
     SwaggerSearchNode,
     MultiSearchNode,

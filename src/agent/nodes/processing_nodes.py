@@ -17,7 +17,7 @@ from src.services.models import SearchResult
 from src.infra.resource_manager import get_resources
 from src.infra.search_config import OpenSearchConfig
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-from agent.tools.search import multi_index_search_tool
+from src.agent.tools.search import multi_index_search_tool
 
 logger = logging.getLogger(__name__)
 
