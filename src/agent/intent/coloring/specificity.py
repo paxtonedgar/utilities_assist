@@ -1,88 +1,61 @@
-"""Specificity classifier - counts distinct anchors to avoid inflation."""
+"""Specificity classifier - determines query anchoring from distinct identifiers."""
 
 import logging
-from typing import Tuple
+from typing import Set
 
 logger = logging.getLogger(__name__)
 
 
 class SpecificityClassifier:
     """
-    Single responsibility: classify query specificity based on distinct anchor count.
+    Classify query specificity based on distinct anchor patterns.
     
-    Uses set-based deduplication to avoid multi-hit inflation:
-    - Project keys, API paths, UUIDs, versions, env tags → distinct anchors
-    - Map: {0: low, 1: med, ≥2: high}
-    - Returns both level and anchor count for metrics
+    Counts unique anchoring identifiers to determine how specific
+    a query is, affecting search strategy (tight vs broad).
     """
     
     def __init__(self, thresholds: dict):
-        """Initialize with thresholds from centralized config."""
+        """Initialize with detection thresholds from centralized config."""
         self.thresholds = thresholds
     
-    def classify(self, text: str) -> Tuple[str, int]:
+    def classify(self, text: str) -> str:
         """
-        Classify specificity level based on distinct anchors.
+        Classify query specificity as low/med/high.
         
         Args:
             text: User query text
             
         Returns:
-            (specificity_level, distinct_anchor_count)
+            Specificity level: "low", "med", or "high"
             
         Examples:
-            >>> classifier = SpecificityClassifier({\"specificity_med_anchors\": 1, \"specificity_high_anchors\": 2})
-            >>> level, count = classifier.classify(\"ABC-123 /api/v1/users\")
-            >>> level == \"high\" and count >= 2
-            True
+            >>> classifier = SpecificityClassifier({"specificity_high_anchors": 2})
+            >>> classifier.classify("ABC-123 v2.1.0 issue")
+            "high"
         """
         anchors = self._count_distinct_anchors(text)
         
-        # Classify based on thresholds
-        if anchors >= self.thresholds[\"specificity_high_anchors\"]:
-            level = \"high\"
-        elif anchors >= self.thresholds[\"specificity_med_anchors\"]:
-            level = \"med\"
+        if anchors >= self.thresholds["specificity_high_anchors"]:
+            specificity = "high"
+        elif anchors >= 1:
+            specificity = "med"
         else:
-            level = \"low\"
+            specificity = "low"
         
-        logger.debug(f\"Specificity: {level} ({anchors} anchors) for '{text[:30]}...'\")
+        logger.debug(f"Specificity: {specificity} ({anchors} anchors in '{text[:30]}...')")
         
-        return level, anchors
+        return specificity
     
     def _count_distinct_anchors(self, text: str) -> int:
-        \"\"\"Count distinct anchors using set-based deduplication.\"\"\"
-        from .patterns import extract_pattern_matches
+        """Count distinct anchoring patterns (deduplication prevents inflation)."""
+        from .patterns import count_distinct_matches
         
-        # Use set to dedupe anchors across all patterns
-        distinct_anchors = set()
+        anchor_patterns = [
+            "project_key",  # ABC-123
+            "version",      # v1.2.3
+            "env_tag",      # prod, staging
+            "uuid",         # full UUIDs
+            "id_pattern"    # id=something
+        ]
         
-        # Project keys (ABC-123)
-        project_keys = extract_pattern_matches(text, \"project_key\")
-        distinct_anchors.update(project_keys)
-        
-        # API paths (dedupe to first occurrence)
-        api_paths = extract_pattern_matches(text, \"api_path\")
-        if api_paths:
-            distinct_anchors.add(\"api_path\")  # Count as single anchor type
-        
-        # Versions 
-        versions = extract_pattern_matches(text, \"version\")
-        distinct_anchors.update(versions)
-        
-        # Environment tags
-        env_tags = extract_pattern_matches(text, \"env_tag\")
-        distinct_anchors.update(env_tags)
-        
-        # UUIDs (very specific, count as 2 anchors)
-        uuids = extract_pattern_matches(text, \"uuid\")
-        for uuid in uuids:
-            distinct_anchors.add(f\"uuid:{uuid}\")
-            distinct_anchors.add(f\"uuid_bonus:{uuid}\")  # Bonus anchor for high specificity
-        
-        # ID patterns
-        id_matches = extract_pattern_matches(text, \"id_pattern\")
-        if id_matches:
-            distinct_anchors.add(\"id_pattern\")
-        
-        return len(distinct_anchors)
+        return count_distinct_matches(text, anchor_patterns)

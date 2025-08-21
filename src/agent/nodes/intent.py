@@ -83,7 +83,7 @@ async def intent_node(state, config, *, store=None):
             confidence=0.5,
             reasoning="Default intent for empty query",
         )
-        return from_state_dict({**s, INTENT: default_intent}, incoming_type)
+        return from_state_dict(incoming_type, {**s, INTENT: default_intent})
 
     # PERFORMANCE: Use regex-only slotter for ALL queries (eliminates LLM calls)
     try:
@@ -100,7 +100,7 @@ async def intent_node(state, config, *, store=None):
             confidence=slot_result.confidence,
             reasoning=f"Slotter: {', '.join(slot_result.reasons)}",
         )
-        return from_state_dict({**s, INTENT: intent_result}, incoming_type)
+        return from_state_dict(incoming_type, {**s, INTENT: intent_result})
 
     except Exception as e:
         logger.error(f"Regex slotter failed: {e}")
@@ -110,7 +110,7 @@ async def intent_node(state, config, *, store=None):
             confidence=0.5,
             reasoning=f"Default fallback after slotter failure: {e}",
         )
-        return from_state_dict({**s, INTENT: default_intent}, incoming_type)
+        return from_state_dict(incoming_type, {**s, INTENT: default_intent})
 
 
 # Wrapper for LangGraph tool registration
@@ -128,7 +128,7 @@ async def wrapped_intent_node(state, config=None):
         default_intent = IntentResult(
             intent="confluence", confidence=0.5, reasoning="Error fallback"
         )
-        return from_state_dict({**s, INTENT: default_intent}, type(state))
+        return from_state_dict(type(state), {**s, INTENT: default_intent})
 
 
 # Keep the original function signature for compatibility
