@@ -86,8 +86,8 @@ class BaseSearchNodeMixin:
         """Mark search results with metadata."""
         search_id = search_id or search_method
         for search_result in results:
-            search_result.metadata["search_method"] = search_method
-            search_result.metadata["search_id"] = search_id
+            search_result.meta["search_method"] = search_method
+            search_result.meta["search_id"] = search_id
 
     def _handle_empty_retrieval(
         self, state: Dict[str, Any], node_name: str, query: str
@@ -420,8 +420,8 @@ class MultiSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
             for i, result in enumerate(results_list):
                 index_name = indices[i] if i < len(indices) else f"index_{i}"
                 for search_result in result.results:
-                    search_result.metadata["search_method"] = "multi_index"
-                    search_result.metadata["search_id"] = f"multi_{index_name}"
+                    search_result.meta["search_method"] = "multi_index"
+                    search_result.meta["search_id"] = f"multi_{index_name}"
                     all_results.append(search_result)
 
             logger.info(
@@ -545,7 +545,7 @@ IMPORTANT: This is JPMorgan utilities documentation.
 """
 
             # Analyze current results to understand what's missing
-            result_titles = [r.metadata.get("title", "") for r in search_results[:5]]
+            result_titles = [r.meta.get("title", "") for r in search_results[:5]]
             result_summary = "; ".join(result_titles[:3])
 
             rewrite_prompt = f"""

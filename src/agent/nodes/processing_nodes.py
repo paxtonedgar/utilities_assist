@@ -412,8 +412,8 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             for i, result in enumerate(results_list):
                 index_name = indices[i] if i < len(indices) else f"index_{i}"
                 for search_result in result.results:
-                    search_result.metadata["search_method"] = "workflow_synthesis"
-                    search_result.metadata["source_index"] = index_name
+                    search_result.meta["search_method"] = "workflow_synthesis"
+                    search_result.meta["source_index"] = index_name
                     all_results.append(search_result)
 
             # Phase 3: Enhanced workflow context building with step analysis
@@ -441,7 +441,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         # Group results by source for better organization
         source_groups = {}
         for result in results:
-            source = result.metadata.get("title", "Unknown Source")
+            source = result.meta.get("title", "Unknown Source")
             if source not in source_groups:
                 source_groups[source] = []
             source_groups[source].append(result)
@@ -451,7 +451,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             context_parts.append(f"**From {source}:**")
 
             for result in source_results:
-                content = result.content.strip()
+                content = result.text.strip()
 
                 # Look for step indicators in content
                 if self._contains_step_indicators(content):

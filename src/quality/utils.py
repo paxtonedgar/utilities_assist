@@ -101,8 +101,8 @@ def convert_search_results_to_passages(
             "text": getattr(result, "content", "") or getattr(result, "text", ""),
             "url": getattr(result, "url", ""),
             "title": getattr(result, "title", ""),
-            "heading": result.metadata.get("heading", "")
-            if hasattr(result, "metadata")
+            "heading": result.meta.get("heading", "")
+            if hasattr(result, "meta")
             else "",
         }
 

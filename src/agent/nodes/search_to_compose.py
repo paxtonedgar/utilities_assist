@@ -92,7 +92,7 @@ def convert_search_results_to_passages(
                 "text": getattr(result, "content", "") or getattr(result, "text", ""),
                 "url": getattr(result, "url", ""),
                 "title": getattr(result, "title", ""),
-                "heading": result.metadata.get("heading", ""),
+                "heading": result.meta.get("heading", ""),
                 "rank": idx + 1,
             }
         )

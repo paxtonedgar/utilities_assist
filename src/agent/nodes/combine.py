@@ -85,8 +85,8 @@ async def combine_node(state, config=None, *, store=None):
         # Group results by search source/method for intelligent fusion
         grouped_results = {}
         for result in all_results:
-            search_method = result.metadata.get("search_method", "unknown")
-            search_id = result.metadata.get("search_id", search_method)
+            search_method = result.meta.get("search_method", "unknown")
+            search_id = result.meta.get("search_id", search_method)
 
             if search_id not in grouped_results:
                 grouped_results[search_id] = []
@@ -274,8 +274,8 @@ async def _apply_mmr_diversification(
         for result in results:
             candidates.append(result.doc_id)
             # Combine title and content for diversity analysis
-            title = result.metadata.get("title", "")
-            doc_text = f"{title} {result.content}"
+            title = result.meta.get("title", "")
+            doc_text = f"{title} {result.text}"
             doc_text_lookup[result.doc_id] = doc_text
 
         # Apply MMR
@@ -318,13 +318,13 @@ def _build_context_from_results(
 
     for i, result in enumerate(results):
         # Extract meaningful title and utility info
-        title = result.metadata.get(
-            "title", result.metadata.get("api_name", f"Document {i + 1}")
+        title = result.meta.get(
+            "title", result.meta.get("api_name", f"Document {i + 1}")
         )
-        utility_name = result.metadata.get("utility_name", "")
-        page_url = result.metadata.get("page_url", "")
-        section_paths = result.metadata.get("section_paths", [])
-        anchors = result.metadata.get("anchors", [])
+        utility_name = result.meta.get("utility_name", "")
+        page_url = result.meta.get("page_url", "")
+        section_paths = result.meta.get("section_paths", [])
+        anchors = result.meta.get("anchors", [])
 
         # Check if content is actionable (has how-to/onboarding sections)
         for path in section_paths:
@@ -343,7 +343,7 @@ def _build_context_from_results(
                 break
 
         # Clean and format the content for human consumption
-        content = result.content.strip()
+        content = result.text.strip()
 
         # DEBUG: Log what content we're getting from search results
         logger.info(
