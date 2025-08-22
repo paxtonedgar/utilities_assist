@@ -356,6 +356,15 @@ class CrossEncodeReranker:
                 kept_docs.append(doc)
                 kept_indices.append(original_idx)
 
+        # Fail-safe: if reranker drops all results, keep top RRF results
+        if not kept_docs and docs:
+            logger.warning(f"Reranker dropped all {len(docs)} docs (min_score={min_score}), keeping top RRF results")
+            # Keep top 3 docs regardless of score to prevent total collapse
+            for doc, score, original_idx in scored_docs[:min(3, len(scored_docs))]:
+                doc.rerank_score = score
+                kept_docs.append(doc)
+                kept_indices.append(original_idx)
+        
         dropped_count = len(docs) - len(kept_docs)
         took_ms = (time.time() - start_time) * 1000
 

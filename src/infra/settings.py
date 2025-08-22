@@ -199,7 +199,7 @@ class RerankerConfig(BaseModel):
         description="Minimum docs required for actionable answer",
     )
     min_score: float = Field(
-        default=0.25,
+        default=0.01,  # BGE v2-m3 outputs tiny logits, lower threshold
         validation_alias="RERANK_MIN_SCORE",
         description="Drop passages below this score",
     )

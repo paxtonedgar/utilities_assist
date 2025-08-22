@@ -38,15 +38,15 @@ def _apply_light_scoring_hints(results: List[Passage]) -> None:
         bonus = 0.0
 
         # Check step bullets in content
-        if step_pattern.search(result.content):
+        if step_pattern.search(result.text):
             bonus += 0.4
 
         # Check JIRA/ServiceNow terms in content
-        if jira_pattern.search(result.content):
+        if jira_pattern.search(result.text):
             bonus += 0.3
 
         # Check verbs in title/heading
-        title_text = f"{result.title} {result.metadata.get('heading', '')}"
+        title_text = f"{result.title} {result.meta.get('heading', '')}"
         if verb_pattern.search(title_text):
             bonus += 0.2
 
@@ -690,7 +690,7 @@ def _rrf_with_diversification(
             continue
 
         result = all_results[doc_id]
-        doc_text = f"{result.metadata.get('title', '')} {result.content}"
+        doc_text = f"{result.meta.get('title', '')} {result.text}"
 
         # Calculate relevance to query
         relevance = lexical_relevance(query, doc_text)
@@ -702,7 +702,7 @@ def _rrf_with_diversification(
             for selected_doc_id in selected:
                 if selected_doc_id in all_results:
                     selected_result = all_results[selected_doc_id]
-                    selected_text = f"{selected_result.metadata.get('title', '')} {selected_result.content}"
+                    selected_text = f"{selected_result.meta.get('title', '')} {selected_result.text}"
                     sim = lexical_similarity(doc_text, selected_text)
                     similarities.append(sim)
             max_similarity = max(similarities) if similarities else 0.0
@@ -998,15 +998,15 @@ async def enhanced_rrf_search(
 
         # Compress content length for LLM efficiency
         for result in final_results:
-            if hasattr(result, "content") and len(result.content) > MAX_CONTENT_LENGTH:
-                result.content = result.content[:MAX_CONTENT_LENGTH] + "..."
+            if hasattr(result, "text") and len(result.text) > MAX_CONTENT_LENGTH:
+                result.text = result.text[:MAX_CONTENT_LENGTH] + "..."
                 diagnostics.setdefault("content_compressed", 0)
                 diagnostics["content_compressed"] += 1
 
         # Count generic penalties (documents with negative function scores)
         for result in final_results:
-            section = result.metadata.get("section", "").lower()
-            title = result.metadata.get("title", "").lower()
+            section = result.meta.get("section", "").lower()
+            title = result.meta.get("title", "").lower()
             if any(
                 generic in section for generic in ["global", "overview", "platform"]
             ) or any(

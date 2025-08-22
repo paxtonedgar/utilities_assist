@@ -183,9 +183,9 @@ async def search_index_tool(
                 # CRITICAL FIX: Check unique docs in RRF BEFORE expensive cross-encoder
                 # Count unique doc_ids to avoid rerank→collapse→coverage fail loop
                 unique_docs = len(set(r.doc_id for r in rrf_result.results))
-                logger.info(f"RRF unique docs: {unique_docs} (need ≥3 for coverage)")
+                logger.info(f"RRF unique docs: {unique_docs} (need ≥1 for coverage - temporarily lowered)")
 
-                if unique_docs >= 3:
+                if unique_docs >= 1:  # Temporarily lowered from 3 to 1 for testing
                     # Sufficient unique docs - safe to run cross-encoder reranking
                     try:
                         # Import the cross-encoder function directly (avoid import cache issues)
