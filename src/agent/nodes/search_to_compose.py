@@ -41,10 +41,15 @@ def run_search_and_gate(user_query: str, fused_passages: list) -> dict:
     # 2) convert to Passage objects
     passages = [
         Passage(
+            doc_id=p.get("doc_id", f"fused_{idx}"),
+            index=p.get("index", "coverage"),
             text=p["text"],
+            score=p.get("score", 0.0),
+            title=p.get("title"),
+            page_url=p.get("url"),
             meta={k: p.get(k) for k in ("url", "title", "heading", "rank")},
         )
-        for p in fused_passages
+        for idx, p in enumerate(fused_passages)
     ]
 
     # 3) evaluate coverage

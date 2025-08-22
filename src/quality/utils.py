@@ -127,10 +127,15 @@ def create_passage_objects(passage_dicts: List[Dict[str, Any]]) -> List[Passage]
     """
     return [
         Passage(
+            doc_id=p.get("doc_id", f"passage_{idx}"),
+            index=p.get("index", "unknown"),
             text=p["text"],
+            score=p.get("score", 0.0),
+            title=p.get("title"),
+            page_url=p.get("url"),
             meta={k: p.get(k) for k in ("url", "title", "heading", "rank")},
         )
-        for p in passage_dicts
+        for idx, p in enumerate(passage_dicts)
     ]
 
 
