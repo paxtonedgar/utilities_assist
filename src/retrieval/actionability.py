@@ -192,7 +192,7 @@ def _materialize_procedure(decision: Decision) -> Dict:
                     "text": passage.text[:200] + "..."
                     if len(passage.text) > 200
                     else passage.text,
-                    "citation": f"[{passage.title} ▸ {passage.metadata.get('section', 'Overview')}]",
+                    "citation": f"[{passage.title} ▸ {passage.meta.get('section', 'Overview')}]",
                     "url": passage.url,
                 }
             )
@@ -253,7 +253,7 @@ def _materialize_info(decision: Decision) -> Dict:
         key_facts.append(
             {
                 "text": fact_text,
-                "citation": f"[{passage.title} ▸ {passage.metadata.get('section', 'Overview')}]",
+                "citation": f"[{passage.title} ▸ {passage.meta.get('section', 'Overview')}]",
                 "url": passage.url,
             }
         )
@@ -283,7 +283,7 @@ def _materialize_fallback(decision: Decision) -> Dict:
         paragraphs.append(
             {
                 "text": paragraph_text,
-                "citation": f"[{passage.title} ▸ {passage.metadata.get('section', 'Content')}]",
+                "citation": f"[{passage.title} ▸ {passage.meta.get('section', 'Content')}]",
                 "url": passage.url,
             }
         )

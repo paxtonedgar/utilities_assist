@@ -249,21 +249,21 @@ def extract_source_chips(
 
     for result in retrieval_results[:max_chips]:
         # Extract title from metadata or content
-        title = result.metadata.get("title", "")
+        title = result.meta.get("title", "")
         if not title:
             # Fallback: use first sentence of content
-            sentences = result.content.split(". ")
+            sentences = result.text.split(". ")
             title = (
                 sentences[0][:50] + "..." if len(sentences[0]) > 50 else sentences[0]
             )
 
         # Create excerpt
-        excerpt = _create_excerpt(result.content, max_length=150)
+        excerpt = _create_excerpt(result.text, max_length=150)
 
         chip = SourceChip(
             title=title,
             doc_id=result.doc_id,
-            url=result.metadata.get("url"),
+            url=result.meta.get("url"),
             excerpt=excerpt,
         )
         chips.append(chip)
@@ -292,8 +292,8 @@ def _prioritize_by_intent(results: List[Passage], intent) -> List[Passage]:
             results,
             key=lambda r: (
                 -r.score,  # Primary: search relevance
-                -len(r.metadata.get("api_names", [])),  # Secondary: number of APIs
-                -len(r.content),  # Tertiary: content richness
+                -len(r.meta.get("api_names", [])),  # Secondary: number of APIs
+                -len(r.text),  # Tertiary: content richness
             ),
         )
 
@@ -315,7 +315,7 @@ def _prioritize_by_intent(results: List[Passage], intent) -> List[Passage]:
 def _api_relevance_score(result: Passage) -> float:
     """Calculate API relevance score for a result."""
     score = 0.0
-    content_lower = result.content.lower()
+    content_lower = result.text.lower()
 
     # API-related keywords boost
     api_keywords = [
@@ -331,7 +331,7 @@ def _api_relevance_score(result: Passage) -> float:
         score += content_lower.count(keyword) * 0.1
 
     # Metadata boosts
-    if result.metadata.get("type") == "api_spec":
+    if result.meta.get("type") == "api_spec":
         score += 0.5
 
     return score
@@ -339,13 +339,13 @@ def _api_relevance_score(result: Passage) -> float:
 
 def _format_result_context(result: Passage, index: int) -> str:
     """Format a single search result for context."""
-    title = result.metadata.get("title", f"Document {index}")
+    title = result.meta.get("title", f"Document {index}")
 
-    context_block = f"[Source {index}: {title}]\n{result.content}"
+    context_block = f"[Source {index}: {title}]\n{result.text}"
 
     # Add metadata if relevant
-    if result.metadata.get("api_names"):
-        context_block += f"\nRelated APIs: {', '.join(result.metadata['api_names'])}"
+    if result.meta.get("api_names"):
+        context_block += f"\nRelated APIs: {', '.join(result.meta['api_names'])}"
 
     return context_block
 
