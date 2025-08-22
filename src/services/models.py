@@ -74,6 +74,12 @@ class Passage:
     page_url: Optional[str]
     api_name: Optional[str]
     title: Optional[str]
+    
+    # Compatibility aliases for legacy code
+    @property
+    def url(self) -> Optional[str]:
+        """Legacy compatibility: many callsites expect .url"""
+        return self.page_url
 
 
 @dataclass
