@@ -321,19 +321,59 @@ class CrossEncodeReranker:
 
         start_time = time.time()
 
-        # Extract text from documents (try .text first, then .content)
+        # Extract text from documents with robust fallbacks
         passages = []
-        for doc in docs:
-            if hasattr(doc, "text") and doc.text:
-                passages.append(doc.text)
-            elif hasattr(doc, "content") and doc.content:
-                passages.append(doc.content)
+        empty_count = 0
+        
+        def get_candidate_text(candidate):
+            """Extract text from candidate with multiple fallbacks."""
+            # Try different text attributes in priority order
+            for attr in ("text", "content", "snippet", "body"):
+                if hasattr(candidate, attr):
+                    value = getattr(candidate, attr)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+            
+            # Try dict-style access for backwards compatibility
+            if isinstance(candidate, dict):
+                for key in ("text", "content", "snippet", "body"):
+                    value = candidate.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+            
+            # Last resort: string representation
+            str_repr = str(candidate)
+            return str_repr if len(str_repr) > 20 else ""  # Avoid short meaningless strings
+        
+        for i, doc in enumerate(docs):
+            text = get_candidate_text(doc)
+            if text:
+                passages.append(text)
             else:
-                # Fallback to string representation
-                passages.append(str(doc))
+                passages.append("")  # Keep index alignment
+                empty_count += 1
+                logger.warning(f"Reranker doc {i}: empty text extracted from {type(doc).__name__} {getattr(doc, 'doc_id', 'unknown')}")
+        
+        if empty_count > 0:
+            logger.warning(f"Reranker input validation: {empty_count}/{len(docs)} docs have empty text")
+        
+        # Log input summary for debugging
+        non_empty_passages = [p for p in passages if p]
+        avg_length = sum(len(p) for p in non_empty_passages) / len(non_empty_passages) if non_empty_passages else 0
+        logger.info(f"Reranker processing: {len(docs)} docs, {len(non_empty_passages)} with text, avg_length={avg_length:.1f}")
 
         # Score all passages
         scores = self.score(query, passages)
+        
+        # Log score distribution for debugging
+        if scores:
+            top_scores = sorted(scores, reverse=True)[:5]
+            avg_score = sum(scores) / len(scores)
+            logger.info(f"Reranker scores: top_5={top_scores}, avg={avg_score:.4f}, min_threshold={min_score}")
+            
+            # Count how many would pass threshold
+            above_threshold = sum(1 for s in scores if s >= min_score)
+            logger.info(f"Reranker threshold filter: {above_threshold}/{len(scores)} docs above {min_score}")
 
         # Create scored document tuples
         scored_docs = [
@@ -343,14 +383,23 @@ class CrossEncodeReranker:
         # Sort by score (descending)
         scored_docs.sort(key=lambda x: x[1], reverse=True)
 
-        # Apply filtering
+        # Apply filtering with adaptive threshold
         kept_docs = []
         kept_indices = []
+        
+        # If we have mostly empty text or very low scores, be more lenient
+        effective_min_score = min_score
+        if empty_count > len(docs) * 0.3:  # More than 30% empty
+            effective_min_score = min(min_score, 0.005)  # Lower threshold
+            logger.warning(f"High empty text ratio ({empty_count}/{len(docs)}), lowering threshold to {effective_min_score}")
+        elif scores and max(scores) < min_score * 2:  # All scores very low
+            effective_min_score = min(min_score, 0.005)
+            logger.warning(f"All scores very low (max={max(scores):.4f}), lowering threshold to {effective_min_score}")
 
         for doc, score, original_idx in scored_docs:
             if len(kept_docs) >= top_k:
                 break
-            if score >= min_score:
+            if score >= effective_min_score:
                 # Set rerank_score attribute on document
                 doc.rerank_score = score
                 kept_docs.append(doc)
