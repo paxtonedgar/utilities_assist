@@ -16,6 +16,7 @@ Features:
 
 import logging
 import time
+import json
 
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -153,6 +154,14 @@ class OpenSearchClient:
                 query,
                 len(query),
             )
+            
+            # DEBUG: Log actual query structure on first request to catch regressions
+            if hasattr(search_body.get("query", {}), "get"):
+                query_structure = "nested" if "nested" in search_body["query"] else "flat"
+                logger.info(f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}")
+                if query_structure == "flat":
+                    logger.warning(f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
+            
 
             # Use POST request for search with body
             _setup_jpmc_proxy()  # Ensure proxy is configured
@@ -211,6 +220,11 @@ class OpenSearchClient:
 
             # Log successful completion
             total_hits = get_total_hits(data)
+            
+            # CANARY: Log query body when we get zero results for debugging
+            if len(results) == 0 and total_hits == 0:
+                logger.warning(f"BM25_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}")
+            
             log_event(
                 stage="bm25",
                 event="success",
@@ -314,6 +328,13 @@ class OpenSearchClient:
 
         # Build simple kNN query (like main branch)
         search_body = self._build_simple_knn_query(query_vector, k, index)
+        
+        # DEBUG: Log actual kNN query structure to catch regressions
+        if search_body and hasattr(search_body.get("query", {}), "get"):
+            query_structure = "nested" if "nested" in search_body["query"] else "flat"
+            logger.info(f"KNN_QUERY_STRUCTURE: {query_structure} for index {index}")
+            if query_structure == "flat":
+                logger.warning(f"kNN using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
 
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -365,6 +386,11 @@ class OpenSearchClient:
 
             # Log successful completion
             total_hits = get_total_hits(data)
+            
+            # CANARY: Log query body when we get zero results for debugging
+            if len(results) == 0 and total_hits == 0:
+                logger.warning(f"KNN_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}")
+            
             log_event(
                 stage="knn",
                 event="success",
