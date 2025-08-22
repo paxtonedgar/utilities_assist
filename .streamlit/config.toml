@@ -1,0 +1,17 @@
+[server]
+# Prevent file watcher crashes with PyTorch modules
+fileWatcherType = "poll"
+runOnSave = false
+
+# Additional stability settings
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[logger]
+# Reduce noise from file watcher warnings
+level = "error"
+
+[client]
+# Reduce reconnection attempts that can interact badly with torch
+maxMessageSize = 200

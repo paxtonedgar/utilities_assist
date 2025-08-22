@@ -5,6 +5,18 @@
 import sys
 import os
 from pathlib import Path
+import types
+
+# HOTFIX: Prevent Streamlit file-watcher from crashing on torch.classes.__path__
+# This must run BEFORE importing streamlit or any app code that loads torch
+try:
+    import torch
+    if 'torch.classes' not in sys.modules:
+        # Create harmless stub to prevent watcher from dereferencing magic __path__
+        sys.modules['torch.classes'] = types.ModuleType('torch.classes')
+        sys.modules['torch.classes'].__path__ = []  # Empty package for watcher
+except Exception:
+    pass  # Safe to ignore if torch not available
 
 # Load environment variables from .env file
 try:
