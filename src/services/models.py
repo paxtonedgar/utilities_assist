@@ -80,6 +80,11 @@ class Passage:
     def url(self) -> Optional[str]:
         """Legacy compatibility: many callsites expect .url"""
         return self.page_url
+    
+    @property
+    def content(self) -> str:
+        """Legacy compatibility: reranker and other code expects .content"""
+        return self.text
 
 
 @dataclass

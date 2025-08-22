@@ -160,9 +160,8 @@ class OpenSearchClient:
                 query_structure = "nested" if "nested" in search_body["query"] else "flat"
                 logger.info(f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}")
                 
-                # Only warn if flat query is used for an index that should be nested
-                # (main index has sections[] structure, swagger has flat fields)
-                if query_structure == "flat" and "khub-opensearch-index" in index:
+                # Warn if flat query is used for any khub index (both use nested sections[])
+                if query_structure == "flat" and "khub-opensearch" in index:
                     logger.warning(f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
             
 
@@ -337,9 +336,8 @@ class OpenSearchClient:
             query_structure = "nested" if "nested" in search_body["query"] else "flat"
             logger.info(f"KNN_QUERY_STRUCTURE: {query_structure} for index {index}")
             
-            # Only warn if flat query is used for an index that should be nested
-            # (Swagger index has no vector field, so kNN returns None - no warning needed)
-            if query_structure == "flat" and "khub-opensearch-index" in index:
+            # Warn if flat query is used for any khub index (both use nested sections[])
+            if query_structure == "flat" and "khub-opensearch" in index:
                 logger.warning(f"kNN using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
 
         try:

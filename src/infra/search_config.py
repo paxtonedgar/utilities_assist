@@ -84,7 +84,7 @@ class OpenSearchConfig:
 
     SWAGGER_INDEX = IndexConfig(
         name="khub-opensearch-swagger-index",
-        content_fields=["body", "content", "text", "description", "summary"],
+        content_fields=["sections.content"],  # Swagger also uses nested sections structure
         metadata_fields=[
             "title",
             "app_name",
