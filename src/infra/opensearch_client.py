@@ -11,6 +11,7 @@ Features:
 - Pure Python RRF fusion for hybrid search
 - Comprehensive filtering (ACL, space, time ranges)
 - Function score time decay for recency boosting
+- Clean passage extraction via service layer
 """
 
 import logging
@@ -26,7 +27,9 @@ from src.infra.settings import get_settings
 from src.infra.search_config import OpenSearchConfig, QueryTemplates
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.telemetry.logger import log_event, stage
-# Avoid cross-layer import at module level - import SearchResult locally when needed
+from src.services.passage_extractor import extract_passages
+from src.services.schema_learner import observe_extraction
+from src.services.models import ExtractorConfig, Passage
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +71,7 @@ class SearchFilters:
 class SearchResponse:
     """Search response with results and metadata."""
 
-    results: List[Any]  # Will contain SearchResult objects (imported locally)
+    results: List[Passage]  # Now uses clean Passage objects
     total_hits: int
     took_ms: int
     method: str
@@ -77,13 +80,14 @@ class SearchResponse:
 class OpenSearchClient:
     """Production-ready OpenSearch client with enterprise features."""
 
-    def __init__(self, settings: Optional[object] = None):
+    def __init__(self, settings: Optional[object] = None, extractor_cfg: Optional[ExtractorConfig] = None):
         """Initialize OpenSearch client with centralized settings."""
         if settings is None:
             settings = get_settings()
 
         self.settings = settings
         self.base_url = settings.opensearch_host.rstrip("/")
+        self.extractor_cfg = extractor_cfg or ExtractorConfig()
 
         # Create session with proper authentication for the current profile
         if settings.requires_aws_auth:
@@ -485,17 +489,16 @@ class OpenSearchClient:
         for doc_id, rrf_score in sorted_docs:
             if doc_id in doc_map:
                 result = doc_map[doc_id]
-                # Create new result with RRF score - include all required fields
-                # Import locally to avoid cross-layer coupling
-                from src.services.models import SearchResult as ServiceSearchResult
-
-                fused_result = ServiceSearchResult(
+                # Create new result with RRF score
+                fused_result = Passage(
                     doc_id=result.doc_id,
-                    title=result.title,  # REQUIRED: Include title from original result
-                    url=result.url,  # REQUIRED: Include URL from original result
+                    index=result.index,
+                    text=result.text,
+                    section_title=result.section_title,
                     score=rrf_score,  # Use RRF-computed score
-                    content=result.content,  # Use content field
-                    metadata=result.metadata,
+                    page_url=result.page_url,
+                    api_name=result.api_name,
+                    title=result.title,
                 )
                 fused_results.append(fused_result)
 
@@ -668,175 +671,36 @@ class OpenSearchClient:
 
     def _parse_search_response(
         self, data: Dict[str, Any], index: Optional[str] = None
-    ) -> List[Any]:
-        """Parse OpenSearch response into SearchResult objects with canonical schema."""
-        # Import locally to avoid cross-layer coupling
-        from src.services.models import SearchResult as ServiceSearchResult
-
-        results = []
-
-        # DEBUG: Log the OpenSearch response structure
-        logger.info(f"OPENSEARCH_RESPONSE_DEBUG: response_keys={list(data.keys())}")
-        hits_section = data.get("hits", {})
-        logger.info(f"HITS_SECTION_DEBUG: hits_keys={list(hits_section.keys())}")
-
-        # Safely extract hits array
+    ) -> List[Passage]:
+        """Parse OpenSearch response into Passage objects - thin wrapper for extraction service."""
+        passages = []
         hits = data.get("hits", {}).get("hits", [])
+        
         if not isinstance(hits, list):
             logger.warning("Invalid hits format in OpenSearch response")
             return []
-
-        # DEBUG: Log first hit structure if available
-        if hits:
-            first_hit = hits[0]
-            logger.info(f"FIRST_HIT_DEBUG: hit_keys={list(first_hit.keys())}")
-            source = first_hit.get("_source", {})
-            logger.info(f"FIRST_SOURCE_DEBUG: source_keys={list(source.keys())}")
-            logger.info(
-                f"INNER_HITS_DEBUG: has_inner_hits={bool(first_hit.get('inner_hits'))}"
-            )
-            if first_hit.get("inner_hits"):
-                inner_hits = first_hit.get("inner_hits", {})
-                logger.info(f"INNER_HITS_STRUCTURE: {list(inner_hits.keys())}")
-                # Log the first inner hit structure
-                for inner_key, inner_data in inner_hits.items():
-                    inner_hits_list = inner_data.get("hits", {}).get("hits", [])
-                    if inner_hits_list:
-                        first_inner = inner_hits_list[0]
-                        inner_source = first_inner.get("_source", {})
-                        logger.info(
-                            f"INNER_HIT_{inner_key}_DEBUG: inner_source_keys={list(inner_source.keys())}"
-                        )
-                        # Check for content in inner hits
-                        if "content" in inner_source:
-                            content_len = len(str(inner_source["content"]))
-                            logger.info(
-                                f"INNER_CONTENT_FOUND: {inner_key} content_len={content_len}"
-                            )
-                        break
-        else:
-            logger.info("NO_HITS_DEBUG: Empty hits array")
-
+        
+        # Delegate ALL extraction logic to service layer
         for hit in hits:
-            source = hit.get("_source", {})
-
-            # Extract title with fallbacks - REQUIRED field in canonical schema
-            title = (
-                source.get("api_name")
-                or source.get("title")
-                or source.get("utility_name")
-                or f"Document {len(results) + 1}"
-            )  # Always provide a title
-
-            # Handle nested structure with inner_hits (like v1 working branch)
-            body_parts = []
-
-            # Extract content from inner_hits (matched sections) with section metadata
-            inner_hits = (
-                hit.get("inner_hits", {})
-                .get("matched_sections", {})
-                .get("hits", {})
-                .get("hits", [])
+            hit_passages = extract_passages(hit, self.extractor_cfg)
+            passages.extend(hit_passages)
+            
+            # C1: Observe extraction for schema learning
+            observe_extraction(
+                index=hit.get("_index", index or "unknown"),
+                hit=hit,
+                passages=hit_passages
             )
-            section_paths = []
-            anchors = []
-
-            # If we have inner_hits, use nested content structure
-            if inner_hits:
-                for section_hit in inner_hits:
-                    section_source = section_hit.get("_source", {})
-                    heading = section_source.get("heading", "")
-                    content = section_source.get("content", "")
-                    anchor = section_source.get("anchor", "")  # URL anchor/slug
-                    section_path = section_source.get(
-                        "section_path", ""
-                    )  # e.g., "CIU > Onboarding > Create Client IDs"
-
-                    if content:
-                        section_text = f"{heading}\n{content}" if heading else content
-                        body_parts.append(section_text)
-
-                        # Track section metadata for actionable answers
-                        if section_path:
-                            section_paths.append(section_path)
-                        if anchor:
-                            anchors.append(anchor)
-            else:
-                # Fallback: Extract from root-level fields using centralized config
-                content_fields = OpenSearchConfig.get_content_fields(
-                    index or self.settings.search_index_alias
-                )
-                logger.info(
-                    f"CONTENT_EXTRACTION_DEBUG: doc_id={hit.get('_id')} source_keys={list(source.keys())}"
-                )
-                found_content = False
-                for field in content_fields:
-                    if field in source and source[field]:
-                        content_value = source[field]
-                        logger.info(
-                            f"FOUND_CONTENT_DEBUG: field={field} content_len={len(str(content_value))} content_preview={str(content_value)[:100]}"
-                        )
-                        body_parts.append(str(content_value))
-                        found_content = True
-                        break  # Use the first available content field
-
-                if not found_content:
-                    logger.warning(
-                        f"NO_CONTENT_FOUND: doc_id={hit.get('_id')} tried_fields={content_fields} available_fields={list(source.keys())}"
-                    )
-
-                # Also check if there are sections array at root level
-                sections = source.get("sections", [])
-                if sections and isinstance(sections, list):
-                    for section in sections[:3]:  # Limit to first 3 sections
-                        if isinstance(section, dict):
-                            heading = section.get("heading", "")
-                            content = section.get("content", "")
-                            if content:
-                                section_text = (
-                                    f"{heading}\n{content}" if heading else content
-                                )
-                                body_parts.append(section_text)
-
-            body = "\n\n".join(body_parts) if body_parts else ""
-
-            # Extract real URL with fallbacks - REQUIRED field in canonical schema
-            url = source.get("page_url") or source.get("url")
-            if not url or url == "#":
-                # Construct a meaningful URL using doc_id
-                doc_id = hit.get("_id") or f"doc_{len(results) + 1}"
-                url = f"#doc-{doc_id}"
-
-            # Ensure doc_id is always valid and non-empty - CRITICAL for TurnResult validation
-            doc_id = hit.get("_id") or f"doc_{len(results) + 1}"
-            if not doc_id or doc_id.strip() == "":
-                doc_id = f"doc_{len(results) + 1}"
-
-            # Build metadata from source fields (preserving existing structure)
-            metadata = {
-                "page_url": source.get("page_url", ""),
-                "utility_name": source.get("utility_name", ""),
-                "api_name": source.get("api_name", ""),
-                "sections_matched": len(inner_hits),
-                "section_paths": section_paths,  # For actionable content detection
-                "anchors": anchors,  # For direct section linking
-                "space": source.get("space", ""),  # Track namespace
-                # Preserve backward compatibility
-                "page_title": title,
-            }
-
-            # CANONICAL SCHEMA: Always populate required fields
-            result = ServiceSearchResult(
-                doc_id=doc_id,  # REQUIRED: Always populated and non-empty
-                title=title,  # REQUIRED: Always populated with fallback
-                url=url,  # REQUIRED: Always populated with fallback
-                score=hit.get("_score", 0.0),  # REQUIRED: Handle missing scores
-                content=body,  # REQUIRED: Use body as content
-                metadata=metadata,  # Additional fields for backward compatibility
-            )
-            results.append(result)
-
-        return results
+        
+        log_event(
+            event="parse_response",
+            total_hits=len(hits),
+            total_passages=len(passages),
+            index=index,
+            avg_passages_per_hit=len(passages) / len(hits) if hits else 0,
+        )
+        
+        return passages
 
     def _build_simple_bm25_query(
         self, query: str, k: int, index: Optional[str] = None
