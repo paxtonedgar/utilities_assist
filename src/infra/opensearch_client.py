@@ -693,7 +693,7 @@ class OpenSearchClient:
             )
         
         log_event(
-            event="parse_response",
+            stage="parse_response",
             total_hits=len(hits),
             total_passages=len(passages),
             index=index,
