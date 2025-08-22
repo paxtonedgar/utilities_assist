@@ -85,11 +85,11 @@ def convert_search_results_to_passages(
     search_results: List, for_coverage: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    Convert SearchResult objects to passage dictionaries.
+    Convert Passage objects to passage dictionaries.
     Centralizes the conversion logic used across multiple files.
 
     Args:
-        search_results: List of SearchResult objects
+        search_results: List of Passage objects
         for_coverage: Whether to format for coverage evaluation (includes rank, etc.)
 
     Returns:
@@ -141,7 +141,7 @@ def run_coverage_evaluation(user_query: str, search_results: List) -> Dict[str, 
 
     Args:
         user_query: User's query string
-        search_results: List of SearchResult objects
+        search_results: List of Passage objects
 
     Returns:
         Dict with coverage evaluation results

@@ -10,7 +10,7 @@ from typing import Dict, List, Literal, Optional
 
 from .suites.registry import detect_spans, actionable_score, actionable_count
 from .suites.schemas import Span
-from src.services.models import SearchResult as Passage
+from src.services.models import Passage
 
 logger = logging.getLogger(__name__)
 

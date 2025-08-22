@@ -337,7 +337,7 @@ def _api_relevance_score(result: Passage) -> float:
     return score
 
 
-def _format_result_context(result: SearchResult, index: int) -> str:
+def _format_result_context(result: Passage, index: int) -> str:
     """Format a single search result for context."""
     title = result.metadata.get("title", f"Document {index}")
 

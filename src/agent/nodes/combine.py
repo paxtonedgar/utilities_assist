@@ -169,7 +169,7 @@ async def _fuse_multiple_search_results(
             # Apply RRF fusion
             fused_hits = rrf_fuse_results(hits1, hits2, k_final=15, rrf_k=60)
 
-            # Map back to SearchResult objects
+            # Map back to Passage objects
             all_results_map = {}
             for result in group1_results + group2_results:
                 all_results_map[result.doc_id] = result
@@ -226,11 +226,16 @@ def _weighted_combine_multiple_groups(
                 existing.score = max(existing.score, weighted_score) * 1.1  # 10% boost
             else:
                 # New document
-                new_result = SearchResult(
+                new_result = Passage(
                     doc_id=result.doc_id,
-                    content=result.content,
+                    index=result.index,
+                    text=result.text,
                     score=weighted_score,
-                    metadata={**result.metadata, "combined_from": group_name},
+                    title=result.title,
+                    section_title=result.section_title,
+                    page_url=result.page_url,
+                    api_name=result.api_name,
+                    meta={**result.meta, "combined_from": group_name},
                 )
                 weighted_results[doc_id] = new_result
 
@@ -282,7 +287,7 @@ async def _apply_mmr_diversification(
             lambda_param=0.75,
         )
 
-        # Map back to SearchResult objects
+        # Map back to Passage objects
         id_to_result = {r.doc_id: r for r in results}
         diversified_results = []
 

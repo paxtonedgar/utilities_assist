@@ -285,15 +285,16 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
                     decision.sentences if decision.presenter == "info" else []
                 )
                 if decision.spans:
-                    # Convert spans back to SearchResult format for backward compatibility
+                    # Convert spans back to Passage format for backward compatibility
                     for span in decision.spans[:5]:  # Top 5 spans
-                        span_result = SearchResult(
+                        span_result = Passage(
                             doc_id=span.doc_id,
+                            index="actionability",
                             title=f"{span.suite.title()} Action",
-                            url=span.url,
+                            page_url=span.url,
                             score=span.confidence,
-                            content=span.text,
-                            metadata={
+                            text=span.text,
+                            meta={
                                 "span_type": span.type,
                                 "capability": span.capability,
                             },

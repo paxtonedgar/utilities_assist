@@ -16,7 +16,7 @@ from .schemas import (
     CAPABILITY_TO_TYPE,
     CAPABILITY_WEIGHTS,
 )
-from src.services.models import SearchResult as Passage
+from src.services.models import Passage
 
 logger = logging.getLogger(__name__)
 
