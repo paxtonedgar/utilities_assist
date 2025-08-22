@@ -301,6 +301,31 @@ def detect_spans(passages: List[Passage]) -> List[Span]:
     return _registry.detect_spans(passages)
 
 
+def get_suite_registry() -> dict:
+    """Get suite registry as dict for coloring system."""
+    _registry.load_manifests()
+    registry_dict = {}
+    for manifest in _registry.manifests:
+        # Extract keywords from extractor patterns (simplified)
+        keywords = []
+        url_patterns = []
+        
+        for extractor in manifest.extractors:
+            # Basic keyword extraction from patterns - very simplified
+            for pattern in extractor.patterns:
+                # Extract simple word patterns (not full regex parsing)
+                if not any(char in pattern for char in r'[](){}*+?|^$\\'): 
+                    keywords.append(pattern.lower())
+            url_patterns.extend(extractor.url_patterns)
+        
+        registry_dict[manifest.suite] = {
+            "keywords": keywords,
+            "url_patterns": url_patterns,
+            "hints": {"any": manifest.hints}
+        }
+    return registry_dict
+
+
 def get_suite_names() -> List[str]:
     """Get names of all loaded suites."""
     _registry.load_manifests()

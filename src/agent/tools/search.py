@@ -214,7 +214,7 @@ async def search_index_tool(
                             raise
 
                     # If rerank collapses too much, fall back to RRF results
-                    if len(reranked_results) < 2:
+                    if len(reranked_results) < 3:
                         logger.warning(
                             f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-6"
                         )

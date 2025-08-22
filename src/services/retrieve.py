@@ -895,6 +895,9 @@ async def enhanced_rrf_search(
                 # Success with hybrid search - return directly
                 diagnostics["search_method"] = "single_hybrid"
                 diagnostics["result_count"] = len(hybrid_result.results)
+                # Set consistent hit counts for hybrid search
+                diagnostics["bm25_hits"] = len(hybrid_result.results)  # Approximate
+                diagnostics["knn_hits"] = len(hybrid_result.results)   # Approximate
 
                 return hybrid_result, diagnostics
             else:
@@ -961,6 +964,10 @@ async def enhanced_rrf_search(
         # Convert to (doc_id, score) tuples for RRF
         bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
         knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
+        
+        # Add hit counts to diagnostics for consistent logging
+        diagnostics["bm25_hits"] = len(bm25_hits)
+        diagnostics["knn_hits"] = len(knn_hits)
 
         # SINGLE-PASS DIVERSIFICATION: Combine RRF fusion with diversification in one step
         # This eliminates redundant MMR processing after multiple fusion steps
