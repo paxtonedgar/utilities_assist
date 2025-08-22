@@ -11,7 +11,7 @@ import logging
 from .base_node import BaseNodeHandler
 from src.agent.nodes.combine import combine_node
 from src.services.respond import generate_response, extract_source_chips, verify_answer
-from src.services.models import SearchResult
+from src.services.models import Passage
 
 # Pre-import resource management and common utilities to avoid repeated dynamic imports
 from src.infra.resource_manager import get_resources
@@ -426,7 +426,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             logger.error(f"Workflow synthesis failed: {e}")
             return f"Unable to synthesize workflow: {str(e)}"
 
-    def _build_workflow_context(self, results: List[SearchResult], query: str) -> str:
+    def _build_workflow_context(self, results: List[Passage], query: str) -> str:
         """Build workflow context from multiple search results with step analysis."""
         if not results:
             return "No workflow information found for your query."

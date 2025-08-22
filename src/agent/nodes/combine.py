@@ -2,7 +2,7 @@
 
 import logging
 from typing import List, Dict
-from src.services.models import SearchResult
+from src.services.models import Passage
 from src.services.retrieve import rrf_fuse_results, mmr_diversify
 from .base_node import to_state_dict, from_state_dict
 
@@ -150,8 +150,8 @@ async def combine_node(state, config=None, *, store=None):
 
 
 async def _fuse_multiple_search_results(
-    grouped_results: Dict[str, List[SearchResult]], query: str, intent
-) -> List[SearchResult]:
+    grouped_results: Dict[str, List[Passage]], query: str, intent
+) -> List[Passage]:
     """Fuse results from multiple search methods using RRF."""
     try:
         # Convert to format expected by RRF fusion
@@ -198,8 +198,8 @@ async def _fuse_multiple_search_results(
 
 
 def _weighted_combine_multiple_groups(
-    grouped_results: Dict[str, List[SearchResult]],
-) -> List[SearchResult]:
+    grouped_results: Dict[str, List[Passage]],
+) -> List[Passage]:
     """Combine multiple search groups with weighted scoring."""
     # Assign weights to different search types
     weights = {
@@ -238,7 +238,7 @@ def _weighted_combine_multiple_groups(
     return sorted(weighted_results.values(), key=lambda x: x.score, reverse=True)
 
 
-def _deduplicate_results(results: List[SearchResult]) -> List[SearchResult]:
+def _deduplicate_results(results: List[Passage]) -> List[Passage]:
     """Remove duplicate results based on doc_id."""
     seen_ids = set()
     deduped = []
@@ -255,8 +255,8 @@ def _deduplicate_results(results: List[SearchResult]) -> List[SearchResult]:
 
 
 async def _apply_mmr_diversification(
-    results: List[SearchResult], query: str, top_k: int = 10
-) -> List[SearchResult]:
+    results: List[Passage], query: str, top_k: int = 10
+) -> List[Passage]:
     """Apply MMR diversification to reduce redundant results."""
     try:
         if len(results) <= top_k:
@@ -301,7 +301,7 @@ async def _apply_mmr_diversification(
 
 
 def _build_context_from_results(
-    results: List[SearchResult], max_length: int = 50000
+    results: List[Passage], max_length: int = 50000
 ) -> str:
     """Build actionable context with section paths and anchor links."""
     if not results:

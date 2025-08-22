@@ -8,7 +8,7 @@ import logging
 from typing import List
 from src.quality.coverage import CoverageGate, Passage
 from src.quality.subquery import decompose
-from src.services.models import SearchResult
+from src.services.models import Passage as SearchResultPassage
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +69,13 @@ def run_search_and_gate(user_query: str, fused_passages: list) -> dict:
 
 
 def convert_search_results_to_passages(
-    search_results: List[SearchResult],
+    search_results: List[SearchResultPassage],
 ) -> List[dict]:
     """
-    Convert SearchResult objects to simple dicts for coverage evaluation.
+    Convert Passage objects to simple dicts for coverage evaluation.
 
     Args:
-        search_results: List of SearchResult objects
+        search_results: List of Passage objects
 
     Returns:
         List of dict with keys: text, url, title, heading, rank

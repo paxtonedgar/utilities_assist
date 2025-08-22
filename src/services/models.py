@@ -34,7 +34,7 @@ class SearchResult(BaseModel):
 class RetrievalResult(BaseModel):
     """Combined retrieval results."""
 
-    results: List[SearchResult]
+    results: List[Passage]
     total_found: int
     retrieval_time_ms: float
     method: str  # "bm25", "knn", "rrf"

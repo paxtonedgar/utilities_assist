@@ -312,7 +312,7 @@ def _prioritize_by_intent(results: List[Passage], intent) -> List[Passage]:
         return sorted(results, key=lambda r: -r.score)
 
 
-def _api_relevance_score(result: SearchResult) -> float:
+def _api_relevance_score(result: Passage) -> float:
     """Calculate API relevance score for a result."""
     score = 0.0
     content_lower = result.content.lower()

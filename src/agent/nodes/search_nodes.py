@@ -13,7 +13,7 @@ from .base_node import SearchNodeHandler
 from src.agent.nodes.summarize import summarize_node
 from src.agent.nodes.intent import intent_node
 from src.agent.tools.search import adaptive_search_tool, multi_index_search_tool
-from src.services.models import SearchResult
+from src.services.models import Passage
 from src.retrieval.views import run_info_view, run_procedure_view
 from src.retrieval.actionability import choose_presenter, materialize
 from src.compose.present import render
@@ -81,7 +81,7 @@ class BaseSearchNodeMixin:
         return self._preserve_state_with_error(state, node_name, "Empty query provided")
 
     def _mark_search_results(
-        self, results: List[SearchResult], search_method: str, search_id: str = None
+        self, results: List[Passage], search_method: str, search_id: str = None
     ):
         """Mark search results with metadata."""
         search_id = search_id or search_method
@@ -522,7 +522,7 @@ class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
         self,
         original_query: str,
         normalized_query: str,
-        search_results: List[SearchResult],
+        search_results: List[Passage],
     ) -> str:
         """Rewrite query using LLM for better search results with domain awareness."""
         # Use centralized resource access
