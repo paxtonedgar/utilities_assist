@@ -73,6 +73,14 @@ def _from_inner_hits(hit: Dict[str, Any], cfg: ExtractorConfig) -> List[Passage]
                     page_url=source_meta.get("page_url"),
                     api_name=source_meta.get("api_name"),
                     title=source_meta.get("title"),
+                    meta={
+                        "heading": sec_source.get("title") or sec_source.get("heading"),
+                        "url": source_meta.get("page_url"),
+                        "utility_name": source_meta.get("utility_name"),
+                        "content_type": source_meta.get("content_type"),
+                        "section": sec_source,
+                        **source_meta,
+                    },
                 )
                 passages.append(passage)
                 
@@ -162,6 +170,14 @@ def _mk_passage(hit: Dict[str, Any], text: str, section_title: Optional[str]) ->
         page_url=source.get("page_url"),
         api_name=source.get("api_name"),
         title=source.get("title"),
+        meta={
+            "heading": section_title,
+            "url": source.get("page_url"),
+            "utility_name": source.get("utility_name"),
+            "content_type": source.get("content_type"),
+            "updated_at": source.get("updated_at"),
+            **{k: v for k, v in source.items() if k not in ["page_url", "api_name", "title"]},
+        },
     )
 
 

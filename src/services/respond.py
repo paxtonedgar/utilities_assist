@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, AsyncGenerator
 from jinja2 import Environment, FileSystemLoader
-from src.services.models import SearchResult, SourceChip, IntentResult
+from src.services.models import Passage, SourceChip, IntentResult
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def _text_matches_patterns(text: str, patterns: List[str]) -> bool:
 
 
 def build_context(
-    retrieval_results: List[SearchResult],
+    retrieval_results: List[Passage],
     intent: IntentResult,
     max_context_length: int = 50000,
 ) -> str:
@@ -234,7 +234,7 @@ def verify_answer(answer: str, context: str, query: str) -> Dict[str, Any]:
 
 
 def extract_source_chips(
-    retrieval_results: List[SearchResult], max_chips: int = 5
+    retrieval_results: List[Passage], max_chips: int = 5
 ) -> List[SourceChip]:
     """Extract source citation chips from retrieval results.
 
@@ -282,7 +282,7 @@ def _get_intent_label(intent) -> str:
     return "unknown"
 
 
-def _prioritize_by_intent(results: List[SearchResult], intent) -> List[SearchResult]:
+def _prioritize_by_intent(results: List[Passage], intent) -> List[Passage]:
     """Prioritize search results based on intent - handles both dict and IntentResult."""
     intent_label = _get_intent_label(intent)
 

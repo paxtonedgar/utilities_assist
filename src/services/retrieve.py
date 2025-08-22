@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import Counter  # Fix for MMR diversification
 
-from src.services.models import SearchResult, RetrievalResult
+from src.services.models import RetrievalResult, Passage
 from src.infra.opensearch_client import OpenSearchClient, SearchFilters
 from src.infra.search_config import OpenSearchConfig
 
@@ -18,7 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 logger = logging.getLogger(__name__)
 
 
-def _apply_light_scoring_hints(results: List[SearchResult]) -> None:
+def _apply_light_scoring_hints(results: List[Passage]) -> None:
     """Apply light scoring hints as pre-sort reweighting.
 
     +0.4 if matches step bullets (numbered/bulleted lists)
@@ -56,10 +56,10 @@ def _apply_light_scoring_hints(results: List[SearchResult]) -> None:
 
 def _cross_encoder_rerank(
     query: str,
-    results: List[SearchResult],
+    results: List[Passage],
     top_k: int = 8,
     max_rerank_ms: Optional[int] = 15000,
-) -> List[SearchResult]:
+) -> List[Passage]:
     """Apply BGE cross-encoder reranking to RRF candidates.
 
     Takes up to 36 candidates from RRF, applies cross-encoder scoring,
@@ -127,23 +127,16 @@ def _cross_encoder_rerank(
         return results[:top_k]
 
 
-def _create_search_result(client_result) -> SearchResult:
-    """Factory function to create SearchResult from client result.
+def _create_search_result(client_result) -> Passage:
+    """Factory function to create Passage from client result.
 
-    Centralizes the SearchResult creation pattern used throughout the file.
+    Client result is already a Passage object, just return it directly.
     """
-    return SearchResult(
-        doc_id=client_result.doc_id,
-        title=client_result.title,
-        url=client_result.url,
-        score=client_result.score,
-        content=client_result.content,
-        metadata=client_result.metadata,
-    )
+    return client_result
 
 
-def _create_search_results(client_results) -> List[SearchResult]:
-    """Factory function to create list of SearchResults from client results."""
+def _create_search_results(client_results) -> List[Passage]:
+    """Factory function to create list of Passages from client results."""
     return [_create_search_result(result) for result in client_results]
 
 
@@ -279,20 +272,8 @@ async def bm25_search(
             time_decay_half_life_days=time_decay_days,
         )
 
-        # Convert to canonical service format - OpenSearch client now returns services.models.SearchResult
-        results = []
-        for result in response.results:
-            # Result is already a services.models.SearchResult with canonical schema
-            # Create canonical SearchResult ensuring all required fields are present
-            service_result = SearchResult(
-                doc_id=result.doc_id,
-                title=result.title,  # Now available in canonical schema
-                url=result.url,  # Now available in canonical schema
-                score=result.score,
-                content=result.content,  # Use content field consistently
-                metadata=result.metadata,
-            )
-            results.append(service_result)
+        # OpenSearch client returns Passage objects directly - no conversion needed
+        results = response.results
 
         return RetrievalResult(
             results=results,
@@ -374,7 +355,7 @@ async def knn_search(
             ef_search=ef_search,
         )
 
-        # Convert to canonical service format - OpenSearch client now returns services.models.SearchResult
+        # OpenSearch client returns Passage objects directly
         results = _create_search_results(response.results)
 
         return RetrievalResult(
@@ -422,47 +403,18 @@ async def rrf_fuse(
         RetrievalResult with fused and re-ranked results
     """
     try:
-        # Convert service results to client format for fusion
+        # Create SearchResponse objects with Passage results for RRF fusion
         from src.infra.opensearch_client import SearchResponse
-        from src.services.models import (
-            SearchResult as ServiceSearchResult,
-        )  # Use the service model that RRF expects
 
         bm25_response = SearchResponse(
-            results=[
-                ServiceSearchResult(
-                    doc_id=r.doc_id,
-                    score=r.score,
-                    content=r.content,  # Use content field consistently
-                    metadata={
-                        **r.metadata,
-                        "title": r.metadata.get(
-                            "title", ""
-                        ),  # Ensure title is available
-                    },
-                )
-                for r in bm25_result.results
-            ],
+            results=bm25_result.results,  # Already Passage objects
             total_hits=bm25_result.total_found,
             took_ms=bm25_result.retrieval_time_ms,
             method="bm25",
         )
 
         knn_response = SearchResponse(
-            results=[
-                ServiceSearchResult(
-                    doc_id=r.doc_id,
-                    score=r.score,
-                    content=r.content,  # Use content field consistently
-                    metadata={
-                        **r.metadata,
-                        "title": r.metadata.get(
-                            "title", ""
-                        ),  # Ensure title is available
-                    },
-                )
-                for r in knn_result.results
-            ],
+            results=knn_result.results,  # Already Passage objects
             total_hits=knn_result.total_found,
             took_ms=knn_result.retrieval_time_ms,
             method="knn",
@@ -473,8 +425,8 @@ async def rrf_fuse(
             bm25_response=bm25_response, knn_response=knn_response, k=top_k, rrf_k=rrf_k
         )
 
-        # Convert back to canonical service format - RRF fusion returns services.models.SearchResult
-        results = _create_search_results(fused_response.results)
+        # RRF fusion returns Passage objects directly
+        results = fused_response.results
 
         return RetrievalResult(
             results=results,

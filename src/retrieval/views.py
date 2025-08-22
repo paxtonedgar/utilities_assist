@@ -10,7 +10,7 @@ import time
 
 from .actionability import ViewResult
 from src.agent.tools.search import search_index_tool
-from src.services.models import SearchResult as Passage
+from src.services.models import Passage
 from src.infra.resource_manager import get_resources
 from src.infra.search_config import OpenSearchConfig
 from src.telemetry.logger import log_event, get_or_create_req_id

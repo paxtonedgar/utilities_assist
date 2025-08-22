@@ -65,26 +65,33 @@ class TurnResult(BaseModel):
 
 @dataclass
 class Passage:
-    """Individual passage extracted from OpenSearch hit."""
+    """Unified passage/result type - replaces SearchResult entirely."""
     doc_id: str
     index: str
-    text: str
-    section_title: Optional[str]
+    text: str  # Main content (was .content)
     score: float
-    page_url: Optional[str]
-    api_name: Optional[str]
-    title: Optional[str]
+    title: Optional[str] = None
+    section_title: Optional[str] = None
+    page_url: Optional[str] = None
+    api_name: Optional[str] = None
+    meta: Dict[str, Any] = field(default_factory=dict)  # Was .metadata
+    rerank_score: Optional[float] = None
     
-    # Compatibility aliases for legacy code
+    # Properties for clean access patterns
     @property
     def url(self) -> Optional[str]:
-        """Legacy compatibility: many callsites expect .url"""
-        return self.page_url
+        """URL for display/linking - checks page_url then meta"""
+        return self.page_url or self.meta.get("url") or self.meta.get("page_url")
+    
+    @property  
+    def content(self) -> str:
+        """Alias for text during migration"""
+        return self.text
     
     @property
-    def content(self) -> str:
-        """Legacy compatibility: reranker and other code expects .content"""
-        return self.text
+    def metadata(self) -> Dict[str, Any]:
+        """Alias for meta during migration"""
+        return self.meta
 
 
 @dataclass

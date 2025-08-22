@@ -519,7 +519,7 @@ class OpenSearchClient:
         for doc_id, rrf_score in sorted_docs:
             if doc_id in doc_map:
                 result = doc_map[doc_id]
-                # Create new result with RRF score
+                # Create new result with RRF score, preserving all fields
                 fused_result = Passage(
                     doc_id=result.doc_id,
                     index=result.index,
@@ -529,6 +529,8 @@ class OpenSearchClient:
                     page_url=result.page_url,
                     api_name=result.api_name,
                     title=result.title,
+                    meta=getattr(result, 'meta', {}),  # Preserve metadata
+                    rerank_score=getattr(result, 'rerank_score', None),
                 )
                 fused_results.append(fused_result)
 
