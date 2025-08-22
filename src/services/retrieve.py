@@ -58,7 +58,7 @@ def _cross_encoder_rerank(
     query: str,
     results: List[SearchResult],
     top_k: int = 8,
-    max_rerank_ms: Optional[int] = 2000,
+    max_rerank_ms: Optional[int] = 15000,
 ) -> List[SearchResult]:
     """Apply BGE cross-encoder reranking to RRF candidates.
 

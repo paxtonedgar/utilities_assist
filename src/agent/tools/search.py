@@ -198,7 +198,7 @@ async def search_index_tool(
                             query=query,
                             results=rrf_result.results,
                             top_k=4,  # Reduce from 8→4 for cheaper reranking
-                            max_rerank_ms=2000,  # Add timeout guardrail
+                            max_rerank_ms=15000,  # CPU BGE reranker needs more time
                         )
                     except TypeError as e:
                         if "max_rerank_ms" in str(e):

@@ -23,6 +23,11 @@ class SearchResult(BaseModel):
     metadata: Dict[str, Any] = {}
     rerank_score: Optional[float] = None  # Cross-encoder relevance score
 
+    @property
+    def text(self) -> str:
+        """Backward compatibility alias for content field."""
+        return self.content
+
 
 class RetrievalResult(BaseModel):
     """Combined retrieval results."""
