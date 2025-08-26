@@ -248,6 +248,9 @@ class QueryTemplates:
                 if full_name.lower() in text_query.lower():
                     query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
                     query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} data", "boost": 1.2}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} interaction", "boost": 1.2}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} field", "boost": 1.1}}})
             
             # Use bool query if we have multiple parts
             if len(query_parts) > 1:
@@ -365,6 +368,10 @@ class QueryTemplates:
                     query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
                     # Add fuzzy match for variations
                     query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
+                    # Add common documentation patterns
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} data", "boost": 1.2}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} interaction", "boost": 1.2}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} field", "boost": 1.1}}})
             
             # Use bool query with should clauses if we have multiple parts
             if len(query_parts) > 1:

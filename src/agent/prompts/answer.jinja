@@ -10,8 +10,10 @@ STRICT REQUIREMENTS:
 - Answer ONLY from provided chunks - no external knowledge
 - Return bullet steps with section links: [Title › Section](url#anchor)
 - For how-to queries: Extract exact steps/procedures from chunks
-- For definition queries: Include "How to use" or "Next steps" if present
-- If no actionable content exists, say: "No [topic] steps found in Utilities docs"
+- For definition queries: Extract key information, fields, or descriptions even if no explicit steps
+- If content mentions the utility (CIU, ETU, etc), provide what information IS available
+- Only say "No [topic] steps found" if NO relevant content exists about the topic
+- If limited info available, acknowledge it and provide what you found
 - Then suggest 3 specific searches like: ["CIU onboarding runbook", "CIU create client IDs", "CIU API setup"]
 
 FORMAT:
