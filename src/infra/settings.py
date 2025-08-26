@@ -204,7 +204,7 @@ class RerankerConfig(BaseModel):
         description="Drop passages below this score",
     )
     top_k: int = Field(
-        default=8,
+        default=12,  # Increased from 8 to pass more docs to composer
         validation_alias="RERANK_TOP_K",
         description="Maximum docs to pass to composer",
     )
