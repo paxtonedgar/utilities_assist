@@ -85,7 +85,12 @@ class FilterManager:
         """Build base filters based on intent and view type."""
 
         # Intent-based routing
-        if intent_type == "swagger" or intent_type == "api":
+        if intent_type == "utilities":
+            # No filters for utility queries - they need broad coverage
+            # Utilities docs may be scattered across different content types
+            return None
+            
+        elif intent_type == "swagger" or intent_type == "api":
             return {
                 "bool": {
                     "should": [
