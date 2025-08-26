@@ -103,12 +103,56 @@ async def combine_node(state, config=None, *, store=None):
             # Single search method - just merge and deduplicate
             combined_results = _deduplicate_results(all_results)
 
+        # Bias toward domain-relevant content if present, then diversify
+        combined_results = _boost_domain_relevance(combined_results, query)
+        
         # Apply MMR diversification to final results
         if len(combined_results) > 10:
             combined_results = await _apply_mmr_diversification(
                 combined_results, query, top_k=10
             )
 
+        # Quality gate: ensure we have enough viable docs for specific domains
+        MIN_DOCS = 4
+        query_lower = query.lower()
+        
+        # Check if query is asking about specific utilities/domains
+        is_utility_query = any(term in query_lower for term in [
+            "ciu", "customer interaction utility", "etu", "enhanced transaction",
+            "utilities", "utility"
+        ])
+        
+        if is_utility_query and len(combined_results) < MIN_DOCS:
+            # Count how many results actually match the domain
+            domain_matches = sum(1 for r in combined_results if any(phrase in (
+                str(r.meta.get("title", "")) + " " + 
+                str(r.meta.get("utility_name", "")) + " " +
+                str(r.meta.get("space", ""))
+            ).lower() for phrase in ["customer interaction utility", " ciu ", "utilities", "utility"]))
+            
+            if domain_matches == 0:
+                logger.warning(
+                    "Quality gate triggered: %d docs for utility query '%s' but zero domain matches - flagging for retry",
+                    len(combined_results), query[:50]
+                )
+                s["need_recall_retry"] = True
+                s["recall_retry_reason"] = f"utility_query_no_matches_{len(combined_results)}_docs"
+            elif len(combined_results) < 2:
+                logger.warning(
+                    "Quality gate triggered: only %d total docs for utility query - flagging for retry", 
+                    len(combined_results)
+                )
+                s["need_recall_retry"] = True
+                s["recall_retry_reason"] = f"utility_query_insufficient_docs_{len(combined_results)}"
+
+        # Debug: show what we're passing forward to composer
+        if combined_results:
+            top_results_summary = [
+                (r.meta.get("title", "")[:60] or f"doc_{r.doc_id[:8]}", round(float(r.score), 3))
+                for r in combined_results[:5]
+            ]
+            logger.info("COMBINED_TOP: %s", top_results_summary)
+        
         # Build context from combined results
         final_context = _build_context_from_results(combined_results)
 
@@ -166,11 +210,18 @@ async def _fuse_multiple_search_results(
             hits1 = [(r.doc_id, r.score) for r in group1_results]
             hits2 = [(r.doc_id, r.score) for r in group2_results]
 
-            # Apply RRF fusion
-            # Get settings for configurable RRF parameters
+            # Apply RRF fusion with dynamic limits
             from src.infra.settings import get_settings
             settings = get_settings()
-            fused_hits = rrf_fuse_results(hits1, hits2, k_final=settings.search_config.rrf_k_final_info, rrf_k=60)
+            
+            # Dynamic fusion limits: deeper recall for info/definition queries
+            intent_name = getattr(intent, "intent", str(intent)).lower() if intent else ""
+            if any(x in intent_name for x in ["info", "definition", "what", "overview", "confluence"]):
+                k_final = settings.search_config.rrf_k_final_info  # Use full setting for info queries
+            else:
+                k_final = max(15, settings.search_config.rrf_k_final_info // 2)  # Smaller for others
+            
+            fused_hits = rrf_fuse_results(hits1, hits2, k_final=k_final, rrf_k=60)
 
             # Map back to Passage objects
             all_results_map = {}
@@ -260,6 +311,61 @@ def _deduplicate_results(results: List[Passage]) -> List[Passage]:
             deduped.append(result)
 
     return deduped
+
+
+def _boost_domain_relevance(results: List[Passage], query: str) -> List[Passage]:
+    """Lightweight domain bias: boost results that match query-specific utilities/domains."""
+    if not results:
+        return results
+    
+    query_lower = query.lower()
+    
+    def get_domain_boost(result: Passage) -> float:
+        """Calculate domain relevance boost based on query content."""
+        # Build searchable text from result metadata and content
+        searchable_text = " ".join([
+            str(result.meta.get("title", "")),
+            str(result.meta.get("utility_name", "")), 
+            str(result.meta.get("space", "")),
+            str(result.meta.get("tags", "")),
+            str(result.meta.get("section_title", "")),
+            result.text[:200],  # First 200 chars of content
+        ]).lower()
+        
+        boost = 1.0
+        
+        # CIU/Customer Interaction Utility queries
+        if any(term in query_lower for term in ["ciu", "customer interaction utility", "customer interaction"]):
+            if any(phrase in searchable_text for phrase in ["customer interaction utility", " ciu ", "ciu-"]):
+                boost *= 1.4
+            elif "utilities" in searchable_text:
+                boost *= 1.2
+        
+        # ETU queries  
+        elif any(term in query_lower for term in ["etu", "enhanced transaction", "transaction utility"]):
+            if any(phrase in searchable_text for phrase in ["enhanced transaction", "transaction utility", " etu "]):
+                boost *= 1.4
+            elif "utilities" in searchable_text:
+                boost *= 1.2
+        
+        # General utilities domain
+        elif "utility" in query_lower or "utilities" in query_lower:
+            if "utilities" in searchable_text or "utility" in searchable_text:
+                boost *= 1.3
+        
+        return boost
+    
+    # Apply domain boosts
+    boosted_results = []
+    for result in results:
+        boost = get_domain_boost(result)
+        # Create a copy with boosted score
+        boosted_result = result
+        boosted_result.score = float(result.score) * boost
+        boosted_results.append(boosted_result)
+    
+    # Re-sort by boosted scores
+    return sorted(boosted_results, key=lambda x: x.score, reverse=True)
 
 
 async def _apply_mmr_diversification(
