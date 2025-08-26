@@ -230,11 +230,40 @@ class QueryTemplates:
         # Build content query - use nested with inner_hits for sections
         content_query = None
         if any("sections." in field for field in config.content_fields):
-            # Use nested query for sections with inner_hits (based on colleague's working code)
+            # Check for utility acronyms to expand query
+            query_parts = []
+            utility_acronyms = {
+                "Customer Interaction Utility": "CIU",
+                "Enhanced Transaction Utility": "ETU", 
+                "Customer Summary Utility": "CSU",
+                "Account Utility": "AU",
+                "Product Catalog Utility": "PCU",
+            }
+            
+            # Add original query
+            query_parts.append({"match": {"sections.content": {"query": text_query, "boost": 1.0}}})
+            
+            # If query contains a utility name, also search for its acronym
+            for full_name, acronym in utility_acronyms.items():
+                if full_name.lower() in text_query.lower():
+                    query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
+            
+            # Use bool query if we have multiple parts
+            if len(query_parts) > 1:
+                nested_query = {
+                    "bool": {
+                        "should": query_parts,
+                        "minimum_should_match": 1
+                    }
+                }
+            else:
+                nested_query = query_parts[0]
+            
             content_query = {
                 "nested": {
                     "path": "sections",
-                    "query": {"match": {"sections.content": {"query": text_query}}},
+                    "query": nested_query,
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
@@ -313,11 +342,45 @@ class QueryTemplates:
 
         # Build content query - use nested with inner_hits if content fields have nested structure
         if any("sections." in field for field in config.content_fields):
-            # Use nested query for sections with inner_hits (based on colleague's working code)
+            # For utility queries, search for both acronym and full phrase
+            # This helps find docs that use "CIU" even when query is "Customer Interaction Utility"
+            query_parts = []
+            
+            # Check if this looks like an expanded utility name
+            utility_acronyms = {
+                "Customer Interaction Utility": "CIU",
+                "Enhanced Transaction Utility": "ETU",
+                "Customer Summary Utility": "CSU",
+                "Account Utility": "AU",
+                "Product Catalog Utility": "PCU",
+            }
+            
+            # Add original query
+            query_parts.append({"match": {"sections.content": {"query": text_query, "boost": 1.0}}})
+            
+            # If query contains a utility name, also search for its acronym
+            for full_name, acronym in utility_acronyms.items():
+                if full_name.lower() in text_query.lower():
+                    # Add acronym search with high boost
+                    query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
+                    # Add fuzzy match for variations
+                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
+            
+            # Use bool query with should clauses if we have multiple parts
+            if len(query_parts) > 1:
+                nested_query = {
+                    "bool": {
+                        "should": query_parts,
+                        "minimum_should_match": 1
+                    }
+                }
+            else:
+                nested_query = query_parts[0]
+            
             query_clause = {
                 "nested": {
                     "path": "sections",
-                    "query": {"match": {"sections.content": {"query": text_query}}},
+                    "query": nested_query,
                     "inner_hits": {
                         "name": "matched_sections",
                         "size": 5,
