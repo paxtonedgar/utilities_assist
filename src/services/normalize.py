@@ -41,7 +41,7 @@ def _load_synonyms() -> Dict[str, str]:
         "transaction utility": "Enhanced Transaction Utility",
         "au": "Account Utility",
         "ciu": "Customer Interaction Utility",
-        "customer interaction": "Customer Interaction Utility",
+        "customer interaction utility": "Customer Interaction Utility",  # More precise mapping
         "de": "Digital Events",
         "pcu": "Product Catalog Utility",
         "digev": "Digital Events",

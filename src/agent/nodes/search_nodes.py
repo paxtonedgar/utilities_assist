@@ -252,7 +252,7 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                top_k=20,  # Increased for better recall on info queries
+                top_k=self._get_resources().settings.search_config.search_top_k_info,
                 # TODO: Pass knobs to view functions when they support it
             )
 
@@ -262,7 +262,7 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
                     search_client=resources.search_client,
                     embed_client=resources.embed_client,
                     embed_model=resources.settings.embed.model,
-                    top_k=20,  # Increased for better recall on info queries
+                    top_k=self._get_resources().settings.search_config.search_top_k_info,
                 )
                 if is_procedure_query
                 else None
@@ -361,7 +361,7 @@ class SwaggerSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
                 search_index=optimal_index,
-                top_k=20,  # Increased for better recall on info queries
+                top_k=self._get_resources().settings.search_config.search_top_k_info,
             )
 
             self._mark_search_results(result.results, "swagger")
@@ -413,7 +413,7 @@ class MultiSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                top_k_per_index=15,  # Increased for better recall across indices
+                top_k_per_index=self._get_resources().settings.search_config.search_top_k_per_index_info,
             )
 
             all_results = []

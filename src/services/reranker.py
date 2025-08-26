@@ -405,13 +405,16 @@ class CrossEncodeReranker:
                 kept_docs.append(doc)
                 kept_indices.append(original_idx)
 
-        # Enhanced fail-safe: ensure we have enough docs for context
-        min_required_docs = 3
+        # Enhanced fail-safe: ensure we have enough docs for context  
+        from src.infra.settings import get_settings
+        settings = get_settings()
+        min_required_docs = settings.reranker.min_required_docs
         if len(kept_docs) < min_required_docs and docs:
             shortage = min_required_docs - len(kept_docs)
             logger.warning(f"Reranker kept only {len(kept_docs)} docs (need {min_required_docs}), adding {shortage} top RRF results")
             
             # Add top remaining docs that weren't already kept
+            # Note: scored_docs is already sorted by score (descending) from line 384
             kept_doc_ids = {getattr(doc, 'doc_id', id(doc)) for doc in kept_docs}
             added = 0
             

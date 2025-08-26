@@ -404,7 +404,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
                 search_client=resources.search_client,
                 embed_client=resources.embed_client,
                 embed_model=resources.settings.embed.model,
-                top_k_per_index=15,  # Get more results for workflow synthesis
+                top_k_per_index=self._get_resources().settings.search_config.search_top_k_per_index_info,
             )
 
             # Phase 2: Collect and analyze all results

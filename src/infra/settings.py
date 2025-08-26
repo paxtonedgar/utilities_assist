@@ -208,12 +208,40 @@ class RerankerConfig(BaseModel):
         validation_alias="RERANK_TOP_K",
         description="Maximum docs to pass to composer",
     )
+    min_required_docs: int = Field(
+        default=3,
+        validation_alias="RERANK_MIN_REQUIRED_DOCS", 
+        description="Minimum docs to ensure in fallback logic",
+    )
     # Performance settings
     max_length: int = Field(
         default=512, description="Maximum token length for input truncation"
     )
     use_fp16: bool = Field(
         default=True, description="Use FP16 precision on GPU (MPS/CUDA)"
+    )
+
+
+class SearchSettings(BaseSettings):
+    """Search and retrieval configuration settings."""
+    
+    # RRF fusion settings
+    rrf_k_final_info: int = Field(
+        default=25,
+        validation_alias="RRF_K_FINAL_INFO",
+        description="RRF fusion candidates for info queries",
+    )
+    
+    # Search pool sizes
+    search_top_k_info: int = Field(
+        default=20,
+        validation_alias="SEARCH_TOP_K_INFO", 
+        description="Top-k results per search method for info queries",
+    )
+    search_top_k_per_index_info: int = Field(
+        default=15,
+        validation_alias="SEARCH_TOP_K_PER_INDEX_INFO",
+        description="Top-k results per index for multi-index searches",
     )
 
 
@@ -273,6 +301,7 @@ class ApplicationSettings(BaseSettings):
     opensearch: Optional[OpenSearchConfig] = None
     coverage: Optional[CoverageConfig] = None
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    search_config: SearchSettings = Field(default_factory=SearchSettings)
     performance_budgets: PerformanceBudgets = Field(default_factory=PerformanceBudgets)
 
     # File paths

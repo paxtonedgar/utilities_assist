@@ -167,7 +167,10 @@ async def _fuse_multiple_search_results(
             hits2 = [(r.doc_id, r.score) for r in group2_results]
 
             # Apply RRF fusion
-            fused_hits = rrf_fuse_results(hits1, hits2, k_final=25, rrf_k=60)  # Increased for better recall
+            # Get settings for configurable RRF parameters
+            from src.infra.settings import get_settings
+            settings = get_settings()
+            fused_hits = rrf_fuse_results(hits1, hits2, k_final=settings.search_config.rrf_k_final_info, rrf_k=60)
 
             # Map back to Passage objects
             all_results_map = {}
