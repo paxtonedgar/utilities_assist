@@ -861,12 +861,16 @@ async def enhanced_rrf_search(
         # AGGRESSIVE TIMEOUTS: Use timeout-wrapped search calls that never propagate exceptions
         # This prevents the 6-7s "Answer" with zero docs scenario
 
+        # Get configurable search pool sizes
+        from src.infra.settings import get_settings
+        settings = get_settings()
+        
         knn_result = await knn_search_with_timeout(
             query_embedding=query_embedding,
             search_client=search_client,
             index_name=index_name,
             filters=filters,
-            top_k=20,  # Reduced from 50 to 20 for better performance
+            top_k=settings.search_config.knn_top_k,  # Configurable pool size
             ef_search=80,  # Reduced from 256 to 80 for faster search
             timeout_seconds=1.8,  # Aggressive timeout
         )
@@ -907,7 +911,7 @@ async def enhanced_rrf_search(
                 search_client=search_client,
                 index_name=index_name,
                 filters=filters,
-                top_k=20,  # Reduced from 50 to 20 for better performance
+                top_k=settings.search_config.bm25_top_k,  # Configurable pool size
                 time_decay_days=120,
                 timeout_seconds=1.8,  # Aggressive timeout
             )

@@ -209,7 +209,7 @@ class RerankerConfig(BaseModel):
         description="Maximum docs to pass to composer",
     )
     min_required_docs: int = Field(
-        default=3,
+        default=10,  # Increased to ensure composer has adequate material
         validation_alias="RERANK_MIN_REQUIRED_DOCS", 
         description="Minimum docs to ensure in fallback logic",
     )
@@ -242,6 +242,23 @@ class SearchSettings(BaseSettings):
         default=15,
         validation_alias="SEARCH_TOP_K_PER_INDEX_INFO",
         description="Top-k results per index for multi-index searches",
+    )
+    
+    # Pre-rerank pool sizes (the real choke points)
+    bm25_top_k: int = Field(
+        default=200,
+        validation_alias="BM25_TOP_K", 
+        description="BM25 search result pool size before RRF",
+    )
+    knn_top_k: int = Field(
+        default=100,
+        validation_alias="KNN_TOP_K",
+        description="kNN search result pool size before RRF", 
+    )
+    rrf_unique_limit: int = Field(
+        default=50,
+        validation_alias="RRF_UNIQUE_LIMIT",
+        description="Maximum unique docs passed from RRF to reranker",
     )
 
 

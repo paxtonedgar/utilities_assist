@@ -396,10 +396,17 @@ class CrossEncodeReranker:
             effective_min_score = min(min_score, 0.005)
             logger.warning(f"All scores very low (max={max(scores):.4f}), lowering threshold to {effective_min_score}")
 
-        for doc, score, original_idx in scored_docs:
+        # Percentile-based keeping: always keep top N regardless of threshold
+        # This prevents complete collapse when all scores are low
+        min_keep_count = max(3, len(docs) // 3)  # Keep at least top 33% or 3 docs, whichever is larger
+        guaranteed_keep = min(min_keep_count, top_k, len(scored_docs))
+        
+        for i, (doc, score, original_idx) in enumerate(scored_docs):
             if len(kept_docs) >= top_k:
                 break
-            if score >= effective_min_score:
+                
+            # Keep if above threshold OR in guaranteed top percentile
+            if score >= effective_min_score or i < guaranteed_keep:
                 # Set rerank_score attribute on document
                 doc.rerank_score = score
                 kept_docs.append(doc)

@@ -207,8 +207,10 @@ async def search_index_tool(
                             )
                             from src.services.retrieve import _cross_encoder_rerank
 
+                            from src.infra.settings import get_settings
+                            settings = get_settings()
                             reranked_results = _cross_encoder_rerank(
-                                query=query, results=rrf_result.results, top_k=4
+                                query=query, results=rrf_result.results, top_k=settings.reranker.top_k
                             )
                         else:
                             raise
@@ -216,9 +218,10 @@ async def search_index_tool(
                     # If rerank collapses too much, fall back to RRF results
                     if len(reranked_results) < 3:
                         logger.warning(
-                            f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-6"
+                            f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-{settings.search_config.rrf_unique_limit}"
                         )
-                        final_results = rrf_result.results[:6]
+                        settings = get_settings()
+                        final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]
                         method_name = "enhanced_rrf_fallback"
                     else:
                         final_results = reranked_results
@@ -229,9 +232,8 @@ async def search_index_tool(
                         f"Insufficient unique docs ({unique_docs} < 3), skipping cross-encoder to save ~7-8s"
                     )
                     method_name = "enhanced_rrf_no_ce"
-                    final_results = rrf_result.results[
-                        :6
-                    ]  # Return more docs when not reranking
+                    settings = get_settings()
+                    final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]  # Return more docs when not reranking
 
                 # Return result with diagnostics
                 diagnostics.update(
