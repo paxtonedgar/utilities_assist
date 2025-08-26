@@ -3,7 +3,7 @@
 import logging
 from typing import List, Dict
 from src.services.models import Passage
-from src.services.retrieve import rrf_fuse_results, mmr_diversify
+from src.services.retrieve import rrf_fuse_results
 from .base_node import to_state_dict, from_state_dict
 
 logger = logging.getLogger(__name__)
@@ -103,14 +103,12 @@ async def combine_node(state, config=None, *, store=None):
             # Single search method - just merge and deduplicate
             combined_results = _deduplicate_results(all_results)
 
-        # Bias toward domain-relevant content if present, then diversify
+        # Bias toward domain-relevant content if present
         combined_results = _boost_domain_relevance(combined_results, query)
         
-        # Apply MMR diversification to final results
-        if len(combined_results) > 10:
-            combined_results = await _apply_mmr_diversification(
-                combined_results, query, top_k=10
-            )
+        # Limit to top results without diversification (saves latency)
+        if len(combined_results) > 12:
+            combined_results = combined_results[:12]
 
         # Quality gate: ensure we have enough viable docs for specific domains
         MIN_DOCS = 4
@@ -368,50 +366,8 @@ def _boost_domain_relevance(results: List[Passage], query: str) -> List[Passage]
     return sorted(boosted_results, key=lambda x: x.score, reverse=True)
 
 
-async def _apply_mmr_diversification(
-    results: List[Passage], query: str, top_k: int = 10
-) -> List[Passage]:
-    """Apply MMR diversification to reduce redundant results."""
-    try:
-        if len(results) <= top_k:
-            return results
-
-        # Create document text lookup for MMR
-        doc_text_lookup = {}
-        candidates = []
-
-        for result in results:
-            candidates.append(result.doc_id)
-            # Combine title and content for diversity analysis
-            title = result.meta.get("title", "")
-            doc_text = f"{title} {result.text}"
-            doc_text_lookup[result.doc_id] = doc_text
-
-        # Apply MMR
-        selected_ids, diagnostics = mmr_diversify(
-            candidates=candidates,
-            doc_text_lookup=doc_text_lookup,
-            query=query,
-            k=top_k,
-            lambda_param=0.75,
-        )
-
-        # Map back to Passage objects
-        id_to_result = {r.doc_id: r for r in results}
-        diversified_results = []
-
-        for doc_id in selected_ids:
-            if doc_id in id_to_result:
-                diversified_results.append(id_to_result[doc_id])
-
-        logger.info(
-            f"MMR diversification: {len(results)} -> {len(diversified_results)} results"
-        )
-        return diversified_results
-
-    except Exception as e:
-        logger.warning(f"MMR diversification failed: {e}")
-        return results[:top_k]  # Simple truncation fallback
+# MMR diversification removed to save latency
+# Results are already relevance-sorted from reranker
 
 
 def _build_context_from_results(
