@@ -85,11 +85,51 @@ async def intent_node(state, config, *, store=None):
         )
         return from_state_dict(incoming_type, {**s, INTENT: default_intent})
 
-    # PERFORMANCE: Use regex-only slotter for ALL queries (eliminates LLM calls)
+    # Try ONNX classifier first (if available), then fallback to regex
     try:
+        # Get conversation context if available
+        context = []
+        if "chat_history" in s and s["chat_history"]:
+            # Extract last few messages for context
+            context = [msg.get("content", "") for msg in s["chat_history"][-3:] 
+                      if isinstance(msg, dict) and msg.get("content")]
+        
+        # Try ONNX classifier first
+        try:
+            from src.agent.intent.onnx_classifier import get_onnx_classifier
+            onnx_classifier = get_onnx_classifier()
+            
+            # Use ONNX if model is loaded
+            if onnx_classifier.session is not None:
+                onnx_result = onnx_classifier.classify(normalized_query, context)
+                
+                # Map ONNX intent to legacy format if needed
+                legacy_intent = onnx_result.intent
+                if onnx_result.intent == "utility":
+                    legacy_intent = "confluence"  # Map utility to confluence for now
+                elif onnx_result.intent == "followup":
+                    # For follow-ups, try to determine actual intent from context
+                    legacy_intent = "info"  # Default follow-ups to info
+                
+                logger.info(
+                    f"ONNX classifier: {legacy_intent} (confidence: {onnx_result.confidence:.2f}, "
+                    f"context-aware: {onnx_result.context_aware})"
+                )
+                
+                intent_result = IntentResult(
+                    intent=legacy_intent,
+                    confidence=onnx_result.confidence,
+                    reasoning=onnx_result.reasoning,
+                )
+                return from_state_dict(incoming_type, {**s, INTENT: intent_result})
+                
+        except Exception as e:
+            logger.debug(f"ONNX classifier not available or failed: {e}")
+        
+        # Fallback to regex slotter
         slot_result = slot(normalized_query)
         logger.info(
-            f"Regex slotter classification: {slot_result.intent} (confidence: {slot_result.confidence:.2f}, reasons: {slot_result.reasons}, saved ~4s LLM call)"
+            f"Regex slotter classification: {slot_result.intent} (confidence: {slot_result.confidence:.2f}, reasons: {slot_result.reasons})"
         )
 
         # Map slotter intent to legacy intent format

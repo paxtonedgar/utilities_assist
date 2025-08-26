@@ -409,6 +409,17 @@ def _build_context_from_results(
 
         # Clean and format the content for human consumption
         content = result.text.strip()
+        
+        # Fix common markdown formatting issues in source content
+        # Replace broken markdown links
+        import re
+        # Fix patterns like "text](" or "](url" that are broken
+        content = re.sub(r'\]\s*\(', '](', content)  # Fix spaces between ] and (
+        content = re.sub(r'\[\s*([^\]]+)\s*\]', r'[\1]', content)  # Fix spaces inside []
+        
+        # Ensure proper spacing around bullet points and steps
+        content = re.sub(r'(\w)(\*\*Step)', r'\1 \2', content)  # Add space before **Step
+        content = re.sub(r'(\w)(•)', r'\1 \2', content)  # Add space before bullet
 
         # DEBUG: Log what content we're getting from search results
         logger.info(
