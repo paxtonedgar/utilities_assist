@@ -371,26 +371,25 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         """Execute workflow synthesis logic."""
         normalized_query = state.get("normalized_query", "")
 
-        # Search for workflow-related content
-        # This is a placeholder - implement actual workflow search and synthesis
-        workflow_steps = await self._synthesize_workflow(normalized_query)
+        # Search for workflow-related content and get both context and results
+        workflow_context, found_results = await self._synthesize_workflow(normalized_query)
 
-        formatted_response = self._format_workflow_response(workflow_steps)
+        formatted_response = self._format_workflow_response(workflow_context)
 
         return self._preserve_workflow_path(
             state,
             "workflow_synthesizer",
-            final_context=workflow_steps,
-            combined_results=[],
+            final_context=workflow_context,
+            combined_results=found_results,  # Pass the actual results found
         )
 
-    async def _synthesize_workflow(self, query: str) -> str:
+    async def _synthesize_workflow(self, query: str) -> tuple[str, list]:
         """Synthesize multi-document workflows with step sequencing."""
         try:
             resources = self._get_resources()
             if not resources:
                 logger.error("Resources not available for workflow synthesis")
-                return "Unable to synthesize workflow - resources unavailable"
+                return "Unable to synthesize workflow - resources unavailable", []
 
             # Phase 1: Multi-document search with workflow focus
             indices = [
@@ -420,11 +419,11 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             workflow_context = self._build_workflow_context(all_results, query)
 
             logger.info(f"Workflow synthesis found {len(all_results)} relevant sources")
-            return workflow_context
+            return workflow_context, all_results  # Return both context AND results
 
         except Exception as e:
             logger.error(f"Workflow synthesis failed: {e}")
-            return f"Unable to synthesize workflow: {str(e)}"
+            return f"Unable to synthesize workflow: {str(e)}", []
 
     def _build_workflow_context(self, results: List[Passage], query: str) -> str:
         """Build workflow context from multiple search results with step analysis."""
