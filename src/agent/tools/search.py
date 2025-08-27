@@ -157,18 +157,21 @@ async def search_index_tool(
     try:
         if not search_client:
             raise ValueError("search_client is required")
-            
+
         # Optional orchestrator preprocessing
         if use_orchestrator and chat_client:
             try:
                 from src.agent.orchestrator import StreamlinedOrchestrator
+
                 orchestrator = StreamlinedOrchestrator(chat_client)
                 plan = orchestrator._llm_plan(query)
-                
+
                 # Apply planned filters
                 if plan.steps and plan.steps[0].get("filters"):
                     filters = {**(filters or {}), **plan.steps[0]["filters"]}
-                    logger.info(f"Orchestrator added filters: {plan.steps[0]['filters']}")
+                    logger.info(
+                        f"Orchestrator added filters: {plan.steps[0]['filters']}"
+                    )
             except Exception as e:
                 logger.debug(f"Orchestrator preprocessing skipped: {e}")
 
@@ -184,24 +187,31 @@ async def search_index_tool(
                     query, embed_client, embed_model
                 )
 
-                # Get expanded candidates from RRF (up to 36)
+                # Get configurable candidates from RRF
+                from src.infra.settings import get_settings
+
+                settings = get_settings()
+
                 rrf_result, diagnostics = await enhanced_rrf_search(
                     query=query,
                     query_embedding=query_embedding,
                     search_client=search_client,
                     index_name=index,
                     filters=filters,
-                    top_k=36,  # Expand candidates for cross-encoder
+                    top_k=settings.search_config.rrf_expansion_candidates,  # Configurable (was 36)
                     use_mmr=False,  # MMR removed to save latency
-                    lambda_param=0.75,
+                    lambda_param=settings.search_config.rrf_lambda_param,  # Configurable (was 0.75)
                 )
 
                 # CRITICAL FIX: Check unique docs in RRF BEFORE expensive cross-encoder
                 # Count unique doc_ids to avoid rerank→collapse→coverage fail loop
                 unique_docs = len(set(r.doc_id for r in rrf_result.results))
-                logger.info(f"RRF unique docs: {unique_docs} (need ≥1 for coverage - temporarily lowered)")
+                min_docs_threshold = settings.quality_thresholds.min_unique_docs
+                logger.info(
+                    f"RRF unique docs: {unique_docs} (need ≥{min_docs_threshold} for coverage)"
+                )
 
-                if unique_docs >= 1:  # Temporarily lowered from 3 to 1 for testing
+                if unique_docs >= min_docs_threshold:
                     # Sufficient unique docs - safe to run cross-encoder reranking
                     try:
                         # Import the cross-encoder function directly (avoid import cache issues)
@@ -213,8 +223,8 @@ async def search_index_tool(
                         reranked_results = _cross_encoder_rerank(
                             query=query,
                             results=rrf_result.results,
-                            top_k=4,  # Reduce from 8→4 for cheaper reranking
-                            max_rerank_ms=15000,  # CPU BGE reranker needs more time
+                            top_k=settings.search_config.rerank_top_k,  # Configurable (was 4)
+                            max_rerank_ms=settings.search_config.rerank_timeout_ms,  # Configurable (was 15000)
                         )
                     except TypeError as e:
                         if "max_rerank_ms" in str(e):
@@ -223,21 +233,25 @@ async def search_index_tool(
                             )
                             from src.services.retrieve import _cross_encoder_rerank
 
-                            from src.infra.settings import get_settings
-                            settings = get_settings()
                             reranked_results = _cross_encoder_rerank(
-                                query=query, results=rrf_result.results, top_k=settings.reranker.top_k
+                                query=query,
+                                results=rrf_result.results,
+                                top_k=settings.reranker.top_k,
                             )
                         else:
                             raise
 
                     # If rerank collapses too much, fall back to RRF results
-                    if len(reranked_results) < 3:
+                    min_rerank_threshold = (
+                        3  # Keep as reasonable default for rerank quality
+                    )
+                    if len(reranked_results) < min_rerank_threshold:
                         logger.warning(
                             f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-{settings.search_config.rrf_unique_limit}"
                         )
-                        settings = get_settings()
-                        final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]
+                        final_results = rrf_result.results[
+                            : settings.search_config.rrf_unique_limit
+                        ]
                         method_name = "enhanced_rrf_fallback"
                     else:
                         final_results = reranked_results
@@ -245,18 +259,19 @@ async def search_index_tool(
                 else:
                     # Insufficient unique docs - skip expensive reranking
                     logger.info(
-                        f"Insufficient unique docs ({unique_docs} < 3), skipping cross-encoder to save ~7-8s"
+                        f"Insufficient unique docs ({unique_docs} < {min_docs_threshold}), skipping cross-encoder to save ~7-8s"
                     )
                     method_name = "enhanced_rrf_no_ce"
-                    settings = get_settings()
-                    final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]  # Return more docs when not reranking
+                    final_results = rrf_result.results[
+                        : settings.search_config.rrf_unique_limit
+                    ]  # Return more docs when not reranking
 
                 # Return result with diagnostics
                 diagnostics.update(
                     {
                         "unique_docs_pre_rerank": unique_docs,
                         "coverage_check": "unique_doc_count",
-                        "cross_encoder_skipped": unique_docs < 3,
+                        "cross_encoder_skipped": unique_docs < min_docs_threshold,
                         "method": method_name,
                     }
                 )
@@ -414,6 +429,11 @@ async def adaptive_search_tool(
         # Build filters based on intent using centralized config
         filters = OpenSearchConfig.get_intent_filters(intent_type)
 
+        # Get settings for threshold check
+        from src.infra.settings import get_settings
+
+        settings = get_settings()
+
         # Choose strategy based on intent and confidence
         if intent_type == "list":
             # For list queries, prefer BM25 for broader coverage
@@ -427,7 +447,10 @@ async def adaptive_search_tool(
                 top_k=top_k,
                 strategy="bm25",
             )
-        elif intent_confidence > 0.7 and embed_client:
+        elif (
+            intent_confidence > settings.quality_thresholds.high_intent_confidence
+            and embed_client
+        ):
             # High confidence queries use enhanced RRF
             return await search_index_tool(
                 index=index_name,

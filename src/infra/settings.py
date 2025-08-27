@@ -210,7 +210,7 @@ class RerankerConfig(BaseModel):
     )
     min_required_docs: int = Field(
         default=10,  # Increased to ensure composer has adequate material
-        validation_alias="RERANK_MIN_REQUIRED_DOCS", 
+        validation_alias="RERANK_MIN_REQUIRED_DOCS",
         description="Minimum docs to ensure in fallback logic",
     )
     # Performance settings
@@ -224,18 +224,18 @@ class RerankerConfig(BaseModel):
 
 class SearchSettings(BaseSettings):
     """Search and retrieval configuration settings."""
-    
+
     # RRF fusion settings
     rrf_k_final_info: int = Field(
         default=25,
         validation_alias="RRF_K_FINAL_INFO",
         description="RRF fusion candidates for info queries",
     )
-    
+
     # Search pool sizes
     search_top_k_info: int = Field(
         default=20,
-        validation_alias="SEARCH_TOP_K_INFO", 
+        validation_alias="SEARCH_TOP_K_INFO",
         description="Top-k results per search method for info queries",
     )
     search_top_k_per_index_info: int = Field(
@@ -243,22 +243,96 @@ class SearchSettings(BaseSettings):
         validation_alias="SEARCH_TOP_K_PER_INDEX_INFO",
         description="Top-k results per index for multi-index searches",
     )
-    
+
     # Pre-rerank pool sizes (the real choke points)
     bm25_top_k: int = Field(
         default=200,
-        validation_alias="BM25_TOP_K", 
+        validation_alias="BM25_TOP_K",
         description="BM25 search result pool size before RRF",
     )
     knn_top_k: int = Field(
         default=100,
         validation_alias="KNN_TOP_K",
-        description="kNN search result pool size before RRF", 
+        description="kNN search result pool size before RRF",
     )
     rrf_unique_limit: int = Field(
         default=50,
         validation_alias="RRF_UNIQUE_LIMIT",
         description="Maximum unique docs passed from RRF to reranker",
+    )
+
+    # Magic numbers from search.py that need to be configurable
+    rrf_expansion_candidates: int = Field(
+        default=36,
+        validation_alias="RRF_EXPANSION_CANDIDATES",
+        description="Number of candidates expanded for cross-encoder (was hardcoded 36)",
+    )
+    rerank_top_k: int = Field(
+        default=4,
+        validation_alias="RERANK_TOP_K",
+        description="Final reranked results to return (was hardcoded 4)",
+    )
+    rerank_timeout_ms: int = Field(
+        default=15000,
+        validation_alias="RERANK_TIMEOUT_MS",
+        description="Cross-encoder reranking timeout in milliseconds",
+    )
+    rrf_lambda_param: float = Field(
+        default=0.75,
+        validation_alias="RRF_LAMBDA",
+        description="RRF fusion lambda parameter for weighting",
+    )
+
+
+class QualityThresholds(BaseModel):
+    """Consolidated quality and confidence thresholds."""
+
+    # Intent confidence thresholds (from adaptive_search_tool:430)
+    high_intent_confidence: float = Field(
+        default=0.7,
+        description="Threshold for high-confidence intent classification",
+    )
+
+    # Word overlap thresholds (from respond.py)
+    context_overlap_threshold: float = Field(
+        default=0.1,
+        description="Minimum word overlap for context usage validation",
+    )
+    query_overlap_threshold: float = Field(
+        default=0.3,
+        description="Minimum word overlap for query relevance validation",
+    )
+
+    # Search quality thresholds
+    low_confidence_threshold: float = Field(
+        default=0.1,
+        description="Low confidence threshold for search results (from retrieve.py:975)",
+    )
+
+    # Coverage validation
+    min_unique_docs: int = Field(
+        default=1,
+        description="Minimum unique docs before cross-encoder (was temporarily lowered)",
+    )
+
+
+class ResponseSettings(BaseModel):
+    """LLM response generation configuration."""
+
+    max_tokens: int = Field(
+        default=2500,
+        validation_alias="LLM_MAX_TOKENS",
+        description="Maximum tokens for LLM response generation",
+    )
+    temperature: float = Field(
+        default=0.2,
+        validation_alias="LLM_TEMPERATURE",
+        description="LLM temperature for response generation",
+    )
+    max_context_length: int = Field(
+        default=50000,
+        validation_alias="MAX_CONTEXT_LENGTH",
+        description="Maximum context length in characters (from respond.py:87)",
     )
 
 
@@ -320,6 +394,8 @@ class ApplicationSettings(BaseSettings):
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     search_config: SearchSettings = Field(default_factory=SearchSettings)
     performance_budgets: PerformanceBudgets = Field(default_factory=PerformanceBudgets)
+    quality_thresholds: QualityThresholds = Field(default_factory=QualityThresholds)
+    response_settings: ResponseSettings = Field(default_factory=ResponseSettings)
 
     # File paths
     synonyms_file_path: str = "data/synonyms.json"

@@ -54,13 +54,21 @@ def _extract_meaningful_words(text: str, exclude_stopwords: bool = True) -> set:
     return words
 
 
-def _calculate_word_overlap(text1: str, text2: str, threshold: float = 0.1) -> bool:
+def _calculate_word_overlap(text1: str, text2: str, threshold: float = None) -> bool:
     """Calculate if word overlap between two texts meets threshold.
 
     Consolidates overlap calculation logic used in multiple validation functions.
+    Uses default threshold from settings if not provided.
     """
     if not text1 or not text2:
         return True  # Can't verify without substantial text
+
+    # Get default threshold from settings if not provided
+    if threshold is None:
+        from src.infra.settings import get_settings
+
+        settings = get_settings()
+        threshold = settings.quality_thresholds.context_overlap_threshold
 
     words1 = _extract_meaningful_words(text1)
     words2 = _extract_meaningful_words(text2)
@@ -84,20 +92,27 @@ def _text_matches_patterns(text: str, patterns: List[str]) -> bool:
 def build_context(
     retrieval_results: List[Passage],
     intent: IntentResult,
-    max_context_length: int = 50000,
+    max_context_length: int = None,  # Now pulled from settings
 ) -> str:
     """Build context string from retrieval results.
 
     Args:
         retrieval_results: Search results to include in context
         intent: Classified intent for context optimization
-        max_context_length: Maximum character length for context
+        max_context_length: Maximum character length for context (uses settings default if None)
 
     Returns:
         Formatted context string for LLM
     """
     if not retrieval_results:
         return "No relevant context found."
+
+    # Get max_context_length from settings if not provided
+    if max_context_length is None:
+        from src.infra.settings import get_settings
+
+        settings = get_settings()
+        max_context_length = settings.response_settings.max_context_length
 
     context_parts = []
     current_length = 0
@@ -384,12 +399,19 @@ def _contains_error_phrases(answer: str) -> bool:
 
 def _answer_uses_context(answer: str, context: str) -> bool:
     """Check if answer appears to use provided context."""
-    return _calculate_word_overlap(context, answer, threshold=0.1)
+    return _calculate_word_overlap(
+        context, answer
+    )  # Uses default threshold from settings
 
 
 def _answer_addresses_query(answer: str, query: str) -> bool:
     """Check if answer appears to address the query."""
-    return _calculate_word_overlap(query, answer, threshold=0.3)
+    from src.infra.settings import get_settings
+
+    settings = get_settings()
+    return _calculate_word_overlap(
+        query, answer, threshold=settings.quality_thresholds.query_overlap_threshold
+    )
 
 
 def _answer_seems_truncated(answer: str) -> bool:
