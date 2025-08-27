@@ -1,0 +1,388 @@
+"""Combine node - merging results from multiple searches."""
+
+import logging
+from typing import List, Dict
+from src.services.models import Passage
+from src.services.retrieve import rrf_fuse_results
+from .base_node import to_state_dict, from_state_dict
+
+logger = logging.getLogger(__name__)
+
+
+async def combine_node(state, config=None, *, store=None):
+    """
+    Combine and merge results from multiple searches.
+
+    This reuses existing BM25+vector fusion logic but makes it callable
+    for LangGraph workflows that perform multiple searches.
+
+    Follows LangGraph pattern with config parameter and optional store injection.
+
+    Args:
+        state: Workflow state (GraphState or dict) containing search_results
+        config: RunnableConfig with user context and configuration
+        store: Optional BaseStore for cross-thread user memory
+
+    Returns:
+        State update with combined and ranked results (same type as input)
+    """
+    incoming_type = type(state)
+
+    try:
+        # Convert to dict for processing
+        s = to_state_dict(state)
+
+        logger.info(
+            "NODE_START combine | keys=%s | search_results_count=%d",
+            list(s.keys()),
+            len(s.get("search_results", [])),
+        )
+
+        all_results = s.get("search_results", [])
+        query = s.get("normalized_query", s.get("original_query", ""))
+        intent = s.get("intent")
+
+        if not all_results:
+            logger.warning("No search results to combine")
+
+            # Generate specific search suggestions based on query
+            from agent.acronym_map import expand_acronym
+
+            expanded_query, expansions = expand_acronym(query)
+
+            suggestions = []
+            if expansions:
+                # Acronym-based suggestions
+                acronym = query.upper().split()[0]  # Get first word as acronym
+                expansion = expansions[0]
+                suggestions = [
+                    f"{expansion} onboarding runbook",
+                    f"{expansion} API setup guide",
+                    f"create {acronym} client IDs",
+                ]
+            else:
+                # Generic suggestions based on query
+                suggestions = [
+                    f"{query} setup documentation",
+                    f"{query} API reference",
+                    f"{query} integration guide",
+                ]
+
+            suggestion_text = "Try these searches: " + " | ".join(
+                f'"{s}"' for s in suggestions
+            )
+
+            # CRITICAL: Preserve ALL existing state fields and return proper type
+            merged = {
+                **s,  # Preserve all existing state
+                "combined_results": [],
+                "final_context": f"No Utilities documentation found for '{query}'.",
+                "final_answer": f"No relevant documentation found. {suggestion_text}",
+                "workflow_path": s.get("workflow_path", []) + ["combine", "no_results"],
+            }
+            return from_state_dict(incoming_type, merged)
+
+        # Group results by search source/method for intelligent fusion
+        grouped_results = {}
+        for result in all_results:
+            search_method = result.meta.get("search_method", "unknown")
+            search_id = result.meta.get("search_id", search_method)
+
+            if search_id not in grouped_results:
+                grouped_results[search_id] = []
+            grouped_results[search_id].append(result)
+
+        logger.info(f"Combining results from {len(grouped_results)} search sources")
+
+        # Simplified fusion: just deduplicate and sort by score (most queries use single search)
+        if len(grouped_results) >= 2:
+            logger.info(f"Multiple search groups detected, using simple merge")
+        combined_results = _deduplicate_results(all_results)
+
+        # Results already relevance-sorted from reranker - no additional boosting needed
+        
+        # Limit to top results without diversification (saves latency)
+        if len(combined_results) > 12:
+            combined_results = combined_results[:12]
+
+        # Simple quality check - let the answer generation handle domain specificity
+        if len(combined_results) < 2:
+            logger.info(f"Low document count ({len(combined_results)}) for query: {query[:50]}...")
+
+        # Debug: show what we're passing forward to composer
+        if combined_results:
+            top_results_summary = [
+                (r.meta.get("title", "")[:60] or f"doc_{r.doc_id[:8]}", round(float(r.score), 3))
+                for r in combined_results[:5]
+            ]
+            logger.info("COMBINED_TOP: %s", top_results_summary)
+        
+        # Build context from combined results
+        final_context = _build_context_from_results(combined_results)
+
+        logger.info(
+            "NODE_END combine | combined_results=%d | context_length=%d",
+            len(combined_results),
+            len(final_context),
+        )
+
+        # CRITICAL: Preserve ALL existing state fields and return proper type
+        merged = {
+            **s,  # Preserve all existing state
+            "combined_results": combined_results,
+            "final_context": final_context,
+            "workflow_path": s.get("workflow_path", []) + ["combine"],
+            "performance_metrics": {
+                **s.get("performance_metrics", {}),
+                "combined_results_count": len(combined_results),
+                "source_groups": len(grouped_results),
+            },
+        }
+        return from_state_dict(incoming_type, merged)
+
+    except Exception as e:
+        logger.error(f"Combine node failed: {e}")
+        # Convert to dict if not already done (in case exception happened early)
+        s = to_state_dict(state) if "s" not in locals() else s
+
+        # Fallback - just use raw results and return proper type
+        all_results = s.get("search_results", [])
+        merged = {
+            **s,  # Preserve all existing state
+            "combined_results": all_results[:10],  # Limit to top 10
+            "final_context": _build_context_from_results(all_results[:10]),
+            "workflow_path": s.get("workflow_path", []) + ["combine_error"],
+            "error_messages": s.get("error_messages", []) + [f"Combine failed: {e}"],
+        }
+        return from_state_dict(incoming_type, merged)
+
+
+async def _fuse_multiple_search_results(
+    grouped_results: Dict[str, List[Passage]], query: str, intent
+) -> List[Passage]:
+    """Fuse results from multiple search methods using RRF."""
+    try:
+        # Convert to format expected by RRF fusion
+        search_groups = list(grouped_results.items())
+
+        if len(search_groups) == 2:
+            # Two groups - can use standard RRF
+            group1_name, group1_results = search_groups[0]
+            group2_name, group2_results = search_groups[1]
+
+            # Convert to (doc_id, score) tuples
+            hits1 = [(r.doc_id, r.score) for r in group1_results]
+            hits2 = [(r.doc_id, r.score) for r in group2_results]
+
+            # Apply RRF fusion with dynamic limits
+            from src.infra.settings import get_settings
+            settings = get_settings()
+            
+            # Dynamic fusion limits: deeper recall for info/definition queries
+            intent_name = getattr(intent, "intent", str(intent)).lower() if intent else ""
+            if any(x in intent_name for x in ["info", "definition", "what", "overview", "confluence"]):
+                k_final = settings.search_config.rrf_k_final_info  # Use full setting for info queries
+            else:
+                k_final = max(15, settings.search_config.rrf_k_final_info // 2)  # Smaller for others
+            
+            fused_hits = rrf_fuse_results(hits1, hits2, k_final=k_final, rrf_k=60)
+
+            # Map back to Passage objects
+            all_results_map = {}
+            for result in group1_results + group2_results:
+                all_results_map[result.doc_id] = result
+
+            fused_results = []
+            for doc_id, rrf_score in fused_hits:
+                if doc_id in all_results_map:
+                    result = all_results_map[doc_id]
+                    # Update score to RRF score
+                    result.score = rrf_score
+                    fused_results.append(result)
+
+            return fused_results
+
+        else:
+            # Multiple groups - use weighted combination
+            return _weighted_combine_multiple_groups(grouped_results)
+
+    except Exception as e:
+        logger.warning(f"RRF fusion failed, using simple merge: {e}")
+        # Fallback to simple merge
+        all_results = []
+        for results in grouped_results.values():
+            all_results.extend(results)
+        return _deduplicate_results(all_results)
+
+
+def _weighted_combine_multiple_groups(
+    grouped_results: Dict[str, List[Passage]],
+) -> List[Passage]:
+    """Combine multiple search groups with weighted scoring."""
+    # Assign weights to different search types
+    weights = {
+        "enhanced_rrf": 1.0,
+        "bm25": 0.8,
+        "knn": 0.9,
+        "comparative": 1.0,
+        "parallel": 0.9,
+    }
+
+    weighted_results = {}
+
+    for group_name, results in grouped_results.items():
+        # Determine weight for this group
+        weight = weights.get(group_name, 0.8)
+
+        for result in results:
+            doc_id = result.doc_id
+            weighted_score = result.score * weight
+
+            if doc_id in weighted_results:
+                # Boost score for documents found in multiple searches
+                existing = weighted_results[doc_id]
+                existing.score = max(existing.score, weighted_score) * 1.1  # 10% boost
+            else:
+                # New document
+                new_result = Passage(
+                    doc_id=result.doc_id,
+                    index=result.index,
+                    text=result.text,
+                    score=weighted_score,
+                    title=result.title,
+                    section_title=result.section_title,
+                    page_url=result.page_url,
+                    api_name=result.api_name,
+                    meta={**result.meta, "combined_from": group_name},
+                )
+                weighted_results[doc_id] = new_result
+
+    # Sort by final weighted score
+    return sorted(weighted_results.values(), key=lambda x: x.score, reverse=True)
+
+
+def _deduplicate_results(results: List[Passage]) -> List[Passage]:
+    """Remove duplicate results based on doc_id."""
+    seen_ids = set()
+    deduped = []
+
+    # Sort by score first to keep highest scoring duplicates
+    sorted_results = sorted(results, key=lambda x: x.score, reverse=True)
+
+    for result in sorted_results:
+        if result.doc_id not in seen_ids:
+            seen_ids.add(result.doc_id)
+            deduped.append(result)
+
+    return deduped
+
+
+# Domain boosting removed - cross-encoder reranking provides sufficient relevance ranking
+# MMR diversification removed to save latency - results are already relevance-sorted from reranker
+
+
+def _build_context_from_results(
+    results: List[Passage], max_length: int = 50000
+) -> str:
+    """Build actionable context with section paths and anchor links."""
+    if not results:
+        return "No relevant information found."
+
+    context_parts = []
+    current_length = 0
+    has_actionable_content = False
+
+    for i, result in enumerate(results):
+        # Extract meaningful title and utility info
+        title = result.meta.get(
+            "title", result.meta.get("api_name", f"Document {i + 1}")
+        )
+        utility_name = result.meta.get("utility_name", "")
+        page_url = result.meta.get("page_url", "")
+        section_paths = result.meta.get("section_paths", [])
+        anchors = result.meta.get("anchors", [])
+
+        # Check if content is actionable (has how-to/onboarding sections)
+        for path in section_paths:
+            if any(
+                keyword in path.lower()
+                for keyword in [
+                    "onboarding",
+                    "how to",
+                    "setup",
+                    "configure",
+                    "create",
+                    "steps",
+                ]
+            ):
+                has_actionable_content = True
+                break
+
+        # Clean and format the content for human consumption
+        content = result.text.strip()
+        
+        # Fix common markdown formatting issues in source content
+        # Replace broken markdown links
+        import re
+        # Fix patterns like "text](" or "](url" that are broken
+        content = re.sub(r'\]\s*\(', '](', content)  # Fix spaces between ] and (
+        content = re.sub(r'\[\s*([^\]]+)\s*\]', r'[\1]', content)  # Fix spaces inside []
+        
+        # Ensure proper spacing around bullet points and steps
+        content = re.sub(r'(\w)(\*\*Step)', r'\1 \2', content)  # Add space before **Step
+        content = re.sub(r'(\w)(•)', r'\1 \2', content)  # Add space before bullet
+
+        # DEBUG: Log what content we're getting from search results
+        logger.info(
+            f"RESULT_CONTENT doc_id={result.doc_id} title='{title}' content_len={len(content)} content_preview='{content[:100]}...'"
+        )
+
+        # NO TRUNCATION - Use full document content for accurate answers
+        # The LLM can handle large contexts and we want complete information
+
+        # Create an actionable entry with section links
+        if utility_name and utility_name != title:
+            section_header = f"\n**{title}** ({utility_name})"
+        else:
+            section_header = f"\n**{title}**"
+
+        # Add section paths and anchor links if available
+        if page_url and anchors:
+            # Build anchor URLs for each section
+            section_links = []
+            for j, anchor in enumerate(anchors[:3]):  # Limit to 3 anchors
+                section_path = section_paths[j] if j < len(section_paths) else ""
+                if section_path:
+                    section_links.append(f"[{section_path}]({page_url}#{anchor})")
+                else:
+                    section_links.append(f"[Section]({page_url}#{anchor})")
+
+            if section_links:
+                section_header += "\n› " + " › ".join(section_links)
+        elif page_url:
+            section_header += f"\n› [View Document]({page_url})"
+
+        part = f"{section_header}\n{content}\n"
+
+        if current_length + len(part) > max_length:
+            break
+
+        context_parts.append(part)
+        current_length += len(part)
+
+    # Build final context
+    context = "".join(context_parts)
+
+    # Add warning if no actionable content
+    if not has_actionable_content and len(results) > 0:
+        context = (
+            "⚠️ No step-by-step procedures found. Results contain definitions/overviews only.\n"
+            + context
+        )
+
+    if len(results) > len(context_parts):
+        context += (
+            f"\n*({len(results) - len(context_parts)} additional sources available)*"
+        )
+
+    return context

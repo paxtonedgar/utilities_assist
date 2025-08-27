@@ -224,6 +224,22 @@ class CrossEncodeReranker:
             logger.error(f"Failed to initialize reranker model: {e}")
             raise RuntimeError(f"Reranker model initialization failed: {e}") from e
 
+    def _get_optimal_batch_size(self, num_docs: int) -> int:
+        """Get optimal batch size based on document count and device.
+        
+        For small document sets, smaller batches reduce processing overhead.
+        From logs: 4.6s for 8 docs suggests batch_size=32 is overkill.
+        """
+        if num_docs <= 8:
+            # Small sets: process all at once or in pairs
+            return min(num_docs, 4)  
+        elif num_docs <= 20:
+            # Medium sets: use smaller batches
+            return min(num_docs, 8)
+        else:
+            # Large sets: use configured batch size
+            return self.batch_size
+
     def score(self, query: str, passages: List[str]) -> List[float]:
         """Score passages against query using cross-encoder.
 
@@ -259,9 +275,12 @@ class CrossEncodeReranker:
             pairs = [(query, passage) for passage in passages]
 
             # Score in batches to handle memory efficiently
+            # Dynamic batch sizing for small document sets
+            effective_batch_size = self._get_optimal_batch_size(len(passages))
+            
             all_scores = []
-            for i in range(0, len(pairs), self.batch_size):
-                batch = pairs[i : i + self.batch_size]
+            for i in range(0, len(pairs), effective_batch_size):
+                batch = pairs[i : i + effective_batch_size]
                 batch_scores = self.model.predict(batch)
 
                 # Convert to Python floats for JSON serialization
