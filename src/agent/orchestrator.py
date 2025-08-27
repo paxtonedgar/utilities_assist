@@ -154,6 +154,7 @@ class LLMOrchestrator:
         LLM-based planning for more sophisticated routing.
         
         Uses structured output to ensure reliable tool selection.
+        Works with Azure OpenAI via the existing chat_client.
         """
         # Build planning prompt
         system_prompt = """You are a RAG orchestrator that plans tool execution.
@@ -187,15 +188,17 @@ Output a JSON plan with:
         messages.append({"role": "user", "content": query})
         
         try:
-            # Call LLM with structured output
-            response = await self.llm_client.create_completion(
+            # Call Azure OpenAI using the existing client interface
+            # Note: Azure OpenAI client is synchronous, not async
+            response = self.llm_client.chat.completions.create(
+                model="gpt-4",  # Will use the deployment name configured in Azure
                 messages=messages,
                 temperature=0.1,  # Low temp for consistent planning
-                response_format={"type": "json"}
+                response_format={"type": "json_object"}  # Structured JSON output
             )
             
-            # Parse JSON response
-            plan_json = json.loads(response.content)
+            # Parse JSON response from Azure OpenAI
+            plan_json = json.loads(response.choices[0].message.content)
             
             # Convert to OrchestratorPlan
             tool_calls = [
@@ -317,13 +320,14 @@ Output a JSON plan with:
                 Reply with JSON: {{"sufficient": true/false, "reason": "..."}}
                 """
                 
-                response = await self.llm_client.create_completion(
+                response = self.llm_client.chat.completions.create(
+                    model="gpt-4",
                     messages=[{"role": "user", "content": verification_prompt}],
                     temperature=0.1,
-                    response_format={"type": "json"}
+                    response_format={"type": "json_object"}
                 )
                 
-                verification = json.loads(response.content)
+                verification = json.loads(response.choices[0].message.content)
                 return verification["sufficient"], verification.get("reason")
                 
             except Exception as e:
@@ -344,14 +348,17 @@ async def orchestrated_search(
     Entry point that can be called from existing pipeline.
     
     This wraps the existing search with orchestration when enabled.
+    Works with Azure OpenAI through the existing chat_client.
     """
     if not use_orchestrator:
         # Fall back to traditional search
         from src.agent.tools.search import search_tool
         return await search_tool(query=query, resources=resources)
     
-    # Use orchestrator
-    orchestrator = LLMOrchestrator(llm_client=resources.llm_client if hasattr(resources, 'llm_client') else None)
+    # Use orchestrator with the Azure OpenAI chat client
+    orchestrator = LLMOrchestrator(
+        llm_client=resources.chat_client if hasattr(resources, 'chat_client') else None
+    )
     
     # Plan
     plan = await orchestrator.plan(query, context)
