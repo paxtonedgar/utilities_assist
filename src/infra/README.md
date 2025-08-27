@@ -110,10 +110,10 @@ def make_chat_client(cfg: ChatCfg, token_provider: Callable = None):
         )
     return _cached_chat_client(cfg.provider, cfg.model, ...)
 
-# JPMC proxy configuration
+# JPMC proxy configuration (environment-aware caching)
 def _setup_jpmc_proxy():
-    if os.getenv("CLOUD_PROFILE") == "jpmc_azure":
-        os.environ["https_proxy"] = "proxy.jpmchase.net:10443"
+    profile = os.getenv("CLOUD_PROFILE", "local").lower()
+    _setup_jpmc_proxy_cached(profile)  # Cached by profile to handle env changes
 ```
 
 ### Future LlamaIndex Integration
@@ -125,7 +125,9 @@ def _setup_jpmc_proxy():
 
 ### Connection Management
 - **LRU Caching**: Minimal cache sizes (2 entries) for active connections
+- **Environment-Aware Caching**: Proxy configuration cached by CLOUD_PROFILE to handle env changes
 - **Connection Pooling**: HTTP session reuse with keep-alive
+- **Stale Data Prevention**: TTL caches (5min) and environment-keyed caches prevent stale configurations
 - **Retry Logic**: Exponential backoff with jitter for resilience
 - **Timeout Configuration**: Separate connect and read timeouts
 

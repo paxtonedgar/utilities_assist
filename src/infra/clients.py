@@ -46,10 +46,11 @@ def _token_fingerprint(token_provider: Callable[[], str] | None) -> str:
     return hashlib.md5(func_id.encode()).hexdigest()[:8]
 
 
-def _setup_jpmc_proxy():
-    """Configure JPMC proxy settings if in JPMC environment."""
-    profile = os.getenv("CLOUD_PROFILE", "local").lower()
-    if profile == "jpmc_azure":
+# Cache with environment-aware key to handle CLOUD_PROFILE changes
+@lru_cache(maxsize=4)
+def _setup_jpmc_proxy_cached(cloud_profile: str):
+    """Internal cached proxy setup with environment key."""
+    if cloud_profile == "jpmc_azure":
         os.environ["http_proxy"] = "proxy.jpmchase.net:10443"
         os.environ["https_proxy"] = "proxy.jpmchase.net:10443"
         if "no_proxy" in os.environ:
@@ -58,7 +59,12 @@ def _setup_jpmc_proxy():
             )
         else:
             os.environ["no_proxy"] = "localhost,127.0.0.1,jpmchase.net,openai.azure.com"
-        logger.info("JPMC proxy configuration applied")
+        logger.info(f"JPMC proxy configuration applied for {cloud_profile} (cached)")
+
+def _setup_jpmc_proxy():
+    """Configure JPMC proxy settings if in JPMC environment. Handles environment changes properly."""
+    profile = os.getenv("CLOUD_PROFILE", "local").lower()
+    _setup_jpmc_proxy_cached(profile)
 
 
 # Optional minimal LRU cache for HTTP connection pooling only

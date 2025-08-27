@@ -406,11 +406,17 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
                 top_k_per_index=self._get_resources().settings.search_config.search_top_k_per_index_info,
             )
 
-            # Phase 2: Collect and analyze all results
+            # Phase 2: Collect and weight results by index quality
             all_results = []
             for i, result in enumerate(results_list):
                 index_name = indices[i] if i < len(indices) else f"index_{i}"
+                # Weight confluence higher than swagger (confluence has better CIU content)
+                weight_multiplier = 1.0 if "swagger" in index_name.lower() else 1.2
+                
                 for search_result in result.results:
+                    # Apply index weighting to scores
+                    if hasattr(search_result, 'score'):
+                        search_result.score = search_result.score * weight_multiplier
                     search_result.meta["search_method"] = "workflow_synthesis"
                     search_result.meta["source_index"] = index_name
                     all_results.append(search_result)
@@ -437,15 +443,27 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             "",
         ]
 
-        # Group results by source for better organization
+        # Filter out low-quality results and sort by score for quality-first presentation
+        quality_threshold = 0.1  # Filter swagger docs with very low scores (confluence avg: 0.777, swagger avg: 0.066)
+        quality_results = [r for r in results if getattr(r, 'score', 0) >= quality_threshold]
+        sorted_results = sorted(quality_results, key=lambda x: getattr(x, 'score', 0), reverse=True)
+        
+        # Group sorted results by source for better organization  
         source_groups = {}
-        for result in results:
+        for result in sorted_results:
             source = result.meta.get("title", "Unknown Source")
-            if source not in source_groups:
-                source_groups[source] = []
-            source_groups[source].append(result)
+            # Add score info to source name for transparency
+            source_index = result.meta.get("source_index", "")
+            if source_index == "khub-opensearch-swagger-index":
+                source_key = f"{source} (API Docs)"
+            else:
+                source_key = source
+                
+            if source_key not in source_groups:
+                source_groups[source_key] = []
+            source_groups[source_key].append(result)
 
-        # Process each source group
+        # Process each source group (now in score order)
         for source, source_results in source_groups.items():
             context_parts.append(f"**From {source}:**")
 

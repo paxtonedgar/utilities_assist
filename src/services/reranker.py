@@ -227,18 +227,15 @@ class CrossEncodeReranker:
     def _get_optimal_batch_size(self, num_docs: int) -> int:
         """Get optimal batch size based on document count and device.
         
-        For small document sets, smaller batches reduce processing overhead.
-        From logs: 4.6s for 8 docs suggests batch_size=32 is overkill.
+        Simplified: use smaller fixed batch sizes to reduce memory overhead.
+        Dynamic batching was causing more overhead than benefit for small sets.
         """
-        if num_docs <= 8:
-            # Small sets: process all at once or in pairs
-            return min(num_docs, 4)  
-        elif num_docs <= 20:
-            # Medium sets: use smaller batches
-            return min(num_docs, 8)
+        if num_docs <= 4:
+            return num_docs  # Process all at once for very small sets
+        elif num_docs <= 16:
+            return 8  # Fixed batch size for small-medium sets
         else:
-            # Large sets: use configured batch size
-            return self.batch_size
+            return min(16, self.batch_size)  # Cap at 16 for larger sets
 
     def score(self, query: str, passages: List[str]) -> List[float]:
         """Score passages against query using cross-encoder.
@@ -292,6 +289,10 @@ class CrossEncodeReranker:
                 all_scores.extend(batch_scores)
 
             score_time = (time.time() - start_time) * 1000
+            
+            # Performance analysis log
+            if score_time > 2000:  # Log if >2s
+                logger.warning(f"Cross-encoder slow: {score_time:.0f}ms for {len(passages)} docs on {self.device} (avg: {score_time/len(passages):.0f}ms/doc)")
 
             # Truncate passage text in logs for readability
             truncated_passages = [

@@ -209,7 +209,7 @@ class RerankerConfig(BaseModel):
         description="Maximum docs to pass to composer",
     )
     min_required_docs: int = Field(
-        default=10,  # Increased to ensure composer has adequate material
+        default=6,  # Reduced from 10 - BGE v2-m3 is more selective, trust high-quality results
         validation_alias="RERANK_MIN_REQUIRED_DOCS",
         description="Minimum docs to ensure in fallback logic",
     )
@@ -268,12 +268,12 @@ class SearchSettings(BaseSettings):
         description="Number of candidates expanded for cross-encoder (was hardcoded 36)",
     )
     rerank_top_k: int = Field(
-        default=4,
-        validation_alias="RERANK_TOP_K",
+        default=8,  # Increased from 4 to reduce RRF fallback dependency
+        validation_alias="RERANK_TOP_K", 
         description="Final reranked results to return (was hardcoded 4)",
     )
     rerank_timeout_ms: int = Field(
-        default=15000,
+        default=8000,  # Reduced from 15000 - fail faster if performance issues
         validation_alias="RERANK_TIMEOUT_MS",
         description="Cross-encoder reranking timeout in milliseconds",
     )
