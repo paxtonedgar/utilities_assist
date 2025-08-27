@@ -374,8 +374,6 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         # Search for workflow-related content and get both context and results
         workflow_context, found_results = await self._synthesize_workflow(normalized_query)
 
-        formatted_response = self._format_workflow_response(workflow_context)
-
         return self._preserve_workflow_path(
             state,
             "workflow_synthesizer",
@@ -443,10 +441,39 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             "",
         ]
 
-        # Filter out low-quality results and sort by score for quality-first presentation
-        quality_threshold = 0.1  # Filter swagger docs with very low scores (confluence avg: 0.777, swagger avg: 0.066)
-        quality_results = [r for r in results if getattr(r, 'score', 0) >= quality_threshold]
-        sorted_results = sorted(quality_results, key=lambda x: getattr(x, 'score', 0), reverse=True)
+        # Analyze result quality for monitoring and debugging
+        try:
+            from src.analysis.content_quality import analyze_results
+            analyze_results(results, query)  # Analysis logged automatically
+        except ImportError:
+            logger.debug("Content quality analyzer not available")
+        
+        # Filter out low-quality results with index-specific thresholds
+        def get_quality_threshold(result) -> float:
+            """Get quality threshold based on source index to handle score calibration differences"""
+            source_index = result.meta.get("source_index", "")
+            if "swagger" in source_index:
+                return 0.05  # Lower threshold for API docs (avg: ~0.235)
+            else:
+                return 0.15  # Higher threshold for confluence docs (avg: ~0.877)
+        
+        quality_results = [r for r in results if getattr(r, 'score', 0) >= get_quality_threshold(r)]
+        
+        # Apply score calibration to balance competition between indices
+        def calibrate_score(result) -> float:
+            """Calibrate scores to balance confluence vs swagger competition"""
+            source_index = result.meta.get("source_index", "")
+            original_score = getattr(result, 'score', 0)
+            if "swagger" in source_index:
+                # Boost swagger scores to compete with confluence (2.5x multiplier, max 0.95)
+                return min(original_score * 2.5, 0.95)
+            else:
+                return original_score
+        
+        # Apply calibration and sort by calibrated scores
+        for result in quality_results:
+            result.calibrated_score = calibrate_score(result)
+        sorted_results = sorted(quality_results, key=lambda x: getattr(x, 'calibrated_score', x.score), reverse=True)
         
         # Group sorted results by source for better organization  
         source_groups = {}

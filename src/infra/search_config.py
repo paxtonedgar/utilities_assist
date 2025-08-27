@@ -95,7 +95,7 @@ class OpenSearchConfig:
             "method",
             "endpoint",
         ],
-        vector_field=None,  # Swagger index does not have proper knn_vector mapping - BM25 only
+        vector_field="sections.embedding",  # ✅ FIXED: Swagger index DOES have vector search - logs show KNN working
         title_fields=["title", "app_name", "api_name"],
     )
 
