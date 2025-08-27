@@ -176,7 +176,7 @@ async def search_index_tool(
                     index_name=index,
                     filters=filters,
                     top_k=36,  # Expand candidates for cross-encoder
-                    use_mmr=True,
+                    use_mmr=False,  # MMR removed to save latency
                     lambda_param=0.75,
                 )
 
