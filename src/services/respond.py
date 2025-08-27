@@ -135,7 +135,7 @@ async def generate_response(
     chat_history: List[Dict[str, str]] = None,
     model_name: str = "gpt-3.5-turbo",
     temperature: float = 0.2,
-    max_tokens: int = 1500,
+    max_tokens: int = 2500,  # Increased from 1500 to prevent truncation
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response using LLM with Jinja2 template.
 
@@ -176,10 +176,12 @@ async def generate_response(
         # Build message with template-rendered prompt
         messages = [{"role": "user", "content": prompt}]
 
-        # Debug: log the request details (reduced logging for performance)
+        # Debug: log the request details and context info
         logger.info(
             f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}"
         )
+        logger.info(f"Context length: {len(context)} chars, Query: '{query[:100]}...'")
+        logger.debug(f"Full prompt preview: {prompt[:500]}...")
 
         # Generate streaming response
         try:
@@ -197,9 +199,22 @@ async def generate_response(
             )
             raise
 
+        # Collect response for debug logging
+        response_chunks = []
         for chunk in response_stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content
+                response_chunks.append(content)
+                yield content
+
+        # Log response summary for debugging
+        full_response = "".join(response_chunks)
+        logger.info(f"LLM response length: {len(full_response)} chars")
+        logger.info(f"Response preview: {full_response[:200]}...")
+        if len(full_response) > 2000:
+            logger.warning(
+                f"Long response ({len(full_response)} chars) - check for truncation"
+            )
 
     except Exception as e:
         logger.error(f"Response generation failed: {e}")

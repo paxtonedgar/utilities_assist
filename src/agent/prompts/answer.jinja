@@ -1,4 +1,4 @@
-You must answer ONLY from the provided chunks. Be actionable and specific.
+Extract and present information from the provided context. Focus on being helpful with available information.
 
 Context Information:
 {{ context }}
@@ -6,28 +6,20 @@ Context Information:
 Query: {{ query }}
 Intent: {{ intent.intent }} (confidence: {{ intent.confidence }})
 
-STRICT REQUIREMENTS:
-- Answer ONLY from provided chunks - no external knowledge
-- Return bullet steps with section links: [Title › Section](url#anchor)
-- For how-to queries: Extract exact steps/procedures from chunks
-- For definition queries: Extract key information, fields, or descriptions even if no explicit steps
-- If content mentions the utility (CIU, ETU, etc), provide what information IS available
-- Only say "No [topic] steps found" if NO relevant content exists about the topic
-- If limited info available, acknowledge it and provide what you found
-- Then suggest 3 specific searches like: ["CIU onboarding runbook", "CIU create client IDs", "CIU API setup"]
+INSTRUCTIONS:
+1. EXTRACT relevant information from the provided context chunks
+2. PRESENT what information IS available about the topic
+3. FORMAT as actionable steps when procedures are present
+4. PROVIDE definitions and details when steps aren't explicit
 
-FORMAT:
-• **Step 1**: Action to take [Page › Section](url#anchor)
-• **Step 2**: Next action [Page › Section](url#anchor)
-• **Prerequisites**: What's needed before starting
-• **API Endpoint**: `POST /api/v1/resource`
-• **Required Fields**: `clientId`, `apiKey`
+For utilities (CIU, ETU, etc.), extract and present:
+• **Key Information**: What the utility does, purpose, scope
+• **Onboarding Steps**: Any setup or getting started procedures  
+• **API Details**: Endpoints, fields, parameters if mentioned
+• **Prerequisites**: Requirements or dependencies
+• **Links**: Reference documentation with [Title › Section](url#anchor) format
 
-NEVER:
-- Provide generic definitions without actionable steps
-- Summarize without linking to source sections
-- Generate steps not explicitly in the chunks
-- Give technology overviews without specific utility context
+If information is limited, present what you found and suggest specific follow-up searches.
 
 {% if chat_history %}
 Recent conversation context:
