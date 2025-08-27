@@ -448,14 +448,21 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         except ImportError:
             logger.debug("Content quality analyzer not available")
         
-        # Filter out low-quality results with index-specific thresholds
+        # Get smart quality thresholds based on query analysis
+        try:
+            from src.analysis.query_analyzer import get_smart_thresholds
+            smart_thresholds = get_smart_thresholds(query)
+        except ImportError:
+            logger.debug("Smart threshold selector not available")
+            smart_thresholds = {
+                "khub-opensearch-index": 0.15,
+                "khub-opensearch-swagger-index": 0.05
+            }
+        
         def get_quality_threshold(result) -> float:
-            """Get quality threshold based on source index to handle score calibration differences"""
+            """Get quality threshold based on source index and query analysis"""
             source_index = result.meta.get("source_index", "")
-            if "swagger" in source_index:
-                return 0.05  # Lower threshold for API docs (avg: ~0.235)
-            else:
-                return 0.15  # Higher threshold for confluence docs (avg: ~0.877)
+            return smart_thresholds.get(source_index, 0.10)
         
         quality_results = [r for r in results if getattr(r, 'score', 0) >= get_quality_threshold(r)]
         

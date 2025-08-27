@@ -182,10 +182,21 @@ class ONNXIntentClassifier:
                 
                 result = self.session.run([output_name], {input_name: features})[0]
                 
-                # Get probabilities and predicted class
-                probs = self._softmax(result[0])
-                intent_idx = np.argmax(probs)
-                confidence = float(probs[intent_idx])
+                # Handle different ONNX output formats
+                if result.ndim == 0:  # Scalar output
+                    # Single prediction, create probabilities
+                    intent_idx = int(result)
+                    probs = np.zeros(len(self.INTENTS))
+                    probs[intent_idx] = 1.0
+                    confidence = 1.0
+                elif result.ndim == 1:  # 1D array of probabilities
+                    probs = self._softmax(result)
+                    intent_idx = np.argmax(probs)
+                    confidence = float(probs[intent_idx])
+                else:  # 2D array, take first row
+                    probs = self._softmax(result[0])
+                    intent_idx = np.argmax(probs)
+                    confidence = float(probs[intent_idx])
                 intent = self.INTENTS[intent_idx]
                 
                 # Check if this is context-aware

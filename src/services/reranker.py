@@ -227,13 +227,13 @@ class CrossEncodeReranker:
     def _get_optimal_batch_size(self, num_docs: int) -> int:
         """Get optimal batch size based on document count and device.
         
-        Simplified: use smaller fixed batch sizes to reduce memory overhead.
-        Dynamic batching was causing more overhead than benefit for small sets.
+        Optimized for our post-swagger fix reality: more documents (8-16 typical).
+        Larger batches reduce model loading overhead.
         """
         if num_docs <= 4:
             return num_docs  # Process all at once for very small sets
         elif num_docs <= 16:
-            return 8  # Fixed batch size for small-medium sets
+            return 16  # Process all 16 at once - reduces batch overhead
         else:
             return min(16, self.batch_size)  # Cap at 16 for larger sets
 

@@ -1,0 +1,13 @@
+{
+  "feature_dim": 512,
+  "intents": [
+    "info",
+    "procedure",
+    "troubleshoot",
+    "api",
+    "list",
+    "utility",
+    "followup"
+  ],
+  "accuracy": 0.0
+}

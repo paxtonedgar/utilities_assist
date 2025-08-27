@@ -273,7 +273,7 @@ class SearchSettings(BaseSettings):
         description="Final reranked results to return (was hardcoded 4)",
     )
     rerank_timeout_ms: int = Field(
-        default=8000,  # Reduced from 15000 - fail faster if performance issues
+        default=10000,  # Increased from 8000 - accommodate 16-doc batches post-swagger fix
         validation_alias="RERANK_TIMEOUT_MS",
         description="Cross-encoder reranking timeout in milliseconds",
     )
