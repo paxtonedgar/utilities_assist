@@ -35,7 +35,7 @@ def _load_synonyms() -> Dict[str, str]:
         "csu": "Customer Summary Utility",
         "customer summary": "Customer Summary Utility",
         "gcp": "Global Customer Platform",
-        "etu": "Enhanced Transaction Utility", 
+        "etu": "Enhanced Transaction Utility",
         "etu-au": "Enhanced Transaction Utility Account Utility",
         "etu au": "Enhanced Transaction Utility Account Utility",
         "transaction utility": "Enhanced Transaction Utility",

@@ -372,7 +372,9 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         normalized_query = state.get("normalized_query", "")
 
         # Search for workflow-related content and get both context and results
-        workflow_context, found_results = await self._synthesize_workflow(normalized_query)
+        workflow_context, found_results = await self._synthesize_workflow(
+            normalized_query
+        )
 
         return self._preserve_workflow_path(
             state,
@@ -410,10 +412,10 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
                 index_name = indices[i] if i < len(indices) else f"index_{i}"
                 # Weight confluence higher than swagger (confluence has better CIU content)
                 weight_multiplier = 1.0 if "swagger" in index_name.lower() else 1.2
-                
+
                 for search_result in result.results:
                     # Apply index weighting to scores
-                    if hasattr(search_result, 'score'):
+                    if hasattr(search_result, "score"):
                         search_result.score = search_result.score * weight_multiplier
                     search_result.meta["search_method"] = "workflow_synthesis"
                     search_result.meta["source_index"] = index_name
@@ -444,45 +446,53 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         # Analyze result quality for monitoring and debugging
         try:
             from src.analysis.content_quality import analyze_results
+
             analyze_results(results, query)  # Analysis logged automatically
         except ImportError:
             logger.debug("Content quality analyzer not available")
-        
+
         # Get smart quality thresholds based on query analysis
         try:
             from src.analysis.query_analyzer import get_smart_thresholds
+
             smart_thresholds = get_smart_thresholds(query)
         except ImportError:
             logger.debug("Smart threshold selector not available")
             smart_thresholds = {
                 "khub-opensearch-index": 0.15,
-                "khub-opensearch-swagger-index": 0.05
+                "khub-opensearch-swagger-index": 0.05,
             }
-        
+
         def get_quality_threshold(result) -> float:
             """Get quality threshold based on source index and query analysis"""
             source_index = result.meta.get("source_index", "")
             return smart_thresholds.get(source_index, 0.10)
-        
-        quality_results = [r for r in results if getattr(r, 'score', 0) >= get_quality_threshold(r)]
-        
+
+        quality_results = [
+            r for r in results if getattr(r, "score", 0) >= get_quality_threshold(r)
+        ]
+
         # Apply score calibration to balance competition between indices
         def calibrate_score(result) -> float:
             """Calibrate scores to balance confluence vs swagger competition"""
             source_index = result.meta.get("source_index", "")
-            original_score = getattr(result, 'score', 0)
+            original_score = getattr(result, "score", 0)
             if "swagger" in source_index:
                 # Boost swagger scores to compete with confluence (2.5x multiplier, max 0.95)
                 return min(original_score * 2.5, 0.95)
             else:
                 return original_score
-        
+
         # Apply calibration and sort by calibrated scores
         for result in quality_results:
             result.calibrated_score = calibrate_score(result)
-        sorted_results = sorted(quality_results, key=lambda x: getattr(x, 'calibrated_score', x.score), reverse=True)
-        
-        # Group sorted results by source for better organization  
+        sorted_results = sorted(
+            quality_results,
+            key=lambda x: getattr(x, "calibrated_score", x.score),
+            reverse=True,
+        )
+
+        # Group sorted results by source for better organization
         source_groups = {}
         for result in sorted_results:
             source = result.meta.get("title", "Unknown Source")
@@ -492,7 +502,7 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
                 source_key = f"{source} (API Docs)"
             else:
                 source_key = source
-                
+
             if source_key not in source_groups:
                 source_groups[source_key] = []
             source_groups[source_key].append(result)
@@ -557,9 +567,3 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
 
         return content[: max_length - 3] + "..."
 
-    def _format_workflow_response(self, workflow_context: str) -> str:
-        """Format workflow context into a readable response."""
-        if not workflow_context:
-            return "No workflow information found for your query."
-
-        return workflow_context

@@ -84,7 +84,9 @@ class OpenSearchConfig:
 
     SWAGGER_INDEX = IndexConfig(
         name="khub-opensearch-swagger-index",
-        content_fields=["sections.content"],  # Swagger also uses nested sections structure
+        content_fields=[
+            "sections.content"
+        ],  # Swagger also uses nested sections structure
         metadata_fields=[
             "title",
             "app_name",
@@ -149,22 +151,6 @@ class OpenSearchConfig:
         index_config = cls._get_index_config(index_name)
         return index_config.content_fields
 
-    @classmethod
-    def get_vector_field(cls, index_name: str) -> str:
-        """Get vector field name for an index."""
-        index_config = cls._get_index_config(index_name)
-        return index_config.vector_field
-
-    @classmethod
-    def get_title_fields(cls, index_name: str) -> List[str]:
-        """Get title fields for an index."""
-        index_config = cls._get_index_config(index_name)
-        return index_config.title_fields
-
-    @classmethod
-    def get_search_strategy(cls, strategy_name: str) -> SearchStrategy:
-        """Get search strategy configuration."""
-        return cls.STRATEGIES.get(strategy_name, cls.STRATEGIES["enhanced_rrf"])
 
     @classmethod
     def get_filter_config(cls, filter_name: str) -> Optional[FilterConfig]:
@@ -220,121 +206,6 @@ class OpenSearchConfig:
 class QueryTemplates:
     """Reusable query templates for different search types."""
 
-    @staticmethod
-    def build_hybrid_query(
-        text_query: str, vector_query: List[float], index_name: str, k: int = 10
-    ) -> Dict[str, Any]:
-        """Build a hybrid search query with nested structure for kNN."""
-        config = OpenSearchConfig._get_index_config(index_name)
-
-        # Build content query - use nested with inner_hits for sections
-        content_query = None
-        if any("sections." in field for field in config.content_fields):
-            # Check for utility acronyms to expand query
-            query_parts = []
-            utility_acronyms = {
-                "Customer Interaction Utility": "CIU",
-                "Enhanced Transaction Utility": "ETU", 
-                "Customer Summary Utility": "CSU",
-                "Account Utility": "AU",
-                "Product Catalog Utility": "PCU",
-            }
-            
-            # Add original query
-            query_parts.append({"match": {"sections.content": {"query": text_query, "boost": 1.0}}})
-            
-            # If query contains a utility name, also search for its acronym
-            for full_name, acronym in utility_acronyms.items():
-                if full_name.lower() in text_query.lower():
-                    query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} data", "boost": 1.2}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} interaction", "boost": 1.2}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} field", "boost": 1.1}}})
-            
-            # Use bool query if we have multiple parts
-            if len(query_parts) > 1:
-                nested_query = {
-                    "bool": {
-                        "should": query_parts,
-                        "minimum_should_match": 1
-                    }
-                }
-            else:
-                nested_query = query_parts[0]
-            
-            content_query = {
-                "nested": {
-                    "path": "sections",
-                    "query": nested_query,
-                    "inner_hits": {
-                        "name": "matched_sections",
-                        "size": 5,
-                        "highlight": {"fields": {"sections.content": {}}},
-                        "sort": [{"_score": "desc"}],
-                    },
-                }
-            }
-        else:
-            # Use regular multi_match for flat fields
-            content_query = {
-                "multi_match": {
-                    "query": text_query,
-                    "fields": [f"{field}^3" for field in config.content_fields]
-                    + [f"{field}^4" for field in config.title_fields],
-                    "type": "best_fields",
-                }
-            }
-
-        # Build vector query - only if index supports vectors
-        vector_query_clause = None
-        if config.vector_field and "sections." in config.vector_field:
-            # Use nested with native knn query for sections.embedding (main index structure)
-            vector_query_clause = {
-                "nested": {
-                    "path": "sections",
-                    "query": {
-                        "knn": {
-                            "sections.embedding": {
-                                "vector": vector_query,
-                                "k": min(k, 20),
-                            }
-                        }
-                    },
-                    "inner_hits": {
-                        "name": "matched_sections",
-                        "size": 5,
-                        "sort": [{"_score": "desc"}],
-                    },
-                }
-            }
-        elif config.vector_field:
-            # Use native knn for flat fields (if properly mapped)
-            vector_query_clause = {
-                "knn": {config.vector_field: {"vector": vector_query, "k": min(k, 20)}}
-            }
-        # If vector_field is None, skip vector search entirely (BM25-only)
-
-        # Build query structure - handle case where vector search is disabled
-        if vector_query_clause:
-            # Hybrid search (BM25 + KNN)
-            query_structure = {
-                "bool": {
-                    "should": [content_query, vector_query_clause],
-                    "minimum_should_match": 1,
-                }
-            }
-        else:
-            # BM25-only search (when vector search is disabled)
-            query_structure = content_query
-
-        return {
-            "size": min(k, 20),  # Limit size to reduce over-fetching
-            "query": query_structure,
-            "_source": ["api_name", "page_url", "title", "utility_name"]
-            + OpenSearchConfig.get_source_fields(index_name),
-            "track_total_hits": True,  # Enable for proper error handling
-        }
 
     @staticmethod
     def build_bm25_query(
@@ -348,7 +219,7 @@ class QueryTemplates:
             # For utility queries, search for both acronym and full phrase
             # This helps find docs that use "CIU" even when query is "Customer Interaction Utility"
             query_parts = []
-            
+
             # Check if this looks like an expanded utility name
             utility_acronyms = {
                 "Customer Interaction Utility": "CIU",
@@ -357,33 +228,74 @@ class QueryTemplates:
                 "Account Utility": "AU",
                 "Product Catalog Utility": "PCU",
             }
-            
+
             # Add original query
-            query_parts.append({"match": {"sections.content": {"query": text_query, "boost": 1.0}}})
-            
+            query_parts.append(
+                {"match": {"sections.content": {"query": text_query, "boost": 1.0}}}
+            )
+
             # If query contains a utility name, also search for its acronym
             for full_name, acronym in utility_acronyms.items():
                 if full_name.lower() in text_query.lower():
                     # Add acronym search with high boost
-                    query_parts.append({"match": {"sections.content": {"query": acronym, "boost": 2.0}}})
+                    query_parts.append(
+                        {
+                            "match": {
+                                "sections.content": {"query": acronym, "boost": 2.0}
+                            }
+                        }
+                    )
                     # Add fuzzy match for variations
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} utility", "boost": 1.5}}})
+                    query_parts.append(
+                        {
+                            "match": {
+                                "sections.content": {
+                                    "query": f"{acronym} utility",
+                                    "boost": 1.5,
+                                }
+                            }
+                        }
+                    )
                     # Add common documentation patterns
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} data", "boost": 1.2}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} interaction", "boost": 1.2}}})
-                    query_parts.append({"match": {"sections.content": {"query": f"{acronym} field", "boost": 1.1}}})
-            
+                    query_parts.append(
+                        {
+                            "match": {
+                                "sections.content": {
+                                    "query": f"{acronym} data",
+                                    "boost": 1.2,
+                                }
+                            }
+                        }
+                    )
+                    query_parts.append(
+                        {
+                            "match": {
+                                "sections.content": {
+                                    "query": f"{acronym} interaction",
+                                    "boost": 1.2,
+                                }
+                            }
+                        }
+                    )
+                    query_parts.append(
+                        {
+                            "match": {
+                                "sections.content": {
+                                    "query": f"{acronym} field",
+                                    "boost": 1.1,
+                                }
+                            }
+                        }
+                    )
+
             # Use bool query with should clauses if we have multiple parts
             if len(query_parts) > 1:
                 nested_query = {
-                    "bool": {
-                        "should": query_parts,
-                        "minimum_should_match": 1
-                    }
+                    "bool": {"should": query_parts, "minimum_should_match": 1}
                 }
             else:
                 nested_query = query_parts[0]
-            
+
             query_clause = {
                 "nested": {
                     "path": "sections",
@@ -459,9 +371,6 @@ class QueryTemplates:
 # === CONVENIENCE FUNCTIONS ===
 
 
-def get_main_index() -> str:
-    """Get main index name."""
-    return OpenSearchConfig.get_default_index()
 
 
 def get_swagger_index() -> str:

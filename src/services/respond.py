@@ -89,57 +89,6 @@ def _text_matches_patterns(text: str, patterns: List[str]) -> bool:
     return any(pattern in text_lower for pattern in patterns)
 
 
-def build_context(
-    retrieval_results: List[Passage],
-    intent: IntentResult,
-    max_context_length: int = None,  # Now pulled from settings
-) -> str:
-    """Build context string from retrieval results.
-
-    Args:
-        retrieval_results: Search results to include in context
-        intent: Classified intent for context optimization
-        max_context_length: Maximum character length for context (uses settings default if None)
-
-    Returns:
-        Formatted context string for LLM
-    """
-    if not retrieval_results:
-        return "No relevant context found."
-
-    # Get max_context_length from settings if not provided
-    if max_context_length is None:
-        from src.infra.settings import get_settings
-
-        settings = get_settings()
-        max_context_length = settings.response_settings.max_context_length
-
-    context_parts = []
-    current_length = 0
-
-    # Prioritize results based on intent
-    sorted_results = _prioritize_by_intent(retrieval_results, intent)
-
-    for i, result in enumerate(sorted_results):
-        # Format individual result
-        doc_context = _format_result_context(result, i + 1)
-
-        # Check if adding this would exceed limit
-        if current_length + len(doc_context) > max_context_length:
-            break
-
-        context_parts.append(doc_context)
-        current_length += len(doc_context)
-
-    # Build final context
-    context = "\n\n".join(context_parts)
-
-    if current_length >= max_context_length:
-        context += (
-            f"\n\n[Note: Context truncated - showing top {len(context_parts)} results]"
-        )
-
-    return context
 
 
 async def generate_response(
@@ -301,83 +250,12 @@ def extract_source_chips(
     return chips
 
 
-def _get_intent_label(intent) -> str:
-    """Safely extract intent label from either dict or IntentResult object."""
-    if intent is None:
-        return "unknown"
-    if hasattr(intent, "intent"):
-        return intent.intent
-    if isinstance(intent, dict):
-        return intent.get("intent", "unknown")
-    return "unknown"
 
 
-def _prioritize_by_intent(results: List[Passage], intent) -> List[Passage]:
-    """Prioritize search results based on intent - handles both dict and IntentResult."""
-    intent_label = _get_intent_label(intent)
-
-    if intent_label == "list":
-        # For list queries, prioritize results with structured data
-        return sorted(
-            results,
-            key=lambda r: (
-                -r.score,  # Primary: search relevance
-                -len(r.meta.get("api_names", [])),  # Secondary: number of APIs
-                -len(r.text),  # Tertiary: content richness
-            ),
-        )
-
-    elif intent_label == "swagger":
-        # For API queries, prioritize technical documentation
-        return sorted(
-            results,
-            key=lambda r: (
-                -_api_relevance_score(r),  # Primary: API relevance
-                -r.score,  # Secondary: search relevance
-            ),
-        )
-
-    else:
-        # Default: sort by relevance score
-        return sorted(results, key=lambda r: -r.score)
 
 
-def _api_relevance_score(result: Passage) -> float:
-    """Calculate API relevance score for a result."""
-    score = 0.0
-    content_lower = result.text.lower()
-
-    # API-related keywords boost
-    api_keywords = [
-        "endpoint",
-        "request",
-        "response",
-        "parameter",
-        "field",
-        "api",
-        "swagger",
-    ]
-    for keyword in api_keywords:
-        score += content_lower.count(keyword) * 0.1
-
-    # Metadata boosts
-    if result.meta.get("type") == "api_spec":
-        score += 0.5
-
-    return score
 
 
-def _format_result_context(result: Passage, index: int) -> str:
-    """Format a single search result for context."""
-    title = result.meta.get("title", f"Document {index}")
-
-    context_block = f"[Source {index}: {title}]\n{result.text}"
-
-    # Add metadata if relevant
-    if result.meta.get("api_names"):
-        context_block += f"\nRelated APIs: {', '.join(result.meta['api_names'])}"
-
-    return context_block
 
 
 # _build_system_prompt function removed - now using answer.jinja template instead

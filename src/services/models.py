@@ -63,9 +63,11 @@ class TurnResult(BaseModel):
 
 # New models for passage extraction refactor
 
+
 @dataclass
 class Passage:
     """Unified passage/result type - replaces SearchResult entirely."""
+
     doc_id: str
     index: str
     text: str  # Main content (was .content)
@@ -76,31 +78,32 @@ class Passage:
     api_name: Optional[str] = None
     meta: Dict[str, Any] = field(default_factory=dict)  # Was .metadata
     rerank_score: Optional[float] = None
-    
+
     # Properties for clean access patterns with defensive programming
     @property
     def url(self) -> Optional[str]:
         """URL for display/linking - checks page_url then meta"""
-        if hasattr(self, 'page_url') and self.page_url:
+        if hasattr(self, "page_url") and self.page_url:
             return self.page_url
-        if hasattr(self, 'meta') and self.meta:
+        if hasattr(self, "meta") and self.meta:
             return self.meta.get("url") or self.meta.get("page_url")
         return None
-    
-    @property  
+
+    @property
     def content(self) -> str:
         """Alias for text during migration"""
-        return getattr(self, 'text', '')
-    
+        return getattr(self, "text", "")
+
     @property
     def metadata(self) -> Dict[str, Any]:
         """Alias for meta during migration"""
-        return getattr(self, 'meta', {})
+        return getattr(self, "meta", {})
 
 
 @dataclass
 class RankedHit:
     """OpenSearch hit with extracted passages and RRF ranking."""
+
     hit: Dict[str, Any]
     passages: List[Passage]
     rank_rrf: int
@@ -110,6 +113,7 @@ class RankedHit:
 @dataclass
 class RerankResult:
     """Result of cross-encoder reranking with policy decisions."""
+
     items: List[RankedHit]
     used_ce: bool
     reason: str  # 'ok' | 'timeout' | 'collapse' | 'skipped_definitional'
@@ -118,8 +122,11 @@ class RerankResult:
 @dataclass
 class ExtractorConfig:
     """Configuration for passage extraction."""
-    section_field_order: List[str] = field(default_factory=lambda: ['content', 'text'])
-    doc_field_order: List[str] = field(default_factory=lambda: ['body', 'content', 'text', 'description', 'summary'])
+
+    section_field_order: List[str] = field(default_factory=lambda: ["content", "text"])
+    doc_field_order: List[str] = field(
+        default_factory=lambda: ["body", "content", "text", "description", "summary"]
+    )
     max_sections: int = 5
     min_chars: int = 80
     max_chars: int = 1200
@@ -130,6 +137,7 @@ class ExtractorConfig:
 @dataclass
 class IndexProfile:
     """Schema learning profile for an index."""
+
     samples: int = 0
     inner_hits_seen: int = 0
     content_paths: Dict[str, int] = field(default_factory=dict)

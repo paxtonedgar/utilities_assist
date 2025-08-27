@@ -175,7 +175,7 @@ class CoverageGate:
         order = np.argsort(np.array(ranks))
         gains = []
         # ideal gains (per-aspect sorted)
-        ideal = []
+        # ideal = []  # Currently unused
         m, n = mat.shape  # m subqs, n passages
         seen = np.zeros(m, dtype="int32")
         for r_idx, j in enumerate(order, start=1):

@@ -210,27 +210,8 @@ def create_graph(
     return workflow.compile(**compile_kwargs)
 
 
-# Node registry for external access (preserved compatibility)
-NODE_REGISTRY = {
-    "summarize": SummarizeNode(),
-    "intent": IntentNode(),
-    "search_confluence": ConfluenceSearchNode(),
-    "search_swagger": SwaggerSearchNode(),
-    "search_multi": MultiSearchNode(),
-    "list_handler": ListHandlerNode(),
-    "workflow_synthesizer": WorkflowSynthesizerNode(),
-    "restart": RestartNode(),
-    "rewrite_query": RewriteQueryNode(),
-    "combine": CombineNode(),
-    "answer": AnswerNode(),
-}
 
 
-# Utility functions for template rendering (preserved from original)
-def render_answer_template(template_name: str, **kwargs) -> str:
-    """Render Jinja2 template for answers."""
-    template = jinja_env.get_template(template_name)
-    return template.render(**kwargs)
 
 
 """

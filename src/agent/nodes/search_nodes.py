@@ -89,52 +89,6 @@ class BaseSearchNodeMixin:
             search_result.meta["search_method"] = search_method
             search_result.meta["search_id"] = search_id
 
-    def _handle_empty_retrieval(
-        self, state: Dict[str, Any], node_name: str, query: str
-    ) -> Dict[str, Any]:
-        """Standardized empty retrieval guard with suggestions."""
-        logger.info(
-            f"EMPTY {node_name.upper()} RETRIEVAL - Short-circuiting to prevent expensive LLM call"
-        )
-
-        # Generate context-aware suggestions inline (only used here)
-        from agent.acronym_map import UTILITY_ACRONYMS
-
-        suggestions = []
-
-        # Check if query contains an acronym
-        query_upper = query.upper()
-        for acronym, expansion in UTILITY_ACRONYMS.items():
-            if acronym in query_upper:
-                suggestions.extend(
-                    [
-                        f"{expansion} onboarding",
-                        f"{expansion} API",
-                        f"{expansion} integration guide",
-                        f"create {acronym} client ID",
-                    ]
-                )
-                break
-
-        # Default suggestions if no acronym found
-        if not suggestions:
-            suggestions = [
-                f"{query} onboarding",
-                f"{query} API documentation",
-                f"{query} setup guide",
-                f"utilities {query}",
-            ]
-
-        suggestion_text = "Try searching for: " + " | ".join(suggestions[:3])
-
-        return self._preserve_state_with_path(
-            state,
-            f"{node_name}_empty_guard",
-            search_results=[],
-            combined_results=[],
-            final_context=f"No documentation found for '{query}'.",
-            final_answer=f"I didn't find documentation matching '{query}'. {suggestion_text}",
-        )
 
 
 class SummarizeNode(SearchNodeHandler, BaseSearchNodeMixin):
@@ -175,28 +129,6 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
     def __init__(self):
         super().__init__("search_confluence")
 
-    def _get_intent_based_index(
-        self, intent: Dict[str, Any], default_index: str
-    ) -> str:
-        """Select optimal index based on intent to reduce latency."""
-        from agent.nodes.base_node import get_intent_label
-
-        intent_type = get_intent_label(intent)
-
-        index_mapping = {
-            "definition": default_index,
-            "confluence": default_index,
-            "swagger": "swagger-api-index",
-            "api": "swagger-api-index",
-            "list": default_index,
-            "workflow": default_index,
-        }
-
-        selected_index = index_mapping.get(intent_type, default_index)
-        if selected_index != default_index:
-            logger.info(f"Intent-based routing: {intent_type} → {selected_index}")
-
-        return selected_index
 
     async def execute(
         self, state: Dict[str, Any], config: Dict = None
@@ -212,10 +144,10 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
 
             # NEW: Use colors for planning which views to build
             from src.retrieval.tuning import should_build_procedure_view
-            
+
             # Extract slot_result from intent (if available)
-            slot_result = intent if hasattr(intent, 'colors') else None
-            
+            slot_result = intent if hasattr(intent, "colors") else None
+
             if slot_result:
                 is_procedure_query = should_build_procedure_view(slot_result)
                 logger.info(
@@ -240,13 +172,14 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
             # Run views with color-based tuning
             info_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
             procedure_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
-            
+
             # Apply color-based tuning if available
-            if slot_result and hasattr(slot_result, 'colors'):
+            if slot_result and hasattr(slot_result, "colors"):
                 from src.retrieval.tuning import tune_for_colors
+
                 tune_for_colors(info_knobs, slot_result.colors)
                 tune_for_colors(procedure_knobs, slot_result.colors)
-            
+
             info_view_task = run_info_view(
                 query=query,
                 search_client=resources.search_client,
@@ -400,7 +333,7 @@ class MultiSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
         try:
             resources = self._get_resources()
             query = state["normalized_query"]
-            intent = state.get("intent")
+            # intent = state.get("intent")  # Currently unused in multi-index search
 
             indices = [
                 OpenSearchConfig.get_default_index(),

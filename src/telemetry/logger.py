@@ -167,14 +167,8 @@ def log_timeline_event(req_id: str, stage: str, duration_ms: float, **metadata):
     _timeline_tracker.log_event(req_id, stage, duration_ms, **metadata)
 
 
-def get_timeline_summary(req_id: str) -> str:
-    """Get one-line timeline summary for hotspot identification."""
-    return _timeline_tracker.get_summary(req_id)
 
 
-def log_turn_timeline(req_id: str):
-    """Log complete turn timeline and clear buffer."""
-    _timeline_tracker.log_turn_complete(req_id)
 
 
 def _normalize_log_keys(**kwargs) -> Dict[str, Any]:

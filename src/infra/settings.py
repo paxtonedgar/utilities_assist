@@ -244,7 +244,7 @@ class SearchSettings(BaseSettings):
         description="Top-k results per index for multi-index searches",
     )
 
-    # Pre-rerank pool sizes (the real choke points)
+    # Pre-rerank pool sizes (the real choke points) - now configurable
     bm25_top_k: int = Field(
         default=200,
         validation_alias="BM25_TOP_K",
@@ -261,6 +261,28 @@ class SearchSettings(BaseSettings):
         description="Maximum unique docs passed from RRF to reranker",
     )
 
+    # Previously hardcoded magic numbers - now configurable
+    rrf_k_final: int = Field(
+        default=25,
+        validation_alias="RRF_K_FINAL",
+        description="Final RRF fusion candidates (was hardcoded)",
+    )
+    min_keep_threshold: int = Field(
+        default=8,
+        validation_alias="MIN_KEEP_THRESHOLD",
+        description="Hard minimum docs to keep after reranking",
+    )
+    utility_boost_factor: float = Field(
+        default=3.0,
+        validation_alias="UTILITY_BOOST_FACTOR",
+        description="Score boost multiplier for utility-anchored results",
+    )
+    citation_coverage_threshold: float = Field(
+        default=0.6,
+        validation_alias="CITATION_COVERAGE_THRESHOLD",
+        description="Minimum citation coverage for verification (≥60% of sentences)",
+    )
+
     # Magic numbers from search.py that need to be configurable
     rrf_expansion_candidates: int = Field(
         default=36,
@@ -269,7 +291,7 @@ class SearchSettings(BaseSettings):
     )
     rerank_top_k: int = Field(
         default=8,  # Increased from 4 to reduce RRF fallback dependency
-        validation_alias="RERANK_TOP_K", 
+        validation_alias="RERANK_TOP_K",
         description="Final reranked results to return (was hardcoded 4)",
     )
     rerank_timeout_ms: int = Field(
@@ -336,6 +358,36 @@ class ResponseSettings(BaseModel):
     )
 
 
+class OrchestratorSettings(BaseModel):
+    """LLM orchestrator configuration."""
+
+    enabled: bool = Field(
+        default=True,
+        validation_alias="ORCHESTRATOR_ENABLED",
+        description="Enable LLM orchestrator for conversational RAG",
+    )
+    max_total_time_ms: int = Field(
+        default=4000,
+        validation_alias="ORCHESTRATOR_MAX_TIME_MS",
+        description="Maximum total orchestration time (p95 ≤ 4s)",
+    )
+    target_time_ms: int = Field(
+        default=2500,
+        validation_alias="ORCHESTRATOR_TARGET_TIME_MS",
+        description="Target orchestration time (p50 ≤ 2.5s)",
+    )
+    max_tool_calls: int = Field(
+        default=2,
+        validation_alias="ORCHESTRATOR_MAX_TOOLS",
+        description="Maximum tool calls per turn",
+    )
+    enable_verification: bool = Field(
+        default=True,
+        validation_alias="ORCHESTRATOR_VERIFICATION",
+        description="Enable answer verification step",
+    )
+
+
 class ApplicationSettings(BaseSettings):
     """Main application settings with profile-aware configuration."""
 
@@ -396,6 +448,7 @@ class ApplicationSettings(BaseSettings):
     performance_budgets: PerformanceBudgets = Field(default_factory=PerformanceBudgets)
     quality_thresholds: QualityThresholds = Field(default_factory=QualityThresholds)
     response_settings: ResponseSettings = Field(default_factory=ResponseSettings)
+    orchestrator: OrchestratorSettings = Field(default_factory=OrchestratorSettings)
 
     # File paths
     synonyms_file_path: str = "data/synonyms.json"
@@ -651,8 +704,3 @@ def get_settings() -> ApplicationSettings:
     return _settings
 
 
-def refresh_settings() -> ApplicationSettings:
-    """Force refresh of application settings."""
-    global _settings
-    _settings = None
-    return get_settings()

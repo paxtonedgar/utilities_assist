@@ -574,76 +574,6 @@ def lexical_relevance(query: str, text: str) -> float:
     return score / len(query_tokens)
 
 
-def mmr_diversify(
-    candidates: List[str],
-    doc_text_lookup: Dict[str, str],
-    query: str,
-    k: int = 8,
-    lambda_param: float = 0.75,
-) -> Tuple[List[str], Dict[str, Any]]:
-    """MMR diversification to reduce redundant results.
-
-    Args:
-        candidates: List of doc_ids sorted by fused score
-        doc_text_lookup: Mapping from doc_id to text content
-        query: Original search query
-        k: Number of results to select
-        lambda_param: Trade-off between relevance and diversity (0.0-1.0)
-
-    Returns:
-        Tuple of (selected_doc_ids, diagnostics)
-    """
-    selected = []
-    remaining = candidates.copy()
-    diagnostics = {"removed_docs": [], "similarity_scores": {}, "relevance_scores": {}}
-
-    while remaining and len(selected) < k:
-        best_doc = None
-        best_score = -float("inf")
-        best_rel = 0.0
-        best_div = 0.0
-
-        for doc_id in remaining:
-            # Get document text, fallback to doc_id if not found
-            doc_text = doc_text_lookup.get(doc_id, doc_id)
-
-            # Calculate relevance to query
-            relevance = lexical_relevance(query, doc_text)
-
-            # Calculate maximum similarity to already selected documents
-            max_similarity = 0.0
-            if selected:
-                similarities = []
-                for selected_doc in selected:
-                    selected_text = doc_text_lookup.get(selected_doc, selected_doc)
-                    sim = lexical_similarity(doc_text, selected_text)
-                    similarities.append(sim)
-                max_similarity = max(similarities)
-
-            # MMR score: λ * relevance - (1-λ) * max_similarity
-            mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
-
-            if mmr_score > best_score:
-                best_doc = doc_id
-                best_score = mmr_score
-                best_rel = relevance
-                best_div = max_similarity
-
-        if best_doc:
-            selected.append(best_doc)
-            remaining.remove(best_doc)
-
-            diagnostics["relevance_scores"][best_doc] = best_rel
-            diagnostics["similarity_scores"][best_doc] = best_div
-
-    # Track removed documents
-    diagnostics["removed_docs"] = [doc for doc in candidates if doc not in selected]
-
-    logger.info(
-        f"MMR diversification: {len(candidates)} candidates → {len(selected)} selected, {len(diagnostics['removed_docs'])} removed"
-    )
-
-    return selected, diagnostics
 
 
 def _rrf_with_diversification(
@@ -849,7 +779,7 @@ async def enhanced_rrf_search(
                 diagnostics["result_count"] = len(hybrid_result.results)
                 # Set consistent hit counts for hybrid search
                 diagnostics["bm25_hits"] = len(hybrid_result.results)  # Approximate
-                diagnostics["knn_hits"] = len(hybrid_result.results)   # Approximate
+                diagnostics["knn_hits"] = len(hybrid_result.results)  # Approximate
 
                 return hybrid_result, diagnostics
             else:
@@ -863,8 +793,9 @@ async def enhanced_rrf_search(
 
         # Get configurable search pool sizes
         from src.infra.settings import get_settings
+
         settings = get_settings()
-        
+
         knn_result = await knn_search_with_timeout(
             query_embedding=query_embedding,
             search_client=search_client,
@@ -920,7 +851,7 @@ async def enhanced_rrf_search(
         # Convert to (doc_id, score) tuples for RRF
         bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
         knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
-        
+
         # Add hit counts to diagnostics for consistent logging
         diagnostics["bm25_hits"] = len(bm25_hits)
         diagnostics["knn_hits"] = len(knn_hits)

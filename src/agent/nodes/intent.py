@@ -45,12 +45,6 @@ def _map_slot_to_legacy_intent(slot_result: SlotResult) -> str:
     return intent_mapping.get(slot_result.intent, "confluence")
 
 
-class IntentAnalysis(BaseModel):
-    """Structured output for intent classification."""
-
-    intent: str = Field(description="Primary intent category")
-    confidence: float = Field(description="Confidence score from 0.0 to 1.0")
-    reasoning: str = Field(description="Brief explanation of the classification")
 
 
 @stage("classify_intent")
@@ -91,18 +85,22 @@ async def intent_node(state, config, *, store=None):
         context = []
         if "chat_history" in s and s["chat_history"]:
             # Extract last few messages for context
-            context = [msg.get("content", "") for msg in s["chat_history"][-3:] 
-                      if isinstance(msg, dict) and msg.get("content")]
-        
+            context = [
+                msg.get("content", "")
+                for msg in s["chat_history"][-3:]
+                if isinstance(msg, dict) and msg.get("content")
+            ]
+
         # Try ONNX classifier first
         try:
             from src.agent.intent.onnx_classifier import get_onnx_classifier
+
             onnx_classifier = get_onnx_classifier()
-            
+
             # Use ONNX if model is loaded
             if onnx_classifier.session is not None:
                 onnx_result = onnx_classifier.classify(normalized_query, context)
-                
+
                 # Map ONNX intent to legacy format if needed
                 legacy_intent = onnx_result.intent
                 if onnx_result.intent == "utility":
@@ -110,22 +108,22 @@ async def intent_node(state, config, *, store=None):
                 elif onnx_result.intent == "followup":
                     # For follow-ups, try to determine actual intent from context
                     legacy_intent = "info"  # Default follow-ups to info
-                
+
                 logger.info(
                     f"ONNX classifier: {legacy_intent} (confidence: {onnx_result.confidence:.2f}, "
                     f"context-aware: {onnx_result.context_aware})"
                 )
-                
+
                 intent_result = IntentResult(
                     intent=legacy_intent,
                     confidence=onnx_result.confidence,
                     reasoning=onnx_result.reasoning,
                 )
                 return from_state_dict(incoming_type, {**s, INTENT: intent_result})
-                
+
         except Exception as e:
             logger.debug(f"ONNX classifier not available or failed: {e}")
-        
+
         # Fallback to regex slotter
         slot_result = slot(normalized_query)
         logger.info(
@@ -153,23 +151,5 @@ async def intent_node(state, config, *, store=None):
         return from_state_dict(incoming_type, {**s, INTENT: default_intent})
 
 
-# Wrapper for LangGraph tool registration
-async def wrapped_intent_node(state, config=None):
-    """Wrapper to handle the case where config might be None in some LangGraph versions."""
-    if config is None:
-        config = {"configurable": {}}
-
-    try:
-        return await intent_node(state, config)
-    except Exception as e:
-        logger.error(f"Intent node failed: {e}")
-        # Return state with default intent on complete failure
-        s = to_state_dict(state)
-        default_intent = IntentResult(
-            intent="confluence", confidence=0.5, reasoning="Error fallback"
-        )
-        return from_state_dict(type(state), {**s, INTENT: default_intent})
 
 
-# Keep the original function signature for compatibility
-intent_tool = wrapped_intent_node

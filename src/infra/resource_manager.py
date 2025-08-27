@@ -175,23 +175,6 @@ def get_resources() -> Optional[RAGResources]:
     return _resources
 
 
-def refresh_resources(settings: ApplicationSettings) -> RAGResources:
-    """
-    Force refresh of all resources.
-
-    Useful for:
-    - Configuration changes
-    - Token expiration
-    - Connection issues
-
-    Args:
-        settings: Updated application settings
-
-    Returns:
-        RAGResources: Newly created resource container
-    """
-    logger.info("Forcing refresh of all resources...")
-    return initialize_resources(settings, force_refresh=True)
 
 
 def health_check() -> dict:

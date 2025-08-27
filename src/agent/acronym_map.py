@@ -101,7 +101,7 @@ def expand_acronym(query: str) -> tuple[str, list[str]]:
     """
 
     # Normalize query for matching
-    query_upper = query.upper()
+    # query_upper = query.upper()  # Currently unused
 
     expansions = []
     expanded_parts = []
@@ -120,30 +120,6 @@ def expand_acronym(query: str) -> tuple[str, list[str]]:
     expanded_query = " ".join(expanded_parts)
 
     return expanded_query, expansions
-
-
-def is_short_acronym_query(query: str) -> bool:
-    """
-    Check if query is a short acronym query (≤3 tokens, mostly uppercase).
-
-    These queries need special handling with title boosting.
-    """
-    if not query:
-        return False
-
-    tokens = query.strip().split()
-
-    # Check if query is ≤3 tokens
-    if len(tokens) > 3:
-        return False
-
-    # Reload acronyms if needed
-    acronyms = _load_acronym_data()
-
-    # Check if any token is an uppercase acronym
-    has_acronym = any(token.upper() in acronyms for token in tokens)
-
-    return has_acronym
 
 
 def get_apis_for_acronym(acronym: str) -> List[str]:
@@ -167,20 +143,3 @@ def get_apis_for_acronym(acronym: str) -> List[str]:
     return []
 
 
-def get_all_utility_apis() -> Dict[str, List[str]]:
-    """
-    Get all utility APIs grouped by their APG name.
-
-    Returns:
-        Dictionary mapping APG names to lists of API names
-    """
-    api_data = _load_api_data()
-    result = {}
-
-    if "Product List" in api_data and "Utilities" in api_data["Product List"]:
-        for apg in api_data["Product List"]["Utilities"]:
-            apg_name = apg.get("APG_Name", "Unknown")
-            api_list = apg.get("API-Names-List", [])
-            result[apg_name] = api_list
-
-    return result

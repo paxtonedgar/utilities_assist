@@ -94,13 +94,12 @@ ACTION_PATTERNS = [
 ]
 
 
-def slot(user_text: str, onnx_model=None) -> SlotResult:
+def slot(user_text: str) -> SlotResult:
     """
     Classify user intent using regex-first approach.
 
     Args:
         user_text: User query text
-        onnx_model: Optional ONNX model for ambiguous cases (not implemented yet)
 
     Returns:
         SlotResult with intent classification

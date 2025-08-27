@@ -12,8 +12,6 @@ import hashlib
 import requests
 import os
 import logging
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 # Third-party imports (moved to top to avoid repeated dynamic imports)
 try:
@@ -60,6 +58,7 @@ def _setup_jpmc_proxy_cached(cloud_profile: str):
         else:
             os.environ["no_proxy"] = "localhost,127.0.0.1,jpmchase.net,openai.azure.com"
         logger.info(f"JPMC proxy configuration applied for {cloud_profile} (cached)")
+
 
 def _setup_jpmc_proxy():
     """Configure JPMC proxy settings if in JPMC environment. Handles environment changes properly."""
@@ -175,62 +174,6 @@ def _get_aws_auth():
         return None
 
 
-# Essential LRU cache for HTTP connection pooling to OpenSearch/ElasticSearch
-@lru_cache(maxsize=2)  # Keep minimal - just current and previous session
-def _cached_search_session(
-    host: str,
-    index_alias: str,
-    username: str | None,
-    password: str | None,
-    timeout_s: float,
-    use_aws_auth: bool = False,
-) -> requests.Session:
-    """Internal cached search session creation."""
-    # Apply JPMC proxy if needed
-    _setup_jpmc_proxy()
-
-    session = requests.Session()
-
-    # Configure retries with exponential backoff
-    retry_strategy = Retry(
-        total=2,
-        backoff_factor=0.2,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"],
-    )
-
-    # HTTP adapter with retry strategy
-    adapter = HTTPAdapter(
-        max_retries=retry_strategy, pool_connections=10, pool_maxsize=20
-    )
-
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-
-    # Configure timeouts
-    session.timeout = (2.0, timeout_s)  # (connect, read)
-
-    # Configure authentication
-    if use_aws_auth:
-        # Use AWS4Auth for JPMC OpenSearch
-        aws_auth = _get_aws_auth()
-        if aws_auth:
-            session.auth = aws_auth
-            logger.info("AWS4Auth configured for OpenSearch")
-    elif username and password:
-        # Use basic auth
-        session.auth = (username, password)
-
-    # Keep-alive headers
-    session.headers.update(
-        {
-            "Connection": "keep-alive",
-            "Content-Type": "application/json",
-            "User-Agent": "utilities-assist/1.0",
-        }
-    )
-
-    return session
 
 
 def _create_azure_client(
@@ -364,46 +307,5 @@ def make_embed_client(
     )
 
 
-def make_search_session(cfg: SearchCfg) -> requests.Session:
-    """Create a pooled requests session for OpenSearch/Elasticsearch.
-
-    Args:
-        cfg: Search configuration (host, auth, timeout)
-
-    Returns:
-        Configured requests.Session with retries, timeouts, and keep-alive
-
-    Features:
-    - HTTP retries: 2 total, backoff 0.2-0.5s
-    - Read timeout: configurable, Connect timeout: 2.0s
-    - Keep-alive enabled
-    - Basic auth or AWS4Auth for JPMC environment
-    """
-    # Use AWS auth for JPMC environment
-    profile = os.getenv("CLOUD_PROFILE", "local").lower()
-    use_aws_auth = profile == "jpmc_azure"
-
-    return _cached_search_session(
-        cfg.host,
-        cfg.index_alias,
-        cfg.username,
-        cfg.password,
-        cfg.timeout_s,
-        use_aws_auth,
-    )
 
 
-def clear_client_cache():
-    """Clear all client caches. Useful for testing or token refresh scenarios."""
-    _cached_chat_client.cache_clear()
-    _cached_embed_client.cache_clear()
-    _cached_search_session.cache_clear()
-
-
-def get_cache_info() -> dict:
-    """Get cache statistics for monitoring and debugging."""
-    return {
-        "chat_client": _cached_chat_client.cache_info(),
-        "embed_client": _cached_embed_client.cache_info(),
-        "search_session": _cached_search_session.cache_info(),
-    }

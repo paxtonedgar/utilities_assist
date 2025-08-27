@@ -81,7 +81,11 @@ class SearchResponse:
 class OpenSearchClient:
     """Production-ready OpenSearch client with enterprise features."""
 
-    def __init__(self, settings: Optional[object] = None, extractor_cfg: Optional[ExtractorConfig] = None):
+    def __init__(
+        self,
+        settings: Optional[object] = None,
+        extractor_cfg: Optional[ExtractorConfig] = None,
+    ):
         """Initialize OpenSearch client with centralized settings."""
         if settings is None:
             settings = get_settings()
@@ -154,16 +158,21 @@ class OpenSearchClient:
                 query,
                 len(query),
             )
-            
+
             # DEBUG: Log actual query structure on first request to catch regressions
             if hasattr(search_body.get("query", {}), "get"):
-                query_structure = "nested" if "nested" in search_body["query"] else "flat"
-                logger.info(f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}")
-                
+                query_structure = (
+                    "nested" if "nested" in search_body["query"] else "flat"
+                )
+                logger.info(
+                    f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}"
+                )
+
                 # Warn if flat query is used for any khub index (both use nested sections[])
                 if query_structure == "flat" and "khub-opensearch" in index:
-                    logger.warning(f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
-            
+                    logger.warning(
+                        f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}"
+                    )
 
             # Use POST request for search with body
             _setup_jpmc_proxy()  # Ensure proxy is configured
@@ -222,11 +231,13 @@ class OpenSearchClient:
 
             # Log successful completion
             total_hits = get_total_hits(data)
-            
+
             # CANARY: Log query body when we get zero results for debugging
             if len(results) == 0 and total_hits == 0:
-                logger.warning(f"BM25_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}")
-            
+                logger.warning(
+                    f"BM25_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
+                )
+
             log_event(
                 stage="bm25",
                 event="success",
@@ -330,15 +341,17 @@ class OpenSearchClient:
 
         # Build simple kNN query (like main branch)
         search_body = self._build_simple_knn_query(query_vector, k, index)
-        
+
         # DEBUG: Log actual kNN query structure to catch regressions
         if search_body and hasattr(search_body.get("query", {}), "get"):
             query_structure = "nested" if "nested" in search_body["query"] else "flat"
             logger.info(f"KNN_QUERY_STRUCTURE: {query_structure} for index {index}")
-            
+
             # Warn if flat query is used for any khub index (both use nested sections[])
             if query_structure == "flat" and "khub-opensearch" in index:
-                logger.warning(f"kNN using flat query for nested index: {json.dumps(search_body['query'], indent=2)}")
+                logger.warning(
+                    f"kNN using flat query for nested index: {json.dumps(search_body['query'], indent=2)}"
+                )
 
         try:
             url = f"{self.base_url}/{index}/_search"
@@ -390,11 +403,13 @@ class OpenSearchClient:
 
             # Log successful completion
             total_hits = get_total_hits(data)
-            
+
             # CANARY: Log query body when we get zero results for debugging
             if len(results) == 0 and total_hits == 0:
-                logger.warning(f"KNN_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}")
-            
+                logger.warning(
+                    f"KNN_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
+                )
+
             log_event(
                 stage="knn",
                 event="success",
@@ -529,8 +544,8 @@ class OpenSearchClient:
                     page_url=result.page_url,
                     api_name=result.api_name,
                     title=result.title,
-                    meta=getattr(result, 'meta', {}),  # Preserve metadata
-                    rerank_score=getattr(result, 'rerank_score', None),
+                    meta=getattr(result, "meta", {}),  # Preserve metadata
+                    rerank_score=getattr(result, "rerank_score", None),
                 )
                 fused_results.append(fused_result)
 
@@ -624,82 +639,7 @@ class OpenSearchClient:
             logger.error(f"Hybrid search failed, falling back to BM25: {e}")
             return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
 
-    def _get_boosted_fields(self, index: Optional[str], search_type: str) -> List[str]:
-        """Get boosted field list using centralized configuration."""
-        index_name = index or self.settings.search_index_alias
-        config = OpenSearchConfig._get_index_config(index_name)
 
-        if search_type == "hybrid" or search_type == "mvrs":
-            # MVRS boosting strategy: title^4, headings^2, body^1
-            fields = []
-            # Title fields with boost 4
-            for field in config.title_fields:
-                fields.append(f"{field}^4")
-            # Section field as headings with boost 2
-            fields.append("section^2")
-            fields.append("section.text^2")  # Also search the analyzed version
-            # Body field with boost 1 (default)
-            fields.append("body^1")
-            return fields
-        elif search_type == "acronym":
-            # Higher boosts for acronym queries
-            fields = []
-            for field in config.content_fields:
-                fields.append(f"{field}^3")
-            for field in config.title_fields:
-                fields.append(f"{field}^8")  # Extra boost for titles in acronym queries
-            # Add name field if available
-            if "name" in [f.split("^")[0] for f in config.metadata_fields]:
-                fields.append("name^4")
-            return fields
-        elif search_type == "bm25":
-            # MVRS boosting strategy for BM25: title^4, headings^2, body^1
-            fields = []
-            for field in config.title_fields:
-                fields.append(f"{field}^4")
-            fields.append("section^2")
-            fields.append("section.text^2")
-            fields.append("body^1")
-            return fields
-        else:
-            # Default field configuration
-            return [f"{field}^2" for field in config.content_fields] + [
-                f"{field}^3" for field in config.title_fields
-            ]
-
-    def _build_filter_clauses(self, filters: SearchFilters) -> List[Dict[str, Any]]:
-        """Build filter clauses from SearchFilters."""
-        clauses = []
-
-        # ACL hash filter
-        if filters.acl_hash:
-            clauses.append({"term": {"acl_hash": filters.acl_hash}})
-
-        # Space key filter
-        if filters.space_key:
-            clauses.append({"term": {"metadata.space_key": filters.space_key}})
-
-        # Content type filter
-        if filters.content_type:
-            clauses.append({"term": {"content_type": filters.content_type}})
-
-        # Time range filters - use consistent YYYY-MM-DD format
-        if filters.updated_after or filters.updated_before:
-            range_filter = {"range": {"updated_at": {}}}
-
-            if filters.updated_after:
-                range_filter["range"]["updated_at"]["gte"] = (
-                    filters.updated_after.strftime("%Y-%m-%d")
-                )
-
-            if filters.updated_before:
-                range_filter["range"]["updated_at"]["lte"] = (
-                    filters.updated_before.strftime("%Y-%m-%d")
-                )
-
-            clauses.append(range_filter)
-
-        return clauses
 
     def _parse_search_response(
         self, data: Dict[str, Any], index: Optional[str] = None
@@ -707,23 +647,23 @@ class OpenSearchClient:
         """Parse OpenSearch response into Passage objects - thin wrapper for extraction service."""
         passages = []
         hits = data.get("hits", {}).get("hits", [])
-        
+
         if not isinstance(hits, list):
             logger.warning("Invalid hits format in OpenSearch response")
             return []
-        
+
         # Delegate ALL extraction logic to service layer
         for hit in hits:
             hit_passages = extract_passages(hit, self.extractor_cfg)
             passages.extend(hit_passages)
-            
+
             # C1: Observe extraction for schema learning
             observe_extraction(
                 index=hit.get("_index", index or "unknown"),
                 hit=hit,
-                passages=hit_passages
+                passages=hit_passages,
             )
-        
+
         log_event(
             stage="parse_response",
             total_hits=len(hits),
@@ -731,7 +671,7 @@ class OpenSearchClient:
             index=index,
             avg_passages_per_hit=len(passages) / len(hits) if hits else 0,
         )
-        
+
         return passages
 
     def _build_simple_bm25_query(
@@ -758,33 +698,6 @@ class OpenSearchClient:
         )
         return search_body
 
-    def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
-        """Get the mapping (schema) for a specific index to discover field names."""
-        try:
-            url = f"{self.base_url}/{index_name}/_mapping"
-
-            # Use direct requests with auth (like main branch)
-            _setup_jpmc_proxy()  # Ensure proxy is configured
-            aws_auth = _get_aws_auth()
-            if aws_auth:
-                logger.info("Using direct AWS4Auth for mapping request")
-                response = requests.get(url, auth=aws_auth, timeout=30.0)
-            else:
-                logger.warning("No AWS auth available, using session for mapping")
-                response = self.session.get(url, timeout=30.0)
-
-            if not response.ok:
-                error_body = response.text
-                logger.error(
-                    f"Get mapping failed with {response.status_code}: {error_body}"
-                )
-                return {}
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error getting index mapping for {index_name}: {e}")
-            return {}
 
     def _check_index_exists(self, index_name: str) -> bool:
         """Check if an index exists in OpenSearch."""

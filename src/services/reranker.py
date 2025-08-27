@@ -226,7 +226,7 @@ class CrossEncodeReranker:
 
     def _get_optimal_batch_size(self, num_docs: int) -> int:
         """Get optimal batch size based on document count and device.
-        
+
         Optimized for our post-swagger fix reality: more documents (8-16 typical).
         Larger batches reduce model loading overhead.
         """
@@ -274,7 +274,7 @@ class CrossEncodeReranker:
             # Score in batches to handle memory efficiently
             # Dynamic batch sizing for small document sets
             effective_batch_size = self._get_optimal_batch_size(len(passages))
-            
+
             all_scores = []
             for i in range(0, len(pairs), effective_batch_size):
                 batch = pairs[i : i + effective_batch_size]
@@ -289,10 +289,12 @@ class CrossEncodeReranker:
                 all_scores.extend(batch_scores)
 
             score_time = (time.time() - start_time) * 1000
-            
+
             # Performance analysis log
             if score_time > 2000:  # Log if >2s
-                logger.warning(f"Cross-encoder slow: {score_time:.0f}ms for {len(passages)} docs on {self.device} (avg: {score_time/len(passages):.0f}ms/doc)")
+                logger.warning(
+                    f"Cross-encoder slow: {score_time:.0f}ms for {len(passages)} docs on {self.device} (avg: {score_time / len(passages):.0f}ms/doc)"
+                )
 
             # Truncate passage text in logs for readability
             truncated_passages = [
@@ -344,7 +346,7 @@ class CrossEncodeReranker:
         # Extract text from documents with robust fallbacks
         passages = []
         empty_count = 0
-        
+
         def get_candidate_text(candidate):
             """Extract text from candidate with multiple fallbacks."""
             # Try different text attributes in priority order
@@ -353,18 +355,20 @@ class CrossEncodeReranker:
                     value = getattr(candidate, attr)
                     if isinstance(value, str) and value.strip():
                         return value.strip()
-            
+
             # Try dict-style access for backwards compatibility
             if isinstance(candidate, dict):
                 for key in ("text", "content", "snippet", "body"):
                     value = candidate.get(key)
                     if isinstance(value, str) and value.strip():
                         return value.strip()
-            
+
             # Last resort: string representation
             str_repr = str(candidate)
-            return str_repr if len(str_repr) > 20 else ""  # Avoid short meaningless strings
-        
+            return (
+                str_repr if len(str_repr) > 20 else ""
+            )  # Avoid short meaningless strings
+
         for i, doc in enumerate(docs):
             text = get_candidate_text(doc)
             if text:
@@ -372,28 +376,42 @@ class CrossEncodeReranker:
             else:
                 passages.append("")  # Keep index alignment
                 empty_count += 1
-                logger.warning(f"Reranker doc {i}: empty text extracted from {type(doc).__name__} {getattr(doc, 'doc_id', 'unknown')}")
-        
+                logger.warning(
+                    f"Reranker doc {i}: empty text extracted from {type(doc).__name__} {getattr(doc, 'doc_id', 'unknown')}"
+                )
+
         if empty_count > 0:
-            logger.warning(f"Reranker input validation: {empty_count}/{len(docs)} docs have empty text")
-        
+            logger.warning(
+                f"Reranker input validation: {empty_count}/{len(docs)} docs have empty text"
+            )
+
         # Log input summary for debugging
         non_empty_passages = [p for p in passages if p]
-        avg_length = sum(len(p) for p in non_empty_passages) / len(non_empty_passages) if non_empty_passages else 0
-        logger.info(f"Reranker processing: {len(docs)} docs, {len(non_empty_passages)} with text, avg_length={avg_length:.1f}")
+        avg_length = (
+            sum(len(p) for p in non_empty_passages) / len(non_empty_passages)
+            if non_empty_passages
+            else 0
+        )
+        logger.info(
+            f"Reranker processing: {len(docs)} docs, {len(non_empty_passages)} with text, avg_length={avg_length:.1f}"
+        )
 
         # Score all passages
         scores = self.score(query, passages)
-        
+
         # Log score distribution for debugging
         if scores:
             top_scores = sorted(scores, reverse=True)[:5]
             avg_score = sum(scores) / len(scores)
-            logger.info(f"Reranker scores: top_5={top_scores}, avg={avg_score:.4f}, min_threshold={min_score}")
-            
+            logger.info(
+                f"Reranker scores: top_5={top_scores}, avg={avg_score:.4f}, min_threshold={min_score}"
+            )
+
             # Count how many would pass threshold
             above_threshold = sum(1 for s in scores if s >= min_score)
-            logger.info(f"Reranker threshold filter: {above_threshold}/{len(scores)} docs above {min_score}")
+            logger.info(
+                f"Reranker threshold filter: {above_threshold}/{len(scores)} docs above {min_score}"
+            )
 
         # Create scored document tuples
         scored_docs = [
@@ -406,25 +424,31 @@ class CrossEncodeReranker:
         # Apply filtering with adaptive threshold
         kept_docs = []
         kept_indices = []
-        
+
         # If we have mostly empty text or very low scores, be more lenient
         effective_min_score = min_score
         if empty_count > len(docs) * 0.3:  # More than 30% empty
             effective_min_score = min(min_score, 0.005)  # Lower threshold
-            logger.warning(f"High empty text ratio ({empty_count}/{len(docs)}), lowering threshold to {effective_min_score}")
+            logger.warning(
+                f"High empty text ratio ({empty_count}/{len(docs)}), lowering threshold to {effective_min_score}"
+            )
         elif scores and max(scores) < min_score * 2:  # All scores very low
             effective_min_score = min(min_score, 0.005)
-            logger.warning(f"All scores very low (max={max(scores):.4f}), lowering threshold to {effective_min_score}")
+            logger.warning(
+                f"All scores very low (max={max(scores):.4f}), lowering threshold to {effective_min_score}"
+            )
 
         # Percentile-based keeping: always keep top N regardless of threshold
         # This prevents complete collapse when all scores are low
-        min_keep_count = max(3, len(docs) // 3)  # Keep at least top 33% or 3 docs, whichever is larger
+        min_keep_count = max(
+            3, len(docs) // 3
+        )  # Keep at least top 33% or 3 docs, whichever is larger
         guaranteed_keep = min(min_keep_count, top_k, len(scored_docs))
-        
+
         for i, (doc, score, original_idx) in enumerate(scored_docs):
             if len(kept_docs) >= top_k:
                 break
-                
+
             # Keep if above threshold OR in guaranteed top percentile
             if score >= effective_min_score or i < guaranteed_keep:
                 # Set rerank_score attribute on document
@@ -432,31 +456,34 @@ class CrossEncodeReranker:
                 kept_docs.append(doc)
                 kept_indices.append(original_idx)
 
-        # Enhanced fail-safe: ensure we have enough docs for context  
+        # Enhanced fail-safe: ensure we have enough docs for context
         from src.infra.settings import get_settings
+
         settings = get_settings()
         min_required_docs = settings.reranker.min_required_docs
         if len(kept_docs) < min_required_docs and docs:
             shortage = min_required_docs - len(kept_docs)
-            logger.warning(f"Reranker kept only {len(kept_docs)} docs (need {min_required_docs}), adding {shortage} top RRF results")
-            
+            logger.warning(
+                f"Reranker kept only {len(kept_docs)} docs (need {min_required_docs}), adding {shortage} top RRF results"
+            )
+
             # Add top remaining docs that weren't already kept
             # Note: scored_docs is already sorted by score (descending) from line 384
-            kept_doc_ids = {getattr(doc, 'doc_id', id(doc)) for doc in kept_docs}
+            kept_doc_ids = {getattr(doc, "doc_id", id(doc)) for doc in kept_docs}
             added = 0
-            
+
             for doc, score, original_idx in scored_docs:
                 if added >= shortage:
                     break
-                
-                doc_id = getattr(doc, 'doc_id', id(doc))
+
+                doc_id = getattr(doc, "doc_id", id(doc))
                 if doc_id not in kept_doc_ids:
                     doc.rerank_score = score
                     kept_docs.append(doc)
                     kept_indices.append(original_idx)
                     kept_doc_ids.add(doc_id)
                     added += 1
-        
+
         dropped_count = len(docs) - len(kept_docs)
         took_ms = (time.time() - start_time) * 1000
 

@@ -54,27 +54,35 @@ async def run_info_view(
 
         # Get consistent filters (won't flip during rewrite loops)
         req_id = get_or_create_req_id()
-        
+
         # Check if this is a utility-related query
         query_lower = query.lower()
-        is_utility_query = any(term in query_lower for term in [
-            "ciu", "customer interaction utility",
-            "etu", "enhanced transaction",
-            "utility", "utilities"
-        ])
-        
+        is_utility_query = any(
+            term in query_lower
+            for term in [
+                "ciu",
+                "customer interaction utility",
+                "etu",
+                "enhanced transaction",
+                "utility",
+                "utilities",
+            ]
+        )
+
         # For utility queries, use broader filters or no filters
         if is_utility_query:
             # Use None filters for utility queries to ensure broad coverage
             filter_state = get_consistent_filters(
                 req_id, intent_type="utilities", view_type="info"
             )
-            logger.info(f"Detected utility query - using broader filters for: '{query[:50]}...'")
+            logger.info(
+                f"Detected utility query - using broader filters for: '{query[:50]}...'"
+            )
         else:
             filter_state = get_consistent_filters(
                 req_id, intent_type="confluence", view_type="info"
             )
-        
+
         filters = filter_state.to_opensearch_filters()
 
         logger.info(f"Running info view for query: '{query[:50]}...'")
@@ -93,7 +101,7 @@ async def run_info_view(
 
         # Extract results with deduplication by doc_id
         fused_results = _dedupe_by_doc_id(result.results)
-        
+
         # Check if we got too few results for utility queries
         # If so, retry without filters for broader coverage
         if is_utility_query and len(fused_results) < 5:
@@ -101,7 +109,7 @@ async def run_info_view(
                 f"Utility query returned only {len(fused_results)} results with filters. "
                 f"Retrying without filters for broader coverage."
             )
-            
+
             # Retry without any filters
             fallback_result = await search_index_tool(
                 index=index_name,
@@ -113,17 +121,17 @@ async def run_info_view(
                 top_k=50,  # Get even more candidates in fallback
                 strategy="enhanced_rrf",
             )
-            
+
             # Merge results, preferring the fallback results but keeping original if unique
             seen_doc_ids = {r.doc_id for r in fallback_result.results}
             for orig_result in fused_results:
                 if orig_result.doc_id not in seen_doc_ids:
                     fallback_result.results.append(orig_result)
-            
+
             # Update to use fallback results
             result = fallback_result
             fused_results = _dedupe_by_doc_id(result.results)
-            
+
             logger.info(
                 f"Fallback search for utility query yielded {len(fused_results)} unique results"
             )
@@ -213,26 +221,34 @@ async def run_procedure_view(
 
         # Get consistent filters (won't flip during rewrite loops)
         req_id = get_or_create_req_id()
-        
+
         # Check if this is a utility-related query (same logic as info view)
         query_lower = query.lower()
-        is_utility_query = any(term in query_lower for term in [
-            "ciu", "customer interaction utility",
-            "etu", "enhanced transaction",
-            "utility", "utilities"
-        ])
-        
+        is_utility_query = any(
+            term in query_lower
+            for term in [
+                "ciu",
+                "customer interaction utility",
+                "etu",
+                "enhanced transaction",
+                "utility",
+                "utilities",
+            ]
+        )
+
         # For utility queries, use utilities intent type to bypass filters
         if is_utility_query:
             filter_state = get_consistent_filters(
                 req_id, intent_type="utilities", view_type="procedure"
             )
-            logger.info(f"Detected utility query in procedure view - using broader filters")
+            logger.info(
+                f"Detected utility query in procedure view - using broader filters"
+            )
         else:
             filter_state = get_consistent_filters(
                 req_id, intent_type="confluence", view_type="procedure"
             )
-        
+
         filters = filter_state.to_opensearch_filters()
 
         logger.info(f"Running procedure view for query: '{query[:50]}...'")
@@ -251,7 +267,7 @@ async def run_procedure_view(
 
         # Extract results with deduplication by doc_id
         fused_results = _dedupe_by_doc_id(result.results)
-        
+
         # Check if we got too few results for utility queries
         # If so, retry without filters for broader coverage
         if is_utility_query and len(fused_results) < 5:
@@ -259,7 +275,7 @@ async def run_procedure_view(
                 f"Utility query in procedure view returned only {len(fused_results)} results. "
                 f"Retrying without filters for broader coverage."
             )
-            
+
             # Retry without any filters
             fallback_result = await search_index_tool(
                 index=index_name,
@@ -271,17 +287,17 @@ async def run_procedure_view(
                 top_k=50,  # Get even more candidates in fallback
                 strategy="enhanced_rrf",
             )
-            
+
             # Merge results, preferring the fallback results but keeping original if unique
             seen_doc_ids = {r.doc_id for r in fallback_result.results}
             for orig_result in fused_results:
                 if orig_result.doc_id not in seen_doc_ids:
                     fallback_result.results.append(orig_result)
-            
+
             # Update to use fallback results
             result = fallback_result
             fused_results = _dedupe_by_doc_id(result.results)
-            
+
             logger.info(
                 f"Fallback search in procedure view yielded {len(fused_results)} unique results"
             )
