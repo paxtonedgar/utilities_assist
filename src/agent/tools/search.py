@@ -132,6 +132,8 @@ async def search_index_tool(
     embed_model: str = "text-embedding-ada-002",
     top_k: int = 10,
     strategy: str = "enhanced_rrf",
+    use_orchestrator: bool = False,
+    chat_client=None,
 ) -> RetrievalResult:
     """
     Universal search tool that wraps adaptive_search_conf functionality.
@@ -155,6 +157,20 @@ async def search_index_tool(
     try:
         if not search_client:
             raise ValueError("search_client is required")
+            
+        # Optional orchestrator preprocessing
+        if use_orchestrator and chat_client:
+            try:
+                from src.agent.orchestrator import StreamlinedOrchestrator
+                orchestrator = StreamlinedOrchestrator(chat_client)
+                plan = orchestrator._llm_plan(query)
+                
+                # Apply planned filters
+                if plan.steps and plan.steps[0].get("filters"):
+                    filters = {**(filters or {}), **plan.steps[0]["filters"]}
+                    logger.info(f"Orchestrator added filters: {plan.steps[0]['filters']}")
+            except Exception as e:
+                logger.debug(f"Orchestrator preprocessing skipped: {e}")
 
         logger.info(
             f"Searching index '{index}' with strategy '{strategy}' for query: '{query[:50]}...'"

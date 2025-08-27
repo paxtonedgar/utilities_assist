@@ -42,7 +42,6 @@ class IntentRouter:
         "list": "list_handler",
         "workflow": "workflow_synthesizer",
         "swagger": "search_swagger",
-        "orchestrate": "orchestrator",  # New route for orchestrated search
     }
 
     # Keywords that indicate comparative queries needing multi-search

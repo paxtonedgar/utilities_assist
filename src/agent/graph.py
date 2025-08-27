@@ -126,13 +126,6 @@ def create_graph(
         "combine": CombineNode(),
         "answer": AnswerNode(),
     }
-    
-    # Add orchestrator node if available
-    try:
-        from src.agent.nodes.orchestrator_node import orchestrator_node
-        nodes["orchestrator"] = orchestrator_node
-    except ImportError:
-        logger.debug("Orchestrator node not available")
 
     # Create the graph
     workflow = StateGraph(GraphState)
@@ -156,7 +149,6 @@ def create_graph(
             "list_handler": "list_handler",
             "workflow_synthesizer": "workflow_synthesizer",
             "restart": "restart",
-            "orchestrator": "orchestrator",  # New orchestrator route
         },
     )
 
@@ -205,10 +197,6 @@ def create_graph(
     workflow.add_edge("workflow_synthesizer", "answer")
     workflow.add_edge("answer", END)
     workflow.add_edge("restart", END)
-    
-    # Orchestrator can go directly to END (it handles its own answer generation)
-    if "orchestrator" in nodes:
-        workflow.add_edge("orchestrator", END)
 
     # Compile with same options as original
     compile_kwargs = {}
