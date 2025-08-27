@@ -566,3 +566,21 @@ def _format_graph_final_result(
     }
 
 
+def enable_langgraph():
+    """Enable LangGraph processing."""
+    global LANGGRAPH_ENABLED
+    LANGGRAPH_ENABLED = True
+    logger.info("LangGraph processing enabled")
+
+
+def disable_langgraph():
+    """Disable LangGraph processing (revert to traditional)."""
+    global LANGGRAPH_ENABLED
+    LANGGRAPH_ENABLED = False
+    logger.info("LangGraph processing disabled, using traditional pipeline")
+
+
+def is_langgraph_enabled() -> bool:
+    """Check if LangGraph is currently enabled."""
+    return LANGGRAPH_ENABLED
+
