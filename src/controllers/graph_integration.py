@@ -308,9 +308,7 @@ async def handle_turn_with_graph(
         langgraph_config = create_langgraph_config(user_context, thread_id)
 
         # Create and configure graph with persistence
-        graph = create_graph(
-            enable_loops=True, min_results=3, checkpointer=checkpointer, store=store
-        )
+        graph = create_graph(checkpointer=checkpointer, store=store)
 
         # Sanitize input once
         text = (user_input or "").strip()

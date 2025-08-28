@@ -20,7 +20,7 @@ from agent.tools.search import search_index_tool, adaptive_search_tool, multi_in
 from agent.nodes.summarize import summarize_node
 from agent.nodes.intent import intent_node
 from agent.nodes.combine import combine_node
-from agent.graph import create_graph, NODE_REGISTRY
+from agent.graph import create_graph
 from services.models import SearchResult, RetrievalResult, IntentResult
 
 
@@ -348,24 +348,28 @@ class TestGraphIntegration:
     async def test_graph_creation(self):
         """Test graph can be created without errors."""
         
-        graph = create_graph(enable_loops=True)
+        graph = create_graph()
         assert graph is not None
         
         # Test with loops disabled
-        graph_no_loops = create_graph(enable_loops=False)
+        graph_no_loops = create_graph()
         assert graph_no_loops is not None
     
-    def test_node_registry_completeness(self):
-        """Test all required nodes are in registry."""
-        required_nodes = [
-            "summarize", "intent", "search_confluence", 
-            "search_swagger", "search_multi", "rewrite_query",
-            "combine", "answer"
-        ]
+    def test_simplified_graph_structure(self):
+        """Test simplified graph has correct nodes."""
+        graph = create_graph()
         
-        for node_name in required_nodes:
-            assert node_name in NODE_REGISTRY, f"Node {node_name} missing from registry"
-            assert callable(NODE_REGISTRY[node_name]), f"Node {node_name} is not callable"
+        # Check that graph has the expected simplified nodes
+        expected_nodes = ["__start__", "summarize", "intent", "search", "combine", "answer"]
+        actual_nodes = list(graph.nodes.keys())
+        
+        for node in expected_nodes:
+            assert node in actual_nodes, f"Node {node} missing from simplified graph"
+        
+        # Should not have old complex nodes
+        old_complex_nodes = ["search_confluence", "search_swagger", "search_multi", "rewrite_query"]
+        for node in old_complex_nodes:
+            assert node not in actual_nodes, f"Old complex node {node} should not exist in simplified graph"
     
     @pytest.mark.asyncio
     async def test_compound_question_routing(self):
