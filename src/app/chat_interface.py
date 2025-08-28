@@ -310,86 +310,101 @@ def render_stage_logs(req_id: str):
         return
 
     try:
-        # Get stage logs for this request
         stage_logs = get_stage_logs(req_id=req_id, last_n=20)
-
         if not stage_logs:
             return
 
-        # Group logs by stage for better display
-        stages = {}
-        for log in stage_logs:
-            stage_name = log.get("stage", "unknown")
-            if stage_name not in stages:
-                stages[stage_name] = []
-            stages[stage_name].append(log)
-
-        # Only show if we have interesting stages to display
+        stages = _group_logs_by_stage(stage_logs)
         if stages:
             with st.expander("🔍 Stage Details", expanded=False):
                 for stage_name, logs in stages.items():
-                    st.subheader(f"📊 {stage_name.title()}")
-
-                    # Find the main events (start/end pairs)
-                    start_log = next(
-                        (log for log in logs if log.get("event") == "start"), None
-                    )
-                    end_log = next(
-                        (log for log in logs if log.get("event") in ["success", "end"]),
-                        None,
-                    )
-                    error_log = next(
-                        (log for log in logs if log.get("event") == "error"), None
-                    )
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        if end_log and "ms" in end_log:
-                            st.metric("Duration", f"{end_log['ms']:.0f}ms")
-                        elif start_log:
-                            st.metric("Status", "Started")
-
-                    with col2:
-                        if end_log and "result_count" in end_log:
-                            st.metric("Results", f"{end_log['result_count']}")
-                        elif end_log and "hits" in end_log:
-                            st.metric("Hits", f"{end_log['hits']}")
-                        elif start_log and "k" in start_log:
-                            st.metric("Requested", f"{start_log['k']}")
-
-                    with col3:
-                        if error_log:
-                            st.metric("Status", "❌ Error", delta="Failed")
-                        elif end_log:
-                            st.metric("Status", "✅ Success")
-                        else:
-                            st.metric("Status", "🔄 Running")
-
-                    # Show additional details
-                    details = []
-                    if start_log:
-                        if "index" in start_log:
-                            details.append(f"**Index**: {start_log['index']}")
-                        if "query_type" in start_log:
-                            details.append(f"**Type**: {start_log['query_type']}")
-                        if "filters_enabled" in start_log:
-                            details.append(
-                                f"**Filters**: {'Yes' if start_log['filters_enabled'] else 'No'}"
-                            )
-
-                    if error_log:
-                        details.append(
-                            f"**Error**: {error_log.get('error_message', 'Unknown error')}"
-                        )
-
-                    if details:
-                        st.markdown(" • ".join(details))
-
-                    st.divider()
+                    _render_single_stage(stage_name, logs)
 
     except Exception as e:
         logger.debug(f"Failed to render stage logs: {e}")
+
+
+def _group_logs_by_stage(stage_logs):
+    """Group logs by stage name."""
+    stages = {}
+    for log in stage_logs:
+        stage_name = log.get("stage", "unknown")
+        if stage_name not in stages:
+            stages[stage_name] = []
+        stages[stage_name].append(log)
+    return stages
+
+
+def _render_single_stage(stage_name, logs):
+    """Render a single stage with its logs."""
+    st.subheader(f"📊 {stage_name.title()}")
+    
+    # Extract key log events
+    start_log = next((log for log in logs if log.get("event") == "start"), None)
+    end_log = next((log for log in logs if log.get("event") in ["success", "end"]), None)
+    error_log = next((log for log in logs if log.get("event") == "error"), None)
+    
+    # Render metrics in columns
+    col1, col2, col3 = st.columns(3)
+    _render_duration_metric(col1, start_log, end_log)
+    _render_results_metric(col2, start_log, end_log)
+    _render_status_metric(col3, error_log, end_log)
+    
+    # Render additional details
+    details = _build_stage_details(start_log, error_log)
+    if details:
+        st.markdown(" • ".join(details))
+    
+    st.divider()
+
+
+def _render_duration_metric(col, start_log, end_log):
+    """Render duration metric in the specified column."""
+    with col:
+        if end_log and "ms" in end_log:
+            st.metric("Duration", f"{end_log['ms']:.0f}ms")
+        elif start_log:
+            st.metric("Status", "Started")
+
+
+def _render_results_metric(col, start_log, end_log):
+    """Render results metric in the specified column."""
+    with col:
+        if end_log and "result_count" in end_log:
+            st.metric("Results", f"{end_log['result_count']}")
+        elif end_log and "hits" in end_log:
+            st.metric("Hits", f"{end_log['hits']}")
+        elif start_log and "k" in start_log:
+            st.metric("Requested", f"{start_log['k']}")
+
+
+def _render_status_metric(col, error_log, end_log):
+    """Render status metric in the specified column."""
+    with col:
+        if error_log:
+            st.metric("Status", "❌ Error", delta="Failed")
+        elif end_log:
+            st.metric("Status", "✅ Success")
+        else:
+            st.metric("Status", "🔄 Running")
+
+
+def _build_stage_details(start_log, error_log):
+    """Build list of stage detail strings."""
+    details = []
+    
+    if start_log:
+        if "index" in start_log:
+            details.append(f"**Index**: {start_log['index']}")
+        if "query_type" in start_log:
+            details.append(f"**Type**: {start_log['query_type']}")
+        if "filters_enabled" in start_log:
+            details.append(f"**Filters**: {'Yes' if start_log['filters_enabled'] else 'No'}")
+    
+    if error_log:
+        details.append(f"**Error**: {error_log.get('error_message', 'Unknown error')}")
+    
+    return details
 
 
 def process_user_input(user_input: str) -> None:

@@ -340,171 +340,27 @@ Guidelines:
         This directly addresses CIU runbook surfacing by anchoring to recognized utilities.
         """
         try:
-            from src.agent.tools.search import (
-                search_index_tool,
-                multi_index_search_tool,
-            )
-            from src.infra.search_config import OpenSearchConfig
-            import asyncio
-
-            # Detect recognized utility from query
-            recognized_utility = self._extract_utility_from_query(query)
-
-            all_results = []
-            search_policy = "utility_first" if recognized_utility else "general"
-
+            # Prepare search strategy and imports
+            recognized_utility, search_policy, all_results = self._prepare_search_strategy(query)
+            
             # PASS 1: Utility-anchored high-precision search
             if recognized_utility:
-                logger.info(
-                    f"Pass 1: Utility-anchored search for '{recognized_utility}'"
+                utility_results = await self._execute_utility_anchored_search(
+                    query, recognized_utility, plan, resources
                 )
-
-                utility_filters = {
-                    "utility_name": recognized_utility,
-                    "boost_utility": resources.settings.search_config.utility_boost_factor,  # Configurable boost
-                    "full_body_text": True,  # Ensure we get complete content
-                }
-
-                # Merge with plan filters
-                base_filters = plan.steps[0].get("filters") if plan.steps else {}
-                utility_filters.update(base_filters)
-
-                # Choose appropriate index
-                if base_filters.get("index") == "swagger":
-                    index = OpenSearchConfig.get_swagger_index()
-                else:
-                    index = OpenSearchConfig.get_default_index()
-
-                try:
-                    utility_result = await asyncio.wait_for(
-                        search_index_tool(
-                            index=index,
-                            query=f"{query} {recognized_utility}",  # Query expansion
-                            filters=utility_filters,
-                            search_client=resources.search_client,
-                            embed_client=resources.embed_client,
-                            embed_model=resources.settings.embed.model,
-                            top_k=resources.settings.search_config.search_top_k_per_index_info,
-                            strategy="enhanced_rrf",
-                        ),
-                        timeout=self.max_verification_time_ms / 1000,  # Respect budget
-                    )
-
-                    # Mark utility-anchored results for preferential treatment
-                    for result in utility_result.results:
-                        result.utility_anchored = True
-
-                    all_results.extend(utility_result.results)
-                    logger.info(
-                        f"Pass 1 yielded {len(utility_result.results)} utility-anchored results"
-                    )
-
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Pass 1 utility search timed out, proceeding to Pass 2"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Pass 1 utility search failed: {e}, proceeding to Pass 2"
-                    )
-
+                all_results.extend(utility_results)
+            
             # PASS 2: General recall search (always run for coverage)
-            logger.info("Pass 2: General hybrid search for recall")
-
-            general_filters = plan.steps[0].get("filters") if plan.steps else {}
-            general_filters["full_body_text"] = True  # Always get complete content
-
-            # Choose index for general search
-            if general_filters.get("index") == "swagger":
-                index = OpenSearchConfig.get_swagger_index()
-            elif recognized_utility and not general_filters.get("index"):
-                # Multi-index search when we have a recognized utility
-                indices = [
-                    OpenSearchConfig.get_default_index(),
-                    OpenSearchConfig.get_swagger_index(),
-                ]
-
-                try:
-                    multi_results = await asyncio.wait_for(
-                        multi_index_search_tool(
-                            indices=indices,
-                            query=query,
-                            filters=general_filters,
-                            search_client=resources.search_client,
-                            embed_client=resources.embed_client,
-                            embed_model=resources.settings.embed.model,
-                            top_k_per_index=resources.settings.search_config.search_top_k_per_index_info
-                            // 2,
-                        ),
-                        timeout=self.max_verification_time_ms / 1000,
-                    )
-
-                    # Flatten multi-index results
-                    for result_set in multi_results:
-                        for result in result_set.results:
-                            result.utility_anchored = False
-                        all_results.extend(result_set.results)
-
-                    logger.info(
-                        f"Pass 2 multi-index yielded {sum(len(rs.results) for rs in multi_results)} general results"
-                    )
-
-                except asyncio.TimeoutError:
-                    logger.warning("Pass 2 multi-index search timed out")
-                except Exception as e:
-                    logger.warning(f"Pass 2 multi-index search failed: {e}")
-
-            else:
-                # Single index general search
-                index = (
-                    general_filters.get("index_override")
-                    or OpenSearchConfig.get_default_index()
-                )
-
-                try:
-                    general_result = await asyncio.wait_for(
-                        search_index_tool(
-                            index=index,
-                            query=query,
-                            filters=general_filters,
-                            search_client=resources.search_client,
-                            embed_client=resources.embed_client,
-                            embed_model=resources.settings.embed.model,
-                            top_k=resources.settings.search_config.search_top_k_info,
-                            strategy="enhanced_rrf",
-                        ),
-                        timeout=self.max_verification_time_ms / 1000,
-                    )
-
-                    # Mark general results
-                    for result in general_result.results:
-                        result.utility_anchored = False
-
-                    all_results.extend(general_result.results)
-                    logger.info(
-                        f"Pass 2 single-index yielded {len(general_result.results)} general results"
-                    )
-
-                except asyncio.TimeoutError:
-                    logger.warning("Pass 2 general search timed out")
-                except Exception as e:
-                    logger.error(f"Pass 2 general search failed: {e}")
-
-            # WEIGHTED FUSION: Utility-anchored results preferred
-            final_results = self._weighted_fusion_utility_first(
-                all_results, recognized_utility, plan
+            general_results = await self._execute_general_search(
+                query, plan, resources, recognized_utility
             )
-
-            # Store metadata for downstream nodes
-            plan.recognized_utility = recognized_utility
-            plan.search_policy = search_policy
-            plan.orchestrator_trace_id = f"orch_{hash(query) % 10000}"
-
-            logger.info(
-                f"Enhanced search complete: {len(final_results)} results, policy={search_policy}"
+            all_results.extend(general_results)
+            
+            # Process and return final results
+            return self._process_search_results(
+                all_results, recognized_utility, search_policy, plan, query
             )
-            return final_results
-
+            
         except Exception as e:
             logger.error(f"Enhanced search failed completely: {e}")
             return []
@@ -623,6 +479,140 @@ Guidelines:
         final_results = combined_results[:max_results]
 
         return final_results
+
+    def _analyze_citations(self, citations: List[str], sentences: List[str], results: List[Any], resources) -> Dict[str, Any]:
+        """Analyze citation coverage and presence."""
+        # Citation coverage by sentences
+        sentences_with_citations = sum(
+            1 for sentence in sentences 
+            if any(citation in sentence for citation in citations)
+        )
+        
+        sentence_citation_coverage = sentences_with_citations / max(len(sentences), 1)
+        citation_threshold = (
+            resources.settings.search_config.citation_coverage_threshold
+            if resources and resources.settings else 0.6
+        )
+        
+        return {
+            "has_citations": len(citations) > 0,
+            "result_citation_coverage": len(citations) / max(len(results), 1) if results else 0,
+            "sentence_citation_coverage": sentence_citation_coverage,
+            "citation_threshold": citation_threshold,
+            "citation_coverage_ok": sentence_citation_coverage >= citation_threshold,
+            "sentences_with_citations": sentences_with_citations,
+        }
+    
+    def _check_anchor_requirements(self, citations: List[str], results: List[Any]) -> Dict[str, Any]:
+        """Check anchor presence requirements for how-to queries."""
+        anchor_check_passed = True
+        anchor_details = {"checked": False, "found": False, "relevant_anchors": []}
+        
+        if (
+            hasattr(self, "_current_plan")
+            and getattr(self._current_plan, "expected_answer_shape", "") == "how_to_steps"
+        ):
+            anchor_check_passed, anchor_details = self._check_anchor_presence(citations, results)
+        
+        return {
+            "anchor_check_passed": anchor_check_passed,
+            "anchor_details": anchor_details,
+        }
+    
+    def _calculate_grounding_score(self, answer: str, results: List[Any]) -> float:
+        """Calculate answer grounding score based on word overlap."""
+        answer_words = set(answer.lower().split())
+        result_words = set()
+        
+        # Use full body text from results for better grounding
+        for result in results[:5]:  # Check top 5 results
+            text = self._get_full_body_text(result)
+            result_words.update(text.lower().split()[:100])  # More words for better coverage
+        
+        return len(answer_words & result_words) / max(len(answer_words), 1)
+    
+    def _calculate_utility_relevance(self, answer: str) -> float:
+        """Calculate utility-specific content relevance score."""
+        if not (hasattr(self, "_current_plan") and getattr(self._current_plan, "recognized_utility", None)):
+            return 1.0
+        
+        return self._check_utility_content_relevance(
+            answer, self._current_plan.recognized_utility
+        )
+    
+    def _calculate_verification_score(
+        self, citation_analysis: Dict, anchor_analysis: Dict, grounding_score: float, utility_score: float
+    ) -> float:
+        """Calculate composite verification score."""
+        return (
+            0.25 * (1.0 if citation_analysis["has_citations"] else 0.0)  # Basic citations
+            + 0.30 * citation_analysis["sentence_citation_coverage"]  # Citation density
+            + 0.20 * (1.0 if anchor_analysis["anchor_check_passed"] else 0.5)  # Anchor relevance
+            + 0.15 * min(grounding_score * 2, 1.0)  # Grounding
+            + 0.10 * utility_score  # Utility relevance
+        )
+    
+    def _requires_improvement(
+        self, verification_score: float, citation_analysis: Dict, anchor_analysis: Dict
+    ) -> bool:
+        """Determine if answer quality improvement is needed."""
+        return (
+            verification_score < 0.65
+            or not citation_analysis["citation_coverage_ok"]
+            or not anchor_analysis["anchor_check_passed"]
+        )
+    
+    def _generate_improvement_suggestions(
+        self, citation_analysis: Dict, anchor_analysis: Dict, grounding_score: float, utility_score: float
+    ) -> List[str]:
+        """Generate specific improvement suggestions."""
+        suggestions = []
+        
+        # Citation suggestions
+        if not citation_analysis["has_citations"]:
+            suggestions.append("Add citations to support claims")
+        elif citation_analysis["sentence_citation_coverage"] < citation_analysis["citation_threshold"]:
+            coverage = citation_analysis["sentence_citation_coverage"]
+            threshold = citation_analysis["citation_threshold"]
+            suggestions.append(
+                f"Improve citation coverage: only {coverage:.1%} of sentences have citations (need ≥{threshold:.1%})"
+            )
+        
+        # Anchor suggestions
+        if not anchor_analysis["anchor_check_passed"] and anchor_analysis["anchor_details"].get("checked"):
+            suggestions.append("Include procedural anchors (setup/onboarding/configuration sections)")
+        
+        # Grounding suggestions
+        if grounding_score < 0.3:
+            suggestions.append("Improve answer grounding to retrieved content")
+        
+        # Utility relevance suggestions
+        if utility_score < 0.7:
+            suggestions.append("Ensure answer focuses on the specific utility mentioned")
+        
+        return suggestions
+    
+    def _build_verification_result(
+        self, verification_score: float, citation_analysis: Dict, anchor_analysis: Dict,
+        grounding_score: float, utility_score: float, needs_improvement: bool, 
+        suggestions: List[str], sentences: List[str]
+    ) -> Dict[str, Any]:
+        """Build final verification result dictionary."""
+        return {
+            "verification_score": verification_score,
+            "has_citations": citation_analysis["has_citations"],
+            "citation_coverage": citation_analysis["result_citation_coverage"],
+            "sentence_citation_coverage": citation_analysis["sentence_citation_coverage"],
+            "citation_coverage_ok": citation_analysis["citation_coverage_ok"],
+            "anchor_check": anchor_analysis["anchor_details"],
+            "anchor_check_passed": anchor_analysis["anchor_check_passed"],
+            "word_overlap": grounding_score,
+            "utility_content_score": utility_score,
+            "needs_improvement": needs_improvement,
+            "suggestions": suggestions,
+            "sentences_analyzed": len(sentences),
+            "sentences_with_citations": citation_analysis["sentences_with_citations"],
+        }
 
     async def _generate_shaped_answer(
         self, query: str, results: List[Any], plan: EnhancedPlan, resources
@@ -1073,5 +1063,332 @@ Guidelines:
                 )
                 context_parts.append(f"A: {answer_preview}")
         return "\n".join(context_parts)
+    
+    def _prepare_search_strategy(self, query: str) -> tuple:
+        """Prepare search strategy and detect recognized utility."""
+        recognized_utility = self._extract_utility_from_query(query)
+        search_policy = "utility_first" if recognized_utility else "general"
+        all_results = []
+        return recognized_utility, search_policy, all_results
+    
+    async def _execute_utility_anchored_search(
+        self, query: str, recognized_utility: str, plan: EnhancedPlan, resources
+    ) -> List[Any]:
+        """Execute Pass 1: Utility-anchored high-precision search."""
+        from src.agent.tools.search import search_index_tool
+        from src.infra.search_config import OpenSearchConfig
+        import asyncio
+        
+        logger.info(f"Pass 1: Utility-anchored search for '{recognized_utility}'")
+        
+        # Prepare utility filters
+        utility_filters = {
+            "utility_name": recognized_utility,
+            "boost_utility": resources.settings.search_config.utility_boost_factor,
+            "full_body_text": True,
+        }
+        
+        # Merge with plan filters and choose index
+        base_filters = plan.steps[0].get("filters") if plan.steps else {}
+        utility_filters.update(base_filters)
+        
+        index = (
+            OpenSearchConfig.get_swagger_index() 
+            if base_filters.get("index") == "swagger"
+            else OpenSearchConfig.get_default_index()
+        )
+        
+        try:
+            utility_result = await asyncio.wait_for(
+                search_index_tool(
+                    index=index,
+                    query=f"{query} {recognized_utility}",
+                    filters=utility_filters,
+                    search_client=resources.search_client,
+                    embed_client=resources.embed_client,
+                    embed_model=resources.settings.embed.model,
+                    top_k=resources.settings.search_config.search_top_k_per_index_info,
+                    strategy="enhanced_rrf",
+                ),
+                timeout=self.max_verification_time_ms / 1000,
+            )
+            
+            # Mark utility-anchored results
+            for result in utility_result.results:
+                result.utility_anchored = True
+            
+            logger.info(f"Pass 1 yielded {len(utility_result.results)} utility-anchored results")
+            return utility_result.results
+            
+        except asyncio.TimeoutError:
+            logger.warning("Pass 1 utility search timed out, proceeding to Pass 2")
+            return []
+        except Exception as e:
+            logger.warning(f"Pass 1 utility search failed: {e}, proceeding to Pass 2")
+            return []
+    
+    async def _execute_general_search(
+        self, query: str, plan: EnhancedPlan, resources, recognized_utility: Optional[str]
+    ) -> List[Any]:
+        """Execute Pass 2: General recall search."""
+        from src.agent.tools.search import search_index_tool, multi_index_search_tool
+        from src.infra.search_config import OpenSearchConfig
+        import asyncio
+        
+        logger.info("Pass 2: General hybrid search for recall")
+        
+        general_filters = plan.steps[0].get("filters") if plan.steps else {}
+        general_filters["full_body_text"] = True
+        
+        # Choose between multi-index or single-index search
+        if self._should_use_multi_index_search(general_filters, recognized_utility):
+            return await self._execute_multi_index_search(query, general_filters, resources)
+        else:
+            return await self._execute_single_index_search(query, general_filters, resources)
+    
+    def _should_use_multi_index_search(self, general_filters: dict, recognized_utility: Optional[str]) -> bool:
+        """Determine if multi-index search should be used."""
+        return (
+            general_filters.get("index") != "swagger" 
+            and recognized_utility 
+            and not general_filters.get("index")
+        )
+    
+    async def _execute_multi_index_search(self, query: str, general_filters: dict, resources) -> List[Any]:
+        """Execute multi-index search strategy."""
+        from src.agent.tools.search import multi_index_search_tool
+        from src.infra.search_config import OpenSearchConfig
+        import asyncio
+        
+        indices = [
+            OpenSearchConfig.get_default_index(),
+            OpenSearchConfig.get_swagger_index(),
+        ]
+        
+        try:
+            multi_results = await asyncio.wait_for(
+                multi_index_search_tool(
+                    indices=indices,
+                    query=query,
+                    filters=general_filters,
+                    search_client=resources.search_client,
+                    embed_client=resources.embed_client,
+                    embed_model=resources.settings.embed.model,
+                    top_k_per_index=resources.settings.search_config.search_top_k_per_index_info // 2,
+                ),
+                timeout=self.max_verification_time_ms / 1000,
+            )
+            
+            # Flatten and mark results
+            all_results = []
+            for result_set in multi_results:
+                for result in result_set.results:
+                    result.utility_anchored = False
+                all_results.extend(result_set.results)
+            
+            logger.info(f"Pass 2 multi-index yielded {len(all_results)} general results")
+            return all_results
+            
+        except asyncio.TimeoutError:
+            logger.warning("Pass 2 multi-index search timed out")
+            return []
+        except Exception as e:
+            logger.warning(f"Pass 2 multi-index search failed: {e}")
+            return []
+    
+    async def _execute_single_index_search(self, query: str, general_filters: dict, resources) -> List[Any]:
+        """Execute single-index search strategy."""
+        from src.agent.tools.search import search_index_tool
+        from src.infra.search_config import OpenSearchConfig
+        import asyncio
+        
+        index = (
+            general_filters.get("index_override")
+            or OpenSearchConfig.get_swagger_index() if general_filters.get("index") == "swagger"
+            else OpenSearchConfig.get_default_index()
+        )
+        
+        try:
+            general_result = await asyncio.wait_for(
+                search_index_tool(
+                    index=index,
+                    query=query,
+                    filters=general_filters,
+                    search_client=resources.search_client,
+                    embed_client=resources.embed_client,
+                    embed_model=resources.settings.embed.model,
+                    top_k=resources.settings.search_config.search_top_k_info,
+                    strategy="enhanced_rrf",
+                ),
+                timeout=self.max_verification_time_ms / 1000,
+            )
+            
+            # Mark general results
+            for result in general_result.results:
+                result.utility_anchored = False
+            
+            logger.info(f"Pass 2 single-index yielded {len(general_result.results)} general results")
+            return general_result.results
+            
+        except asyncio.TimeoutError:
+            logger.warning("Pass 2 general search timed out")
+            return []
+        except Exception as e:
+            logger.error(f"Pass 2 general search failed: {e}")
+            return []
+    
+    def _process_search_results(
+        self, all_results: List[Any], recognized_utility: Optional[str], 
+        search_policy: str, plan: EnhancedPlan, query: str
+    ) -> List[Any]:
+        """Process and combine search results with metadata."""
+        # WEIGHTED FUSION: Utility-anchored results preferred
+        final_results = self._weighted_fusion_utility_first(
+            all_results, recognized_utility, plan
+        )
+        
+        # Store metadata for downstream nodes
+        plan.recognized_utility = recognized_utility
+        plan.search_policy = search_policy
+        plan.orchestrator_trace_id = f"orch_{hash(query) % 10000}"
+        
+        logger.info(
+            f"Enhanced search complete: {len(final_results)} results, policy={search_policy}"
+        )
+        return final_results
+
+    def _analyze_citations(self, citations: List[str], sentences: List[str], results: List[Any], resources) -> Dict[str, Any]:
+        """Analyze citation coverage and presence."""
+        # Citation coverage by sentences
+        sentences_with_citations = sum(
+            1 for sentence in sentences 
+            if any(citation in sentence for citation in citations)
+        )
+        
+        sentence_citation_coverage = sentences_with_citations / max(len(sentences), 1)
+        citation_threshold = (
+            resources.settings.search_config.citation_coverage_threshold
+            if resources and resources.settings else 0.6
+        )
+        
+        return {
+            "has_citations": len(citations) > 0,
+            "result_citation_coverage": len(citations) / max(len(results), 1) if results else 0,
+            "sentence_citation_coverage": sentence_citation_coverage,
+            "citation_threshold": citation_threshold,
+            "citation_coverage_ok": sentence_citation_coverage >= citation_threshold,
+            "sentences_with_citations": sentences_with_citations,
+        }
+    
+    def _check_anchor_requirements(self, citations: List[str], results: List[Any]) -> Dict[str, Any]:
+        """Check anchor presence requirements for how-to queries."""
+        anchor_check_passed = True
+        anchor_details = {"checked": False, "found": False, "relevant_anchors": []}
+        
+        if (
+            hasattr(self, "_current_plan")
+            and getattr(self._current_plan, "expected_answer_shape", "") == "how_to_steps"
+        ):
+            anchor_check_passed, anchor_details = self._check_anchor_presence(citations, results)
+        
+        return {
+            "anchor_check_passed": anchor_check_passed,
+            "anchor_details": anchor_details,
+        }
+    
+    def _calculate_grounding_score(self, answer: str, results: List[Any]) -> float:
+        """Calculate answer grounding score based on word overlap."""
+        answer_words = set(answer.lower().split())
+        result_words = set()
+        
+        # Use full body text from results for better grounding
+        for result in results[:5]:  # Check top 5 results
+            text = self._get_full_body_text(result)
+            result_words.update(text.lower().split()[:100])  # More words for better coverage
+        
+        return len(answer_words & result_words) / max(len(answer_words), 1)
+    
+    def _calculate_utility_relevance(self, answer: str) -> float:
+        """Calculate utility-specific content relevance score."""
+        if not (hasattr(self, "_current_plan") and getattr(self._current_plan, "recognized_utility", None)):
+            return 1.0
+        
+        return self._check_utility_content_relevance(
+            answer, self._current_plan.recognized_utility
+        )
+    
+    def _calculate_verification_score(
+        self, citation_analysis: Dict, anchor_analysis: Dict, grounding_score: float, utility_score: float
+    ) -> float:
+        """Calculate composite verification score."""
+        return (
+            0.25 * (1.0 if citation_analysis["has_citations"] else 0.0)  # Basic citations
+            + 0.30 * citation_analysis["sentence_citation_coverage"]  # Citation density
+            + 0.20 * (1.0 if anchor_analysis["anchor_check_passed"] else 0.5)  # Anchor relevance
+            + 0.15 * min(grounding_score * 2, 1.0)  # Grounding
+            + 0.10 * utility_score  # Utility relevance
+        )
+    
+    def _requires_improvement(
+        self, verification_score: float, citation_analysis: Dict, anchor_analysis: Dict
+    ) -> bool:
+        """Determine if answer quality improvement is needed."""
+        return (
+            verification_score < 0.65
+            or not citation_analysis["citation_coverage_ok"]
+            or not anchor_analysis["anchor_check_passed"]
+        )
+    
+    def _generate_improvement_suggestions(
+        self, citation_analysis: Dict, anchor_analysis: Dict, grounding_score: float, utility_score: float
+    ) -> List[str]:
+        """Generate specific improvement suggestions."""
+        suggestions = []
+        
+        # Citation suggestions
+        if not citation_analysis["has_citations"]:
+            suggestions.append("Add citations to support claims")
+        elif citation_analysis["sentence_citation_coverage"] < citation_analysis["citation_threshold"]:
+            coverage = citation_analysis["sentence_citation_coverage"]
+            threshold = citation_analysis["citation_threshold"]
+            suggestions.append(
+                f"Improve citation coverage: only {coverage:.1%} of sentences have citations (need ≥{threshold:.1%})"
+            )
+        
+        # Anchor suggestions
+        if not anchor_analysis["anchor_check_passed"] and anchor_analysis["anchor_details"].get("checked"):
+            suggestions.append("Include procedural anchors (setup/onboarding/configuration sections)")
+        
+        # Grounding suggestions
+        if grounding_score < 0.3:
+            suggestions.append("Improve answer grounding to retrieved content")
+        
+        # Utility relevance suggestions
+        if utility_score < 0.7:
+            suggestions.append("Ensure answer focuses on the specific utility mentioned")
+        
+        return suggestions
+    
+    def _build_verification_result(
+        self, verification_score: float, citation_analysis: Dict, anchor_analysis: Dict,
+        grounding_score: float, utility_score: float, needs_improvement: bool, 
+        suggestions: List[str], sentences: List[str]
+    ) -> Dict[str, Any]:
+        """Build final verification result dictionary."""
+        return {
+            "verification_score": verification_score,
+            "has_citations": citation_analysis["has_citations"],
+            "citation_coverage": citation_analysis["result_citation_coverage"],
+            "sentence_citation_coverage": citation_analysis["sentence_citation_coverage"],
+            "citation_coverage_ok": citation_analysis["citation_coverage_ok"],
+            "anchor_check": anchor_analysis["anchor_details"],
+            "anchor_check_passed": anchor_analysis["anchor_check_passed"],
+            "word_overlap": grounding_score,
+            "utility_content_score": utility_score,
+            "needs_improvement": needs_improvement,
+            "suggestions": suggestions,
+            "sentences_analyzed": len(sentences),
+            "sentences_with_citations": citation_analysis["sentences_with_citations"],
+        }
 
 

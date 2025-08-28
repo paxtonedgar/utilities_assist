@@ -746,7 +746,45 @@ async def enhanced_rrf_search(
     Returns:
         Tuple of (RetrievalResult, diagnostics)
     """
-    diagnostics = {
+    diagnostics = _init_search_diagnostics(use_mmr)
+
+    try:
+        # Try hybrid search first, fallback to separate searches
+        hybrid_result = await _try_hybrid_search(
+            query, query_embedding, search_client, index_name, filters, top_k, diagnostics
+        )
+        if hybrid_result:
+            return hybrid_result
+
+        # Fallback to separate BM25 and KNN searches
+        bm25_result, knn_result = await _execute_separate_searches(
+            query, query_embedding, search_client, index_name, filters, diagnostics
+        )
+
+        # Fuse results and apply diversification
+        final_doc_ids, all_results = _fuse_and_diversify_results(
+            bm25_result, knn_result, use_mmr, query, top_k, rrf_k, lambda_param, diagnostics
+        )
+
+        # Apply no-answer policy and build final results
+        return _build_final_search_result(
+            final_doc_ids, all_results, bm25_result, knn_result, diagnostics
+        )
+
+    except Exception as e:
+        logger.error(f"Enhanced RRF search failed: {e}")
+        return RetrievalResult(
+            results=[],
+            total_found=0,
+            retrieval_time_ms=0,
+            method="enhanced_rrf",
+            diagnostics={**diagnostics, "error": str(e)},
+        ), {**diagnostics, "error": str(e)}
+
+
+def _init_search_diagnostics(use_mmr: bool) -> Dict[str, Any]:
+    """Initialize search diagnostics dictionary."""
+    return {
         "bm25_count": 0,
         "knn_count": 0,
         "rrf_count": 0,
@@ -756,216 +794,252 @@ async def enhanced_rrf_search(
         "decay_scale": "120d",
     }
 
-    try:
-        # OPTION 1: Try true hybrid search first (single query with both BM25 and KNN)
-        # This is more efficient than running separate searches
-        use_single_hybrid = True  # Feature flag - can be configured
 
-        if use_single_hybrid and query_embedding:
-            logger.info("Using single hybrid search query")
-            hybrid_result = await hybrid_search_with_timeout(
-                query=query,
-                query_embedding=query_embedding,
-                search_client=search_client,
-                index_name=index_name,
-                filters=filters,
-                top_k=top_k,
-                timeout_seconds=5.0,  # Allow adequate time for BM25 + KNN execution (~4s observed)
-            )
+async def _try_hybrid_search(
+    query: str,
+    query_embedding: List[float],
+    search_client: OpenSearchClient,
+    index_name: str,
+    filters: Optional[Dict[str, Any]],
+    top_k: int,
+    diagnostics: Dict[str, Any],
+) -> Optional[Tuple[RetrievalResult, Dict[str, Any]]]:
+    """Try hybrid search first for efficiency."""
+    use_single_hybrid = True  # Feature flag - can be configured
 
-            if hybrid_result.results:
-                # Success with hybrid search - return directly
-                diagnostics["search_method"] = "single_hybrid"
-                diagnostics["result_count"] = len(hybrid_result.results)
-                # Set consistent hit counts for hybrid search
-                diagnostics["bm25_hits"] = len(hybrid_result.results)  # Approximate
-                diagnostics["knn_hits"] = len(hybrid_result.results)  # Approximate
-
-                return hybrid_result, diagnostics
-            else:
-                logger.info(
-                    "Hybrid search returned no results, falling back to separate searches"
-                )
-
-        # OPTION 2: Fallback to separate BM25 and KNN searches with RRF fusion
-        # AGGRESSIVE TIMEOUTS: Use timeout-wrapped search calls that never propagate exceptions
-        # This prevents the 6-7s "Answer" with zero docs scenario
-
-        # Get configurable search pool sizes
-        from src.infra.settings import get_settings
-
-        settings = get_settings()
-
-        knn_result = await knn_search_with_timeout(
+    if use_single_hybrid and query_embedding:
+        logger.info("Using single hybrid search query")
+        hybrid_result = await hybrid_search_with_timeout(
+            query=query,
             query_embedding=query_embedding,
             search_client=search_client,
             index_name=index_name,
             filters=filters,
-            top_k=settings.search_config.knn_top_k,  # Configurable pool size
-            ef_search=80,  # Reduced from 256 to 80 for faster search
-            timeout_seconds=1.8,  # Aggressive timeout
+            top_k=top_k,
+            timeout_seconds=5.0,
         )
 
-        diagnostics["knn_count"] = len(knn_result.results)
-
-        # Gate logic: Skip BM25 if KNN already provides good coverage
-        skip_bm25 = False
-        if len(knn_result.results) >= top_k and knn_result.results:
-            # Check if KNN results have high scores (good semantic match)
-            avg_knn_score = sum(r.score for r in knn_result.results[:top_k]) / min(
-                len(knn_result.results), top_k
-            )
-            if avg_knn_score > 0.8:  # High semantic similarity threshold
-                skip_bm25 = True
-                diagnostics["bm25_skipped"] = True
-                diagnostics["skip_reason"] = (
-                    f"KNN sufficient: {len(knn_result.results)} results, avg_score={avg_knn_score:.3f}"
-                )
-                logger.info(
-                    f"Skipping BM25 search: KNN returned {len(knn_result.results)} results with avg score {avg_knn_score:.3f}"
-                )
-
-        if skip_bm25:
-            # Use only KNN results - no BM25 search needed
-            bm25_result = RetrievalResult(
-                results=[],
-                total_found=0,
-                retrieval_time_ms=0,
-                method="bm25_skipped",
-                diagnostics={"skipped": True},
-            )
-            diagnostics["bm25_count"] = 0
+        if hybrid_result.results:
+            diagnostics["search_method"] = "single_hybrid"
+            diagnostics["result_count"] = len(hybrid_result.results)
+            diagnostics["bm25_hits"] = len(hybrid_result.results)  # Approximate
+            diagnostics["knn_hits"] = len(hybrid_result.results)  # Approximate
+            return hybrid_result, diagnostics
         else:
-            # Run BM25 search with timeout protection
-            bm25_result = await bm25_search_with_timeout(
-                query=query,
-                search_client=search_client,
-                index_name=index_name,
-                filters=filters,
-                top_k=settings.search_config.bm25_top_k,  # Configurable pool size
-                time_decay_days=120,
-                timeout_seconds=1.8,  # Aggressive timeout
+            logger.info("Hybrid search returned no results, falling back to separate searches")
+
+    return None
+
+
+async def _execute_separate_searches(
+    query: str,
+    query_embedding: List[float],
+    search_client: OpenSearchClient,
+    index_name: str,
+    filters: Optional[Dict[str, Any]],
+    diagnostics: Dict[str, Any],
+) -> Tuple[RetrievalResult, RetrievalResult]:
+    """Execute separate BM25 and KNN searches with smart gating."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+
+    # Run KNN search first
+    knn_result = await knn_search_with_timeout(
+        query_embedding=query_embedding,
+        search_client=search_client,
+        index_name=index_name,
+        filters=filters,
+        top_k=settings.search_config.knn_top_k,
+        ef_search=80,
+        timeout_seconds=1.8,
+    )
+    diagnostics["knn_count"] = len(knn_result.results)
+
+    # Decide if we can skip BM25
+    bm25_result = await _maybe_skip_bm25_search(
+        query, search_client, index_name, filters, knn_result, settings, diagnostics
+    )
+
+    return bm25_result, knn_result
+
+
+async def _maybe_skip_bm25_search(
+    query: str,
+    search_client: OpenSearchClient,
+    index_name: str,
+    filters: Optional[Dict[str, Any]],
+    knn_result: RetrievalResult,
+    settings,
+    diagnostics: Dict[str, Any],
+) -> RetrievalResult:
+    """Skip BM25 if KNN provides sufficient coverage."""
+    skip_bm25 = False
+    top_k = 8  # From original function parameter
+
+    if len(knn_result.results) >= top_k and knn_result.results:
+        avg_knn_score = sum(r.score for r in knn_result.results[:top_k]) / min(
+            len(knn_result.results), top_k
+        )
+        if avg_knn_score > 0.8:  # High semantic similarity threshold
+            skip_bm25 = True
+            diagnostics["bm25_skipped"] = True
+            diagnostics["skip_reason"] = (
+                f"KNN sufficient: {len(knn_result.results)} results, avg_score={avg_knn_score:.3f}"
             )
-            diagnostics["bm25_count"] = len(bm25_result.results)
-
-        # Convert to (doc_id, score) tuples for RRF
-        bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
-        knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
-
-        # Add hit counts to diagnostics for consistent logging
-        diagnostics["bm25_hits"] = len(bm25_hits)
-        diagnostics["knn_hits"] = len(knn_hits)
-
-        # SINGLE-PASS DIVERSIFICATION: Combine RRF fusion with diversification in one step
-        # This eliminates redundant MMR processing after multiple fusion steps
-        all_results = {r.doc_id: r for r in bm25_result.results + knn_result.results}
-
-        if use_mmr:
-            # Apply RRF with integrated diversification
-            final_doc_ids, mmr_diagnostics = _rrf_with_diversification(
-                bm25_hits=bm25_hits,
-                knn_hits=knn_hits,
-                all_results=all_results,
-                query=query,
-                k_final=36,  # Expand to 36 candidates for cross-encoder
-                rrf_k=rrf_k,
-                lambda_param=lambda_param,
-            )
-            diagnostics.update(mmr_diagnostics)
-            diagnostics["rrf_count"] = len(final_doc_ids)
-        else:
-            # Traditional RRF without diversification
-            fused_hits = rrf_fuse_results(
-                bm25_hits, knn_hits, k_final=top_k, rrf_k=rrf_k
-            )
-            final_doc_ids = [doc_id for doc_id, _ in fused_hits]
-            diagnostics["rrf_count"] = len(fused_hits)
-
-        # NO-ANSWER POLICY: Early exit if no docs or low scores
-        # This prevents 6-7s LLM calls with empty context
-        if not final_doc_ids:
-            logger.info("No documents found - applying no-answer policy")
-            return RetrievalResult(
-                results=[],
-                total_found=0,
-                retrieval_time_ms=bm25_result.retrieval_time_ms
-                + knn_result.retrieval_time_ms,
-                method="enhanced_rrf_no_docs",
-                diagnostics={**diagnostics, "no_answer_reason": "no_documents_found"},
-            ), {**diagnostics, "no_answer_reason": "no_documents_found"}
-
-        # Build final results
-        final_results = []
-        for doc_id in final_doc_ids:
-            if doc_id in all_results:
-                final_results.append(all_results[doc_id])
-
-        # Check score threshold after building results
-        if final_results:
-            top_score = max(r.score for r in final_results)
-            if top_score < 0.1:  # Low confidence threshold
-                logger.info(
-                    f"Top score {top_score:.3f} below threshold - applying no-answer policy"
-                )
-                return RetrievalResult(
-                    results=[],
-                    total_found=0,
-                    retrieval_time_ms=bm25_result.retrieval_time_ms
-                    + knn_result.retrieval_time_ms,
-                    method="enhanced_rrf_low_score",
-                    diagnostics={
-                        **diagnostics,
-                        "no_answer_reason": f"low_score_{top_score:.3f}",
-                    },
-                ), {**diagnostics, "no_answer_reason": f"low_score_{top_score:.3f}"}
-
-        # MAX DOCS COMPRESSION: Limit to best 3-5 chunks (~1-2k tokens)
-        MAX_DOCS_FOR_LLM = 5
-        MAX_CONTENT_LENGTH = 400  # ~100 tokens per chunk
-
-        if len(final_results) > MAX_DOCS_FOR_LLM:
             logger.info(
-                f"Compressing {len(final_results)} docs to top {MAX_DOCS_FOR_LLM}"
+                f"Skipping BM25 search: KNN returned {len(knn_result.results)} results with avg score {avg_knn_score:.3f}"
             )
-            final_results = final_results[:MAX_DOCS_FOR_LLM]
-            diagnostics["docs_compressed"] = True
-            diagnostics["original_doc_count"] = len(final_doc_ids)
 
-        # Compress content length for LLM efficiency
-        for result in final_results:
-            if hasattr(result, "text") and len(result.text) > MAX_CONTENT_LENGTH:
-                result.text = result.text[:MAX_CONTENT_LENGTH] + "..."
-                diagnostics.setdefault("content_compressed", 0)
-                diagnostics["content_compressed"] += 1
-
-        # Count generic penalties (documents with negative function scores)
-        for result in final_results:
-            section = result.meta.get("section", "").lower()
-            title = result.meta.get("title", "").lower()
-            if any(
-                generic in section for generic in ["global", "overview", "platform"]
-            ) or any(
-                generic in title for generic in ["overview", "introduction", "welcome"]
-            ):
-                diagnostics["generic_penalties"] += 1
-
-        final_result = RetrievalResult(
-            results=final_results,
-            total_found=len(final_results),
-            retrieval_time_ms=bm25_result.retrieval_time_ms
-            + knn_result.retrieval_time_ms,
-            method="enhanced_rrf",
-            diagnostics=diagnostics,
+    if skip_bm25:
+        bm25_result = RetrievalResult(
+            results=[], total_found=0, retrieval_time_ms=0, method="bm25_skipped", diagnostics={"skipped": True}
         )
+        diagnostics["bm25_count"] = 0
+    else:
+        bm25_result = await bm25_search_with_timeout(
+            query=query,
+            search_client=search_client,
+            index_name=index_name,
+            filters=filters,
+            top_k=settings.search_config.bm25_top_k,
+            time_decay_days=120,
+            timeout_seconds=1.8,
+        )
+        diagnostics["bm25_count"] = len(bm25_result.results)
 
-        return final_result, diagnostics
+    return bm25_result
 
-    except Exception as e:
-        logger.error(f"Enhanced RRF search failed: {e}")
+
+def _fuse_and_diversify_results(
+    bm25_result: RetrievalResult,
+    knn_result: RetrievalResult,
+    use_mmr: bool,
+    query: str,
+    top_k: int,
+    rrf_k: int,
+    lambda_param: float,
+    diagnostics: Dict[str, Any],
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Fuse results using RRF and optionally apply diversification."""
+    bm25_hits = [(r.doc_id, r.score) for r in bm25_result.results]
+    knn_hits = [(r.doc_id, r.score) for r in knn_result.results]
+
+    diagnostics["bm25_hits"] = len(bm25_hits)
+    diagnostics["knn_hits"] = len(knn_hits)
+
+    all_results = {r.doc_id: r for r in bm25_result.results + knn_result.results}
+
+    if use_mmr:
+        final_doc_ids, mmr_diagnostics = _rrf_with_diversification(
+            bm25_hits=bm25_hits,
+            knn_hits=knn_hits,
+            all_results=all_results,
+            query=query,
+            k_final=36,  # Expand to 36 candidates for cross-encoder
+            rrf_k=rrf_k,
+            lambda_param=lambda_param,
+        )
+        diagnostics.update(mmr_diagnostics)
+        diagnostics["rrf_count"] = len(final_doc_ids)
+    else:
+        fused_hits = rrf_fuse_results(bm25_hits, knn_hits, k_final=top_k, rrf_k=rrf_k)
+        final_doc_ids = [doc_id for doc_id, _ in fused_hits]
+        diagnostics["rrf_count"] = len(fused_hits)
+
+    return final_doc_ids, all_results
+
+
+def _build_final_search_result(
+    final_doc_ids: List[str],
+    all_results: Dict[str, Any],
+    bm25_result: RetrievalResult,
+    knn_result: RetrievalResult,
+    diagnostics: Dict[str, Any],
+) -> Tuple[RetrievalResult, Dict[str, Any]]:
+    """Build final search result with no-answer policy and compression."""
+    # Apply no-answer policy
+    no_answer_result = _check_no_answer_policy(final_doc_ids, all_results, bm25_result, knn_result, diagnostics)
+    if no_answer_result:
+        return no_answer_result
+
+    # Build and compress results
+    final_results = [all_results[doc_id] for doc_id in final_doc_ids if doc_id in all_results]
+    final_results = _compress_results_for_llm(final_results, final_doc_ids, diagnostics)
+    _count_generic_penalties(final_results, diagnostics)
+
+    final_result = RetrievalResult(
+        results=final_results,
+        total_found=len(final_results),
+        retrieval_time_ms=bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms,
+        method="enhanced_rrf",
+        diagnostics=diagnostics,
+    )
+
+    return final_result, diagnostics
+
+
+def _check_no_answer_policy(
+    final_doc_ids: List[str],
+    all_results: Dict[str, Any],
+    bm25_result: RetrievalResult,
+    knn_result: RetrievalResult,
+    diagnostics: Dict[str, Any],
+) -> Optional[Tuple[RetrievalResult, Dict[str, Any]]]:
+    """Check if no-answer policy should be applied."""
+    total_time = bm25_result.retrieval_time_ms + knn_result.retrieval_time_ms
+
+    if not final_doc_ids:
+        logger.info("No documents found - applying no-answer policy")
         return RetrievalResult(
-            results=[],
-            total_found=0,
-            retrieval_time_ms=0,
-            method="enhanced_rrf",
-            diagnostics=diagnostics,
-        ), diagnostics
+            results=[], total_found=0, retrieval_time_ms=total_time,
+            method="enhanced_rrf_no_docs",
+            diagnostics={**diagnostics, "no_answer_reason": "no_documents_found"},
+        ), {**diagnostics, "no_answer_reason": "no_documents_found"}
+
+    # Check score threshold
+    final_results = [all_results[doc_id] for doc_id in final_doc_ids if doc_id in all_results]
+    if final_results:
+        top_score = max(r.score for r in final_results)
+        if top_score < 0.1:
+            logger.info(f"Top score {top_score:.3f} below threshold - applying no-answer policy")
+            return RetrievalResult(
+                results=[], total_found=0, retrieval_time_ms=total_time,
+                method="enhanced_rrf_low_score",
+                diagnostics={**diagnostics, "no_answer_reason": f"low_score_{top_score:.3f}"},
+            ), {**diagnostics, "no_answer_reason": f"low_score_{top_score:.3f}"}
+
+    return None
+
+
+def _compress_results_for_llm(
+    final_results: List[Any], final_doc_ids: List[str], diagnostics: Dict[str, Any]
+) -> List[Any]:
+    """Compress results for LLM efficiency."""
+    MAX_DOCS_FOR_LLM = 5
+    MAX_CONTENT_LENGTH = 400
+
+    if len(final_results) > MAX_DOCS_FOR_LLM:
+        logger.info(f"Compressing {len(final_results)} docs to top {MAX_DOCS_FOR_LLM}")
+        final_results = final_results[:MAX_DOCS_FOR_LLM]
+        diagnostics["docs_compressed"] = True
+        diagnostics["original_doc_count"] = len(final_doc_ids)
+
+    # Compress content length
+    for result in final_results:
+        if hasattr(result, "text") and len(result.text) > MAX_CONTENT_LENGTH:
+            result.text = result.text[:MAX_CONTENT_LENGTH] + "..."
+            diagnostics.setdefault("content_compressed", 0)
+            diagnostics["content_compressed"] += 1
+
+    return final_results
+
+
+def _count_generic_penalties(final_results: List[Any], diagnostics: Dict[str, Any]) -> None:
+    """Count generic penalties for diagnostic purposes."""
+    for result in final_results:
+        section = result.meta.get("section", "").lower()
+        title = result.meta.get("title", "").lower()
+        if any(generic in section for generic in ["global", "overview", "platform"]) or any(
+            generic in title for generic in ["overview", "introduction", "welcome"]
+        ):
+            diagnostics["generic_penalties"] += 1

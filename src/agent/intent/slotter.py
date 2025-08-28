@@ -132,99 +132,40 @@ def slot(user_text: str) -> SlotResult:
             reasons=["empty_query"],
             features={},
             confidence=0.0,
+            colors=DEFAULT_COLORS,
         )
-
-    # Normalize query for caching
-    normalized = " ".join(user_text.lower().strip().split())
 
     # Check cache first
-    cached_result = slot_cache.get(normalized)
-    if cached_result is not None:
-        return cached_result
+    result = _get_cached_or_compute(user_text)
+    if result:
+        return result
 
-    # Extract features
+    # Extract features and calculate scores
     features = _extract_features(user_text)
-
-    # Apply classification logic
-    procedure_score = sum(
-        features.get(f"proc_{i}", 0) for i in range(len(PROCEDURE_PATTERNS))
-    )
-    info_score = sum(features.get(f"info_{i}", 0) for i in range(len(INFO_PATTERNS)))
-    question_score = sum(
-        features.get(f"quest_{i}", 0) for i in range(len(QUESTION_PATTERNS))
-    )
-    action_score = sum(
-        features.get(f"action_{i}", 0) for i in range(len(ACTION_PATTERNS))
-    )
-
-    # Decision logic
-    reasons = []
-    doish = False
-
-    # Strong procedure indicators
-    if procedure_score > 0 or action_score > 0:
-        doish = True
-        reasons.extend(
-            [
-                f"procedure_patterns:{procedure_score}"
-                if procedure_score > 0
-                else None,
-                f"action_patterns:{action_score}" if action_score > 0 else None,
-            ]
-        )
-        reasons = [r for r in reasons if r is not None]
-
-    # Strong info indicators
-    if info_score > 0 or question_score > 0:
-        reasons.extend(
-            [
-                f"info_patterns:{info_score}" if info_score > 0 else None,
-                f"question_patterns:{question_score}" if question_score > 0 else None,
-            ]
-        )
-        reasons = [r for r in reasons if r is not None]
-
-    # Classify intent
-    if procedure_score > 0 and info_score > 0:
-        intent = "mixed"
-        confidence = 0.8
-    elif procedure_score > 0 or action_score > 0:
-        intent = "procedure"
-        confidence = 0.9 if procedure_score > 1 else 0.7
-    elif info_score > 0 or question_score > 0:
-        intent = "info"
-        confidence = 0.9 if info_score > 1 else 0.7
-    else:
-        # Fallback to ONNX or heuristics
-        if _looks_like_procedure_heuristic(user_text):
-            intent = "procedure"
-            doish = True
-            reasons.append("heuristic_procedure")
-            confidence = 0.5
-        else:
-            intent = "info"
-            reasons.append("default_info")
-            confidence = 0.4
-
-    # NEW: Compute coloring attributes
+    scores = _calculate_pattern_scores(features)
+    
+    # Classify intent and determine properties
+    intent, confidence = _classify_intent_from_scores(scores, user_text)
+    doish = _determine_doish_flag(scores)
+    reasons = _build_classification_reasons(scores, intent)
     colors = _compute_colors(user_text, features)
-
+    
+    # Build and cache result
     result = SlotResult(
         intent=intent,
         doish=doish,
         reasons=reasons,
         features=features,
         confidence=confidence,
-        colors=colors,  # Always include colors (never None)
+        colors=colors,
     )
-
-    # Cache result
-    slot_cache.put(normalized, result)
-
+    
+    _cache_result(user_text, result)
+    
     logger.debug(
         f"Slotted '{user_text[:50]}...' -> {intent} (doish={doish}, conf={confidence:.2f})"
     )
-
+    
     return result
 
 
@@ -300,6 +241,86 @@ def get_intent_confidence(slot_result: SlotResult) -> float:
 def get_intent_label(slot_result: SlotResult) -> str:
     """Extract intent label for backward compatibility."""
     return slot_result.intent
+
+
+def _get_cached_or_compute(user_text: str) -> SlotResult:
+    """Check cache for existing result."""
+    normalized = " ".join(user_text.lower().strip().split())
+    return slot_cache.get(normalized)
+
+
+def _calculate_pattern_scores(features: Dict[str, int]) -> Dict[str, int]:
+    """Calculate scores for all pattern types."""
+    return {
+        "procedure": sum(features.get(f"proc_{i}", 0) for i in range(len(PROCEDURE_PATTERNS))),
+        "info": sum(features.get(f"info_{i}", 0) for i in range(len(INFO_PATTERNS))),
+        "question": sum(features.get(f"quest_{i}", 0) for i in range(len(QUESTION_PATTERNS))),
+        "action": sum(features.get(f"action_{i}", 0) for i in range(len(ACTION_PATTERNS)))
+    }
+
+
+def _classify_intent_from_scores(scores: Dict[str, int], user_text: str) -> tuple[Intent, float]:
+    """Classify intent based on pattern scores with fallback logic."""
+    procedure_score = scores["procedure"]
+    info_score = scores["info"]
+    question_score = scores["question"]
+    action_score = scores["action"]
+    
+    # Primary classification logic
+    if procedure_score > 0 and info_score > 0:
+        return "mixed", 0.8
+    elif procedure_score > 0 or action_score > 0:
+        return "procedure", (0.9 if procedure_score > 1 else 0.7)
+    elif info_score > 0 or question_score > 0:
+        return "info", (0.9 if info_score > 1 else 0.7)
+    else:
+        # Fallback heuristics
+        return _apply_fallback_heuristics(user_text)
+
+
+def _apply_fallback_heuristics(user_text: str) -> tuple[Intent, float]:
+    """Apply heuristic fallback when no patterns match."""
+    if _looks_like_procedure_heuristic(user_text):
+        return "procedure", 0.5
+    else:
+        return "info", 0.4
+
+
+def _determine_doish_flag(scores: Dict[str, int]) -> bool:
+    """Determine if query sounds like a task/action."""
+    return scores["procedure"] > 0 or scores["action"] > 0
+
+
+def _build_classification_reasons(scores: Dict[str, int], intent: Intent) -> List[str]:
+    """Build list of classification reasons based on scores."""
+    reasons = []
+    
+    # Add procedure/action reasons
+    if scores["procedure"] > 0:
+        reasons.append(f"procedure_patterns:{scores['procedure']}")
+    if scores["action"] > 0:
+        reasons.append(f"action_patterns:{scores['action']}")
+    
+    # Add info/question reasons
+    if scores["info"] > 0:
+        reasons.append(f"info_patterns:{scores['info']}")
+    if scores["question"] > 0:
+        reasons.append(f"question_patterns:{scores['question']}")
+    
+    # Add fallback reasons if no patterns matched
+    if not reasons:
+        if intent == "procedure":
+            reasons.append("heuristic_procedure")
+        else:
+            reasons.append("default_info")
+    
+    return reasons
+
+
+def _cache_result(user_text: str, result: SlotResult) -> None:
+    """Cache the classification result."""
+    normalized = " ".join(user_text.lower().strip().split())
+    slot_cache.put(normalized, result)
 
 
 def _compute_colors(text: str, features: Dict[str, int]) -> Colors:

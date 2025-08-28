@@ -57,93 +57,22 @@ def choose_presenter(
     Returns:
         Decision with presenter choice and supporting data
     """
-    # Extract top passages for span detection
-    passages_to_analyze = []
-
-    if proc_view and proc_view.reranked_topk:
-        passages_to_analyze = proc_view.reranked_topk[:8]
-    elif proc_view and proc_view.fused_top8:
-        passages_to_analyze = proc_view.fused_top8[:8]
-    elif info_view and info_view.reranked_topk:
-        passages_to_analyze = info_view.reranked_topk[:8]
-    elif info_view and info_view.fused_top8:
-        passages_to_analyze = info_view.fused_top8[:8]
-
-    # Detect actionable spans
-    spans = detect_spans(passages_to_analyze) if passages_to_analyze else []
-
-    # Calculate actionability metrics
-    action_score = actionable_score(spans)
-    action_count = actionable_count(spans)
-
-    # Count suites and capabilities for telemetry
-    suite_counts = {}
-    capability_counts = {}
-
-    for span in spans:
-        suite_counts[span.suite] = suite_counts.get(span.suite, 0) + 1
-        capability_counts[span.capability] = (
-            capability_counts.get(span.capability, 0) + 1
-        )
-
-    # Decision logic
-    if (
-        proc_view
-        and action_score >= PROCEDURE_SCORE_THRESHOLD
-        and action_count >= MIN_ACTIONABLE_SPANS
-    ):
-        # High-confidence procedure choice
-        decision = Decision(
-            presenter="procedure",
-            reason=f"actionable_score={action_score:.1f}, spans={action_count}",
-            view_used="procedure",
-            spans=spans,
-            sentences=[],
-            fallback_paragraphs=[],
-            actionable_score=action_score,
-            suite_counts=suite_counts,
-            capability_counts=capability_counts,
-        )
-
-    elif info_view and (info_view.reranked_topk or info_view.fused_top8):
-        # Info presenter for definition/explanation queries
-        info_passages = info_view.reranked_topk or info_view.fused_top8
-        decision = Decision(
-            presenter="info",
-            reason=f"info_available={len(info_passages)}, low_actionability={action_score:.1f}",
-            view_used="info",
-            spans=[],
-            sentences=info_passages[:6],  # Top sentences for info
-            fallback_paragraphs=[],
-            actionable_score=action_score,
-            suite_counts=suite_counts,
-            capability_counts=capability_counts,
-        )
-
-    else:
-        # Fallback when neither view has good results
-        fallback_passages = []
-        if proc_view and proc_view.fused_top8:
-            fallback_passages = proc_view.fused_top8[:3]
-        elif info_view and info_view.fused_top8:
-            fallback_passages = info_view.fused_top8[:3]
-
-        decision = Decision(
-            presenter="fallback",
-            reason="insufficient_results_both_views",
-            view_used=None,
-            spans=spans,  # Include spans even in fallback for debugging
-            sentences=[],
-            fallback_paragraphs=fallback_passages,
-            actionable_score=action_score,
-            suite_counts=suite_counts,
-            capability_counts=capability_counts,
-        )
-
-    # Log decision for observability
-    logger.info(f"Presenter choice: {decision.presenter} ({decision.reason})")
-    logger.debug(f"Suite counts: {suite_counts}")
-    logger.debug(f"Capability breakdown: {capability_counts}")
+    # Extract and analyze passages
+    passages_to_analyze = _extract_passages_for_analysis(info_view, proc_view)
+    actionability_analysis = _analyze_actionability(passages_to_analyze)
+    
+    # Determine best presenter based on analysis
+    presenter_type = _determine_best_presenter(
+        info_view, proc_view, actionability_analysis
+    )
+    
+    # Build appropriate decision
+    decision = _build_presenter_decision(
+        presenter_type, info_view, proc_view, actionability_analysis
+    )
+    
+    # Log decision and return
+    _log_presenter_decision(decision)
 
     return decision
 
@@ -347,3 +276,156 @@ def _generate_cta(span: Span) -> str:
 
     suite_ctas = CTA_MAP.get(span.suite, {})
     return suite_ctas.get(span.capability, "Open link")
+
+
+def _extract_passages_for_analysis(
+    info_view: Optional[ViewResult], proc_view: Optional[ViewResult]
+) -> List:
+    """Extract top passages for span detection analysis."""
+    # Prioritize procedure view passages, then info view
+    if proc_view and proc_view.reranked_topk:
+        return proc_view.reranked_topk[:8]
+    elif proc_view and proc_view.fused_top8:
+        return proc_view.fused_top8[:8]
+    elif info_view and info_view.reranked_topk:
+        return info_view.reranked_topk[:8]
+    elif info_view and info_view.fused_top8:
+        return info_view.fused_top8[:8]
+    else:
+        return []
+
+
+def _analyze_actionability(passages_to_analyze: List) -> Dict:
+    """Analyze actionability metrics from passages."""
+    # Detect actionable spans
+    spans = detect_spans(passages_to_analyze) if passages_to_analyze else []
+    
+    # Calculate actionability metrics
+    action_score = actionable_score(spans)
+    action_count = actionable_count(spans)
+    
+    # Count suites and capabilities for telemetry
+    suite_counts = {}
+    capability_counts = {}
+    
+    for span in spans:
+        suite_counts[span.suite] = suite_counts.get(span.suite, 0) + 1
+        capability_counts[span.capability] = (
+            capability_counts.get(span.capability, 0) + 1
+        )
+    
+    return {
+        "spans": spans,
+        "action_score": action_score,
+        "action_count": action_count,
+        "suite_counts": suite_counts,
+        "capability_counts": capability_counts,
+    }
+
+
+def _determine_best_presenter(
+    info_view: Optional[ViewResult], proc_view: Optional[ViewResult], 
+    actionability_analysis: Dict
+) -> str:
+    """Determine the best presenter type based on analysis."""
+    action_score = actionability_analysis["action_score"]
+    action_count = actionability_analysis["action_count"]
+    
+    # High-confidence procedure choice
+    if (
+        proc_view
+        and action_score >= PROCEDURE_SCORE_THRESHOLD
+        and action_count >= MIN_ACTIONABLE_SPANS
+    ):
+        return "procedure"
+    
+    # Info presenter for definition/explanation queries
+    elif info_view and (info_view.reranked_topk or info_view.fused_top8):
+        return "info"
+    
+    # Fallback when neither view has good results
+    else:
+        return "fallback"
+
+
+def _build_presenter_decision(
+    presenter_type: str, info_view: Optional[ViewResult], 
+    proc_view: Optional[ViewResult], actionability_analysis: Dict
+) -> Decision:
+    """Build appropriate decision based on presenter type."""
+    if presenter_type == "procedure":
+        return _build_procedure_decision(actionability_analysis)
+    elif presenter_type == "info":
+        return _build_info_decision(info_view, actionability_analysis)
+    else:
+        return _build_fallback_decision(info_view, proc_view, actionability_analysis)
+
+
+def _build_procedure_decision(actionability_analysis: Dict) -> Decision:
+    """Build procedure presenter decision."""
+    action_score = actionability_analysis["action_score"]
+    action_count = actionability_analysis["action_count"]
+    
+    return Decision(
+        presenter="procedure",
+        reason=f"actionable_score={action_score:.1f}, spans={action_count}",
+        view_used="procedure",
+        spans=actionability_analysis["spans"],
+        sentences=[],
+        fallback_paragraphs=[],
+        actionable_score=action_score,
+        suite_counts=actionability_analysis["suite_counts"],
+        capability_counts=actionability_analysis["capability_counts"],
+    )
+
+
+def _build_info_decision(
+    info_view: Optional[ViewResult], actionability_analysis: Dict
+) -> Decision:
+    """Build info presenter decision."""
+    info_passages = info_view.reranked_topk or info_view.fused_top8
+    action_score = actionability_analysis["action_score"]
+    
+    return Decision(
+        presenter="info",
+        reason=f"info_available={len(info_passages)}, low_actionability={action_score:.1f}",
+        view_used="info",
+        spans=[],
+        sentences=info_passages[:6],  # Top sentences for info
+        fallback_paragraphs=[],
+        actionable_score=action_score,
+        suite_counts=actionability_analysis["suite_counts"],
+        capability_counts=actionability_analysis["capability_counts"],
+    )
+
+
+def _build_fallback_decision(
+    info_view: Optional[ViewResult], proc_view: Optional[ViewResult],
+    actionability_analysis: Dict
+) -> Decision:
+    """Build fallback presenter decision."""
+    # Extract fallback passages
+    fallback_passages = []
+    if proc_view and proc_view.fused_top8:
+        fallback_passages = proc_view.fused_top8[:3]
+    elif info_view and info_view.fused_top8:
+        fallback_passages = info_view.fused_top8[:3]
+    
+    return Decision(
+        presenter="fallback",
+        reason="insufficient_results_both_views",
+        view_used=None,
+        spans=actionability_analysis["spans"],  # Include spans even in fallback for debugging
+        sentences=[],
+        fallback_paragraphs=fallback_passages,
+        actionable_score=actionability_analysis["action_score"],
+        suite_counts=actionability_analysis["suite_counts"],
+        capability_counts=actionability_analysis["capability_counts"],
+    )
+
+
+def _log_presenter_decision(decision: Decision) -> None:
+    """Log presenter decision for observability."""
+    logger.info(f"Presenter choice: {decision.presenter} ({decision.reason})")
+    logger.debug(f"Suite counts: {decision.suite_counts}")
+    logger.debug(f"Capability breakdown: {decision.capability_counts}")
