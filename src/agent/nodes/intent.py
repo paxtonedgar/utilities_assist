@@ -1,155 +1,56 @@
-"""Intent node - intent classification using regex-only slotter."""
+# src/agent/nodes/intent.py
+"""
+Legacy Intent Node: Simplified stub for backward compatibility.
+
+The new architecture uses micro-router instead of complex intent classification.
+This node exists only for backward compatibility with existing LangGraph flows.
+"""
 
 import logging
-from pydantic import BaseModel, Field
+from typing import Dict, Any
 
-from src.services.models import IntentResult
-from src.telemetry.logger import stage
-from .base_node import to_state_dict, from_state_dict
-from src.agent.intent.slotter import slot, SlotResult
-
-# Import constants to prevent KeyError issues
-from src.agent.constants import NORMALIZED_QUERY, INTENT
+from .base_node import BaseNodeHandler
 
 logger = logging.getLogger(__name__)
 
 
-def _map_slot_to_legacy_intent(slot_result: SlotResult) -> str:
-    """Map new slotter intent to legacy intent format for backward compatibility."""
-    # Analyze reasons and features to determine best legacy mapping
-    reasons = slot_result.reasons
-
-    # Check for API/swagger indicators
-    if any(
-        "api" in reason.lower() or "endpoint" in reason.lower() for reason in reasons
-    ):
-        return "swagger"
-
-    # Check for list/catalog indicators
-    if any(
-        "list" in reason.lower() or "available" in reason.lower() for reason in reasons
-    ):
-        return "list"
-
-    # Check for procedure indicators
-    if slot_result.intent == "procedure" and slot_result.doish:
-        return "workflow"
-
-    # Default mapping based on slotter intent
-    intent_mapping = {
-        "info": "confluence",
-        "procedure": "workflow",
-        "mixed": "confluence",  # Default to confluence for mixed intent
-    }
-
-    return intent_mapping.get(slot_result.intent, "confluence")
-
-
+class LegacyIntentNode(BaseNodeHandler):
+    """Legacy intent node for backward compatibility."""
+    
+    def __init__(self):
+        super().__init__("intent")
+    
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
+        """
+        Legacy intent classification - now just passes through.
+        
+        The new architecture handles routing in the unified_router node using
+        micro-router patterns instead of complex intent classification.
+        """
+        query = state.get("normalized_query", state.get("original_query", ""))
+        
+        # Create minimal intent object for compatibility
+        legacy_intent = {
+            "intent": "general",  # Default to general
+            "confidence": 0.5,    # Medium confidence
+            "method": "legacy_stub"
+        }
+        
+        logger.info(f"Legacy intent node (stub): '{query}' -> general (micro-router handles routing)")
+        
+        return {
+            **state,
+            "intent": legacy_intent,
+            "workflow_path": state.get("workflow_path", []) + ["intent_legacy"]
+        }
 
 
-@stage("classify_intent")
+# Legacy function for backward compatibility
 async def intent_node(state, config, *, store=None):
-    """
-    Classify query intent using regex-only slotter (eliminates ALL LLM calls).
-
-    Follows LangGraph pattern with config parameter and optional store injection.
-
-    Args:
-        state: Workflow state (GraphState or dict) containing normalized_query
-        config: RunnableConfig with user context and configuration
-        store: Optional BaseStore for cross-thread user memory
-
-    Returns:
-        State update with intent classification (same type as input)
-    """
-    incoming_type = type(state)
-    s = to_state_dict(state)
-
-    # Get query for analysis
-    normalized_query = s.get(NORMALIZED_QUERY, "")
-
-    if not normalized_query or normalized_query.strip() == "":
-        logger.warning(
-            "intent_node: normalized_query missing/empty; using default confluence intent"
-        )
-        default_intent = IntentResult(
-            intent="confluence",
-            confidence=0.5,
-            reasoning="Default intent for empty query",
-        )
-        return from_state_dict(incoming_type, {**s, INTENT: default_intent})
-
-    # Try ONNX classifier first (if available), then fallback to regex
-    try:
-        # Get conversation context if available
-        context = []
-        if "chat_history" in s and s["chat_history"]:
-            # Extract last few messages for context
-            context = [
-                msg.get("content", "")
-                for msg in s["chat_history"][-3:]
-                if isinstance(msg, dict) and msg.get("content")
-            ]
-
-        # Try ONNX classifier first
-        try:
-            from src.agent.intent.onnx_classifier import get_onnx_classifier
-
-            onnx_classifier = get_onnx_classifier()
-
-            # Use ONNX if model is loaded
-            if onnx_classifier.session is not None:
-                onnx_result = onnx_classifier.classify(normalized_query, context)
-
-                # Map ONNX intent to legacy format if needed
-                legacy_intent = onnx_result.intent
-                if onnx_result.intent == "utility":
-                    legacy_intent = "confluence"  # Map utility to confluence for now
-                elif onnx_result.intent == "followup":
-                    # For follow-ups, try to determine actual intent from context
-                    legacy_intent = "info"  # Default follow-ups to info
-
-                logger.info(
-                    f"ONNX classifier: {legacy_intent} (confidence: {onnx_result.confidence:.2f}, "
-                    f"context-aware: {onnx_result.context_aware})"
-                )
-
-                intent_result = IntentResult(
-                    intent=legacy_intent,
-                    confidence=onnx_result.confidence,
-                    reasoning=onnx_result.reasoning,
-                )
-                return from_state_dict(incoming_type, {**s, INTENT: intent_result})
-
-        except Exception as e:
-            logger.debug(f"ONNX classifier not available or failed: {e}")
-
-        # Fallback to regex slotter
-        slot_result = slot(normalized_query)
-        logger.info(
-            f"Regex slotter classification: {slot_result.intent} (confidence: {slot_result.confidence:.2f}, reasons: {slot_result.reasons})"
-        )
-
-        # Map slotter intent to legacy intent format
-        legacy_intent = _map_slot_to_legacy_intent(slot_result)
-
-        intent_result = IntentResult(
-            intent=legacy_intent,
-            confidence=slot_result.confidence,
-            reasoning=f"Slotter: {', '.join(slot_result.reasons)}",
-        )
-        return from_state_dict(incoming_type, {**s, INTENT: intent_result})
-
-    except Exception as e:
-        logger.error(f"Regex slotter failed: {e}")
-        # Hard fallback to default intent (no LLM)
-        default_intent = IntentResult(
-            intent="confluence",
-            confidence=0.5,
-            reasoning=f"Default fallback after slotter failure: {e}",
-        )
-        return from_state_dict(incoming_type, {**s, INTENT: default_intent})
+    """Legacy intent_node function for backward compatibility."""
+    node = LegacyIntentNode()
+    return await node.execute(state, config)
 
 
-
-
+# Export for backward compatibility
+__all__ = ["intent_node", "LegacyIntentNode"]

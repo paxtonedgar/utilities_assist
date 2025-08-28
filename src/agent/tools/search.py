@@ -565,3 +565,108 @@ def _build_error_result(error_message: str) -> RetrievalResult:
         method="error",
         diagnostics={"error": error_message},
     )
+
+
+# Bridge functions for the simplified search architecture
+class SearchOptions:
+    """Options for customizing search behavior."""
+    def __init__(self, content_boost=None, content_filter=None, top_k=15):
+        self.content_boost = content_boost
+        self.content_filter = content_filter
+        self.top_k = top_k
+
+
+class ContentType:
+    """Content type classifications."""
+    API_SPEC = "api_spec"
+    RUNBOOK = "runbook"
+    LIST_DATA = "list_data"
+
+
+class UnifiedSearchResult:
+    """Unified search result container."""
+    def __init__(self, passages, total_found, search_strategy):
+        self.passages = passages
+        self.total_found = total_found
+        self.search_strategy = search_strategy
+
+
+async def search_docs(query: str, search_client, embed_client, embed_model: str, options=None):
+    """Bridge function for unified search."""
+    from src.infra.search_config import OpenSearchConfig
+    
+    result = await search_index_tool(
+        index=OpenSearchConfig.get_default_index(),
+        query=query,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=options.top_k if options else 15
+    )
+    
+    return UnifiedSearchResult(
+        passages=result.results,
+        total_found=result.total_found,
+        search_strategy=result.method
+    )
+
+
+async def search_api_docs(query: str, search_client, embed_client, embed_model: str):
+    """Search API documentation."""
+    from src.infra.search_config import OpenSearchConfig
+    
+    result = await search_index_tool(
+        index=OpenSearchConfig.get_swagger_index(),
+        query=query,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=15
+    )
+    
+    return UnifiedSearchResult(
+        passages=result.results,
+        total_found=result.total_found,
+        search_strategy="api_focused"
+    )
+
+
+async def search_procedures(query: str, search_client, embed_client, embed_model: str):
+    """Search procedures and runbooks."""
+    from src.infra.search_config import OpenSearchConfig
+    
+    result = await search_index_tool(
+        index=OpenSearchConfig.get_default_index(),
+        query=query,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=15,
+        strategy="enhanced_rrf"
+    )
+    
+    return UnifiedSearchResult(
+        passages=result.results,
+        total_found=result.total_found,
+        search_strategy="procedure_focused"
+    )
+
+
+async def search_general(query: str, search_client, embed_client, embed_model: str):
+    """General search without specific focus."""
+    from src.infra.search_config import OpenSearchConfig
+    
+    result = await search_index_tool(
+        index=OpenSearchConfig.get_default_index(),
+        query=query,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=15
+    )
+    
+    return UnifiedSearchResult(
+        passages=result.results,
+        total_found=result.total_found,
+        search_strategy="general"
+    )
