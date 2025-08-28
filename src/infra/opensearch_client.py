@@ -622,9 +622,9 @@ class OpenSearchClient:
             runs = [bm25_run, knn_run]
             fused_run = ranx.fuse(
                 runs=runs,
-                method="rrf",  # Reciprocal Rank Fusion
-                k=rrf_k,       # RRF constant (research shows 60 is optimal)
-                max_docs=k     # Final result count
+                method="rrf",           # Reciprocal Rank Fusion
+                rrf_k=rrf_k,            # RRF constant (research shows 60 is optimal)
+                max_docs=k              # Final result count
             )
             
             # Convert back to SearchResponse format

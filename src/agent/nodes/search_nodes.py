@@ -69,6 +69,7 @@ class SearchNode(BaseNodeHandler):
             
             query = state.get("query_normalized", state.get("normalized_query", ""))
             route_action = state.get("next_action", "general")
+            filters = self._build_filters_from_state(state)
             
             if not query:
                 logger.warning("No query available for search")
@@ -79,7 +80,7 @@ class SearchNode(BaseNodeHandler):
                 return await self._handle_comparison_search(state, query, resources)
             
             # Handle other route types with specialized search functions
-            search_result = await self._execute_specialized_search(route_action, query, resources)
+            search_result = await self._execute_specialized_search(route_action, query, resources, filters)
             
             if not search_result or not search_result.passages:
                 logger.warning(f"No results found for query: '{query}'")
@@ -137,17 +138,17 @@ class SearchNode(BaseNodeHandler):
             "workflow_path": state.get("workflow_path", []) + ["search_comparison"]
         }
     
-    async def _execute_specialized_search(self, route_action: str, query: str, resources):
+    async def _execute_specialized_search(self, route_action: str, query: str, resources, filters: Optional[Dict[str, Any]]):
         """Execute appropriate search based on route."""
         if route_action == "api":
             return await search_api_docs(
                 query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model
+                resources.settings.embed.model, filters=filters
             )
         elif route_action == "procedure": 
             return await search_procedures(
                 query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model
+                resources.settings.embed.model, filters=filters
             )
         elif route_action == "list":
             # For list queries, use general search but with specific content filtering
@@ -157,12 +158,12 @@ class SearchNode(BaseNodeHandler):
             )
             return await search_docs(
                 query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model, options
+                resources.settings.embed.model, options, filters=filters
             )
         else:  # general and default
             return await search_general(
                 query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model
+                resources.settings.embed.model, filters=filters
             )
     
     def _handle_search_error(self, state: Dict[str, Any], error_msg: str) -> Dict[str, Any]:
@@ -188,6 +189,20 @@ class SearchNode(BaseNodeHandler):
             "briefing_ready": True,  # Skip evidence composer
             "workflow_path": state.get("workflow_path", []) + ["search_empty"]
         }
+
+    def _build_filters_from_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract ACL/space/time filters from state for downstream search."""
+        filters: Dict[str, Any] = {}
+        for key in ("acl_hash", "space_key", "content_type"):
+            if state.get(key):
+                filters[key] = state[key]
+        for key in ("updated_after", "updated_before"):
+            if state.get(key):
+                filters[key] = state[key]
+        user_filters = state.get("user_filters")
+        if isinstance(user_filters, dict):
+            filters.update(user_filters)
+        return filters
 
 
 class CombineNode(BaseNodeHandler):

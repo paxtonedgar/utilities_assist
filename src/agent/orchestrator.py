@@ -78,17 +78,21 @@ class Orchestrator:
 
             try:
                 if self.use_llm:
+                    # Delegate to planning helper (keeps this class thin)
+                    from src.agent.planning import structured_llm_plan
                     plan = await asyncio.wait_for(
-                        self._structured_llm_plan(query, context),
+                        asyncio.to_thread(structured_llm_plan, self.chat_client, query, context, self.max_planning_time_ms / 1000),
                         timeout=self.max_planning_time_ms / 1000,
                     )
                 else:
-                    plan = self._enhanced_simple_plan(query)
+                    from src.agent.planning import enhanced_simple_plan
+                    plan = enhanced_simple_plan(query)
             except asyncio.TimeoutError:
                 logger.warning(
                     f"Planning timed out after {self.max_planning_time_ms}ms, using fallback"
                 )
-                plan = self._enhanced_simple_plan(query)
+                from src.agent.planning import enhanced_simple_plan
+                plan = enhanced_simple_plan(query)
 
             execution_stats["planning_ms"] = (time.time() - plan_start) * 1000
 
@@ -1390,5 +1394,4 @@ Guidelines:
             "sentences_analyzed": len(sentences),
             "sentences_with_citations": citation_analysis["sentences_with_citations"],
         }
-
 

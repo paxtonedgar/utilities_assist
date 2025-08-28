@@ -12,7 +12,6 @@ import re
 from jinja2 import Environment, FileSystemLoader
 
 from .base_node import BaseNodeHandler
-from src.agent.nodes.combine import combine_node
 from src.services.models import Passage, SourceChip
 
 # Pre-import resource management and common utilities to avoid repeated dynamic imports
@@ -103,34 +102,9 @@ class BaseProcessingNodeMixin:
             return []
 
 
-class CombineNode(BaseNodeHandler, BaseProcessingNodeMixin):
-    """Handles combining and ranking search results."""
-
-    def __init__(self):
-        super().__init__("combine")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute result combination logic."""
-        search_results = state.get("search_results", [])
-        intent = state.get("intent")
-
-        # Use existing combine_node function - MUST pass config
-        combined_result = await combine_node(
-            {
-                "search_results": search_results,
-                "intent": intent,
-                "normalized_query": state.get("normalized_query", ""),
-                "workflow_path": state.get("workflow_path", []),
-            },
-            config,
-        )
-
-        return {
-            "combined_results": combined_result.get("combined_results", search_results),
-            "final_context": combined_result.get("final_context", ""),
-        }
+# NOTE: CombineNode moved to evidence-gated implementation in
+# src/agent/nodes/search_nodes.py. This duplicate wrapper has been removed
+# to avoid drift and keep a single combine implementation.
 
 
 class AnswerNode(BaseNodeHandler, BaseProcessingNodeMixin):
@@ -142,13 +116,35 @@ class AnswerNode(BaseNodeHandler, BaseProcessingNodeMixin):
     async def execute(
         self, state: Dict[str, Any], config: Dict = None
     ) -> Dict[str, Any]:
-        """Execute answer generation using rendered content from actionability engine."""
+        """Execute answer generation.
+
+        Prefers structured content produced by the evidence-gated Combine node
+        ("final_briefing"). Falls back to any pre-rendered content, and finally
+        to Jinja/LLM path only when needed.
+        """
         normalized_query = state.get("normalized_query", "")
+        final_briefing = state.get("final_briefing", "")
         rendered_content = state.get("rendered_content", "")
         final_context = state.get("final_context", "")
         combined_results = state.get("combined_results", [])
         presenter_choice = state.get("presenter_choice", "")
         intent = state.get("intent")
+
+        # 1) Use evidence-gated structured briefing if available
+        if final_briefing and str(final_briefing).strip():
+            logger.info("Using evidence-gated final_briefing (skipping LLM)")
+            return {
+                "final_answer": final_briefing,
+                "response_chunks": [final_briefing],
+                "answer_verification": {
+                    "has_content": True,
+                    "confidence_score": 0.9,
+                    "presenter_used": "evidence_briefing",
+                    "actionable_score": state.get("actionable_score", 0.0),
+                    "suite_counts": state.get("suite_counts", {}),
+                },
+                "presenter_choice": "evidence_briefing",
+            }
 
         # HYBRID APPROACH: Use structured rendering when available, fall back to Jinja templates
         if rendered_content and rendered_content.strip():
@@ -773,4 +769,3 @@ def _create_excerpt(text: str, max_length: int = 150) -> str:
         return " ".join(words[:-1]) + "..."
     
     return text[:max_length - 3] + "..."
-

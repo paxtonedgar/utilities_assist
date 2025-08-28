@@ -4,7 +4,8 @@ import logging
 import re
 import json
 from functools import lru_cache
-from typing import Dict
+from typing import Dict, Optional
+from pathlib import Path
 
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
@@ -22,19 +23,39 @@ logger = logging.getLogger(__name__)
 def _load_synonyms() -> Dict[str, str]:
     """Load and cache synonym mappings."""
     try:
-        # Try to load synonyms from data directory
-        import os
+        # Resolve configured path first, then fall back to common candidates
+        from src.infra.settings import get_settings
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        synonyms_path = os.path.join(base_dir, "data", "synonyms.json")
+        settings = get_settings()
+        configured = settings.synonyms_file_path if hasattr(settings, "synonyms_file_path") else "data/synonyms.json"
 
-        if os.path.exists(synonyms_path):
-            with open(synonyms_path, "r", encoding="utf-8") as f:
-                synonyms = json.load(f)
-                logger.info(f"Loaded {len(synonyms)} synonym mappings")
-                return synonyms
+        def _resolve(p: str) -> Optional[Path]:
+            path = Path(p)
+            if path.is_absolute() and path.exists():
+                return path
+            # Try CWD
+            cwd_path = Path.cwd() / p
+            if cwd_path.exists():
+                return cwd_path
+            # Try repo root relative to this file: project_root ≈ parents[4]
+            here = Path(__file__).resolve()
+            candidates = [
+                here.parents[4] / p if len(here.parents) >= 5 else None,
+                here.parents[3] / p if len(here.parents) >= 4 else None,  # src/
+            ]
+            for c in candidates:
+                if c and c.exists():
+                    return c
+            return None
+
+        path = _resolve(configured)
+        if not path:
+            logger.warning(f"Synonyms file not found (looked for {configured})")
         else:
-            logger.warning(f"Synonyms file not found at {synonyms_path}")
+            with open(path, "r", encoding="utf-8") as f:
+                synonyms = json.load(f)
+                logger.info(f"Loaded {len(synonyms)} synonym mappings from {path}")
+                return synonyms
     except Exception as e:
         logger.error(f"Failed to load synonyms: {e}")
 
