@@ -607,14 +607,10 @@ class OpenSearchClient:
         """
         Use ranx library for optimal RRF fusion following industry best practices.
         
-        Ranx is the state-of-the-art library for ranking evaluation and fusion,
+        Ranx is the state-of-the-art open-source library for ranking evaluation and fusion,
         used by researchers and recommended in ECIR, CIKM, and SIGIR papers.
         """
-        try:
-            import ranx
-        except ImportError:
-            logger.warning("ranx not available, falling back to simple RRF fusion")
-            return self._simple_rrf_fusion(bm25_response, knn_response, k, rrf_k)
+        import ranx
 
         # Convert search results to ranx format
         bm25_run = self._convert_to_ranx_run(bm25_response.results, "bm25")
@@ -656,24 +652,19 @@ class OpenSearchClient:
         if not results:
             return None
             
-        try:
-            import ranx
-            
-            # Ranx expects {query_id: {doc_id: score}} format
-            # We use a dummy query_id since we're doing single-query fusion
-            query_id = "q1"
-            run_dict = {
-                query_id: {
-                    result.doc_id: float(result.score) 
-                    for result in results
-                }
+        import ranx
+        
+        # Ranx expects {query_id: {doc_id: score}} format
+        # We use a dummy query_id since we're doing single-query fusion
+        query_id = "q1"
+        run_dict = {
+            query_id: {
+                result.doc_id: float(result.score) 
+                for result in results
             }
-            
-            return ranx.Run(run_dict, name=run_name)
-            
-        except Exception as e:
-            logger.warning(f"Failed to convert to ranx format: {e}")
-            return None
+        }
+        
+        return ranx.Run(run_dict, name=run_name)
 
     def _convert_from_ranx_run(self, fused_run, bm25_response: SearchResponse, knn_response: SearchResponse) -> List[Passage]:
         """Convert ranx fused results back to Passage objects."""
@@ -708,56 +699,6 @@ class OpenSearchClient:
                     fused_results.append(fused_passage)
 
         return fused_results
-
-    def _simple_rrf_fusion(self, bm25_response: SearchResponse, knn_response: SearchResponse, k: int, rrf_k: int) -> SearchResponse:
-        """Simple RRF fusion fallback if ranx is not available."""
-        # Same logic as the old custom RRF we archived
-        bm25_ranks = {result.doc_id: idx + 1 for idx, result in enumerate(bm25_response.results)}
-        knn_ranks = {result.doc_id: idx + 1 for idx, result in enumerate(knn_response.results)}
-
-        doc_map = {}
-        for result in bm25_response.results:
-            doc_map[result.doc_id] = result
-        for result in knn_response.results:
-            doc_map[result.doc_id] = result
-
-        rrf_scores = {}
-        all_doc_ids = set(bm25_ranks.keys()) | set(knn_ranks.keys())
-
-        for doc_id in all_doc_ids:
-            rrf_score = 0.0
-            if doc_id in bm25_ranks:
-                rrf_score += 1.0 / (rrf_k + bm25_ranks[doc_id])
-            if doc_id in knn_ranks:
-                rrf_score += 1.0 / (rrf_k + knn_ranks[doc_id])
-            rrf_scores[doc_id] = rrf_score
-
-        sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-
-        fused_results = []
-        for doc_id, rrf_score in sorted_docs:
-            if doc_id in doc_map:
-                result = doc_map[doc_id]
-                fused_result = Passage(
-                    doc_id=result.doc_id,
-                    index=result.index,
-                    text=result.text,
-                    section_title=result.section_title,
-                    score=rrf_score,
-                    page_url=result.page_url,
-                    api_name=result.api_name,
-                    title=result.title,
-                    meta=getattr(result, "meta", {}),
-                    rerank_score=getattr(result, "rerank_score", None),
-                )
-                fused_results.append(fused_result)
-
-        return SearchResponse(
-            results=fused_results,
-            total_hits=len(fused_results),
-            took_ms=0,
-            method="simple_rrf",
-        )
 
     def _parse_search_response(
         self, data: Dict[str, Any], index: Optional[str] = None
