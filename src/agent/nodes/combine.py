@@ -258,8 +258,8 @@ def _classify_passage_sections(passage: Passage, query: str) -> Set[BriefingSect
 
 def _apply_evidence_gates(section_evidence: Dict[BriefingSection, List[Passage]]) -> Dict[BriefingSection, List[Passage]]:
     """Apply evidence gates - only include sections with sufficient evidence."""
-    MIN_PASSAGES = 2
-    MIN_CONFIDENCE = 0.4
+    MIN_PASSAGES = 1  # Lowered from 2 - allow single high-quality results
+    MIN_CONFIDENCE = 0.15  # Lowered from 0.4 - cross-encoder scores can be low but still relevant
     
     gated_sections = {}
     

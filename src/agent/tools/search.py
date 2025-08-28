@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, List, Any, Optional
 
-from src.services.retrieve import enhanced_rrf_search, bm25_search, knn_search
+from src.services.retrieve import enhanced_rrf_search, bm25_search, knn_search, hybrid_search_with_timeout
 from src.embedding_creation import create_single_embedding, EmbeddingError
 from src.infra.opensearch_client import OpenSearchClient
 from src.infra.search_config import OpenSearchConfig
@@ -187,6 +187,80 @@ async def search_index_tool(
         return _build_error_result(str(e))
 
 
+async def unified_content_search_tool(
+    content_types: List[str],
+    query: str,
+    filters: Optional[Dict[str, Any]] = None,
+    search_client: OpenSearchClient = None,
+    embed_client=None,
+    embed_model: str = "text-embedding-ada-002",
+    top_k_per_type: int = 5,
+    unified_index: Optional[str] = None,
+) -> List[RetrievalResult]:
+    """
+    Search unified index with content_type filtering instead of multiple indices.
+
+    Replaces multi-index search with more efficient content_type filtering.
+    Uses a single index with content_type metadata for segmentation.
+
+    Args:
+        content_types: List of content types to search (e.g., ["confluence", "swagger"])
+        query: Search query text
+        filters: Optional filters for search
+        search_client: OpenSearch client instance
+        embed_client: Embedding client for vector search
+        embed_model: Embedding model to use
+        top_k_per_type: Number of results per content type
+        unified_index: Single unified index name (defaults to main index)
+
+    Returns:
+        List of RetrievalResult objects, one per content type
+    """
+    results = []
+    
+    # Use main index for all content types with filtering
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    index = unified_index or settings.search_index_alias
+
+    for content_type in content_types:
+        try:
+            # Add content_type filter
+            content_filters = filters.copy() if filters else {}
+            content_filters["content_type"] = content_type
+            
+            result = await search_index_tool(
+                index=index,
+                query=query,
+                filters=content_filters,
+                search_client=search_client,
+                embed_client=embed_client,
+                embed_model=embed_model,
+                top_k=top_k_per_type,
+                strategy="enhanced_rrf",
+            )
+            
+            # Add content type metadata to result
+            result.method = f"{result.method}_content_{content_type}"
+            results.append(result)
+
+        except Exception as e:
+            logger.error(f"Failed to search content_type {content_type}: {e}")
+            # Add empty result to maintain content_type correspondence
+            results.append(
+                RetrievalResult(
+                    results=[],
+                    total_found=0,
+                    retrieval_time_ms=0,
+                    method="error",
+                    diagnostics={"error": str(e), "content_type": content_type},
+                )
+            )
+
+    return results
+
+
+# Backward compatibility alias 
 async def multi_index_search_tool(
     indices: List[str],
     query: str,
@@ -197,53 +271,34 @@ async def multi_index_search_tool(
     top_k_per_index: int = 5,
 ) -> List[RetrievalResult]:
     """
-    Search multiple indices in parallel and return combined results.
-
-    This tool is useful for queries that might span multiple knowledge bases
-    (e.g., both confluence and swagger documentation).
-
-    Args:
-        indices: List of index names to search
-        query: Search query text
-        filters: Optional filters for search
-        search_client: OpenSearch client instance
-        embed_client: Embedding client for vector search
-        embed_model: Embedding model to use
-        top_k_per_index: Number of results per index
-
-    Returns:
-        List of RetrievalResult objects, one per index
+    DEPRECATED: Use unified_content_search_tool instead.
+    
+    Maps index names to content types for backward compatibility:
+    - khub-opensearch-index -> confluence
+    - khub-opensearch-swagger-index -> swagger
     """
-    results = []
-
+    logger.warning("multi_index_search_tool is deprecated, use unified_content_search_tool")
+    
+    # Map indices to content types
+    content_type_mapping = {
+        "khub-opensearch-index": "confluence",
+        "khub-opensearch-swagger-index": "swagger",
+    }
+    
+    content_types = []
     for index in indices:
-        try:
-            result = await search_index_tool(
-                index=index,
-                query=query,
-                filters=filters,
-                search_client=search_client,
-                embed_client=embed_client,
-                embed_model=embed_model,
-                top_k=top_k_per_index,
-                strategy="enhanced_rrf",
-            )
-            results.append(result)
-
-        except Exception as e:
-            logger.error(f"Failed to search index {index}: {e}")
-            # Add empty result to maintain index correspondence
-            results.append(
-                RetrievalResult(
-                    results=[],
-                    total_found=0,
-                    retrieval_time_ms=0,
-                    method="error",
-                    diagnostics={"error": str(e), "index": index},
-                )
-            )
-
-    return results
+        content_type = content_type_mapping.get(index, "unknown")
+        content_types.append(content_type)
+    
+    return await unified_content_search_tool(
+        content_types=content_types,
+        query=query,
+        filters=filters,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k_per_type=top_k_per_index,
+    )
 
 
 async def adaptive_search_tool(
@@ -372,29 +427,23 @@ async def _execute_enhanced_rrf_strategy(
     query: str, index: str, filters: Optional[Dict[str, Any]], 
     search_client: OpenSearchClient, embed_client, embed_model: str
 ) -> RetrievalResult:
-    """Execute enhanced RRF search strategy with cross-encoder reranking."""
+    """Execute native hybrid search strategy (cross-encoder reranking disabled for performance)."""
     try:
         # Create embedding for vector search
         query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
         
-        # Get RRF results with configurable parameters
-        rrf_result, diagnostics = await _get_rrf_results(
+        # Use native hybrid search directly (no custom RRF needed)
+        rrf_result, diagnostics = await _get_native_hybrid_results(
             query, query_embedding, search_client, index, filters
         )
         
-        # Determine if cross-encoder reranking is viable
-        should_rerank, unique_docs = _should_apply_cross_encoder_reranking(rrf_result)
+        # DISABLED: Cross-encoder reranking (saves 3.6s latency)
+        # Native OpenSearch RRF provides good relevance without additional ML overhead
+        unique_docs = len(set(r.doc_id for r in rrf_result.results))
+        final_results = rrf_result.results
+        method_name = "hybrid_native_no_rerank"
         
-        if should_rerank:
-            # Apply cross-encoder reranking
-            final_results, method_name = await _apply_cross_encoder_reranking(
-                query, rrf_result
-            )
-        else:
-            # Skip reranking for insufficient unique docs
-            final_results, method_name = _skip_cross_encoder_reranking(
-                rrf_result, unique_docs
-            )
+        logger.info(f"Native hybrid search: {len(final_results)} results, {unique_docs} unique docs (no reranking)")
         
         # Build final result with diagnostics
         return _build_enhanced_rrf_result(
@@ -458,6 +507,29 @@ async def _get_rrf_results(
         use_mmr=False,  # MMR removed to save latency
         lambda_param=settings.search_config.rrf_lambda_param,
     )
+
+
+async def _get_native_hybrid_results(
+    query: str, query_embedding, search_client: OpenSearchClient, 
+    index: str, filters: Optional[Dict[str, Any]]
+):
+    """Get native OpenSearch hybrid search results."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    # Use native hybrid search wrapper (already updated to use hybrid_search_native)
+    hybrid_result = await hybrid_search_with_timeout(
+        query=query,
+        query_embedding=query_embedding,
+        search_client=search_client,
+        index_name=index,
+        filters=filters,
+        top_k=settings.search_config.rrf_expansion_candidates,
+        timeout_seconds=5.0,
+    )
+    
+    # Return in same format as enhanced_rrf_search for compatibility
+    return hybrid_result, {"search_method": "native_hybrid", "result_count": len(hybrid_result.results)}
 
 
 def _should_apply_cross_encoder_reranking(rrf_result) -> tuple[bool, int]:

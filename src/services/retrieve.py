@@ -668,15 +668,17 @@ def _hybrid_search_wrapper(
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
 ) -> RetrievalResult:
-    """Sync wrapper for hybrid search to work with timeout decorator."""
+    """Sync wrapper for native hybrid search to work with timeout decorator."""
     search_filters = _build_search_filters(filters) if filters else None
 
-    response = search_client.hybrid_search(
+    # Use native OpenSearch hybrid search with built-in RRF
+    response = search_client.hybrid_search_native(
         query=query,
         query_vector=query_embedding,
         filters=search_filters,
         index=index_name or OpenSearchConfig.get_default_index(),
         k=top_k,
+        alpha=0.5,  # Balanced hybrid search (50/50 BM25/kNN)
     )
 
     # Convert to canonical service format
@@ -686,8 +688,8 @@ def _hybrid_search_wrapper(
         results=results,
         total_found=response.total_hits,
         retrieval_time_ms=response.took_ms,
-        method="hybrid",
-        diagnostics={"query_type": "hybrid", "index": index_name},
+        method="hybrid_native",
+        diagnostics={"query_type": "hybrid_native", "index": index_name},
     )
 
 

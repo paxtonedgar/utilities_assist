@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import requests
 
 from src.infra.settings import get_settings
-from src.infra.search_config import OpenSearchConfig, QueryTemplates
+from src.infra.search_config import QueryTemplates
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.telemetry.logger import log_event, stage
 from src.services.passage_extractor import extract_passages
@@ -496,133 +496,44 @@ class OpenSearchClient:
         
         return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
 
-    def rrf_fuse(
-        self,
-        bm25_response: SearchResponse,
-        knn_response: SearchResponse,
-        k: int = 8,
-        rrf_k: int = 60,
-    ) -> SearchResponse:
-        """
-        Reciprocal Rank Fusion (RRF) for hybrid search.
 
-        Pure Python implementation combining BM25 and kNN results.
 
-        Args:
-            bm25_response: BM25 search results
-            knn_response: kNN search results
-            k: Final number of results to return
-            rrf_k: RRF constant (typically 60, higher = less aggressive fusion)
-
-        Returns:
-            SearchResponse with fused results
-        """
-        start_time = time.time()
-
-        # Create rank maps for both result sets
-        bm25_ranks = {
-            result.doc_id: idx + 1 for idx, result in enumerate(bm25_response.results)
-        }
-        knn_ranks = {
-            result.doc_id: idx + 1 for idx, result in enumerate(knn_response.results)
-        }
-
-        # Create document map for result data
-        doc_map = {}
-        for result in bm25_response.results:
-            doc_map[result.doc_id] = result
-        for result in knn_response.results:
-            doc_map[result.doc_id] = result
-
-        # Calculate RRF scores
-        rrf_scores = {}
-        all_doc_ids = set(bm25_ranks.keys()) | set(knn_ranks.keys())
-
-        for doc_id in all_doc_ids:
-            rrf_score = 0.0
-
-            # Add BM25 contribution: 1 / (k + rank)
-            if doc_id in bm25_ranks:
-                rrf_score += 1.0 / (rrf_k + bm25_ranks[doc_id])
-
-            # Add kNN contribution: 1 / (k + rank)
-            if doc_id in knn_ranks:
-                rrf_score += 1.0 / (rrf_k + knn_ranks[doc_id])
-
-            rrf_scores[doc_id] = rrf_score
-
-        # Sort by RRF score (descending) and take top k
-        sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-
-        # Build final results with RRF scores
-        fused_results = []
-        for doc_id, rrf_score in sorted_docs:
-            if doc_id in doc_map:
-                result = doc_map[doc_id]
-                # Create new result with RRF score, preserving all fields
-                fused_result = Passage(
-                    doc_id=result.doc_id,
-                    index=result.index,
-                    text=result.text,
-                    section_title=result.section_title,
-                    score=rrf_score,  # Use RRF-computed score
-                    page_url=result.page_url,
-                    api_name=result.api_name,
-                    title=result.title,
-                    meta=getattr(result, "meta", {}),  # Preserve metadata
-                    rerank_score=getattr(result, "rerank_score", None),
-                )
-                fused_results.append(fused_result)
-
-        logger.info(
-            f"RRF fusion: {len(bm25_response.results)} BM25 + {len(knn_response.results)} kNN → {len(fused_results)} fused"
-        )
-
-        return SearchResponse(
-            results=fused_results,
-            total_hits=len(fused_results),
-            took_ms=int((time.time() - start_time) * 1000)
-            + bm25_response.took_ms
-            + knn_response.took_ms,
-            method="rrf",
-        )
-
-    @stage("hybrid")
-    def hybrid_search(
+    @stage("hybrid_native")
+    def hybrid_search_native(
         self,
         query: str,
         query_vector: Optional[List[float]] = None,
         filters: Optional[SearchFilters] = None,
         index: Optional[str] = None,
         k: int = 50,
-        time_decay_half_life_days: int = 120,
+        alpha: float = 0.5,
     ) -> SearchResponse:
         """
-        Hybrid search using RRF fusion of separate BM25 and kNN searches.
-        This approach avoids OpenSearch parsing issues with nested knn queries.
+        Native OpenSearch hybrid search using built-in RRF.
+        Replaces custom Python RRF with OpenSearch's native hybrid query.
 
         Args:
             query: Search query string
-            query_vector: Optional query embedding vector
+            query_vector: Query embedding vector
             filters: ACL, space, and time filters
             index: Index name or alias to search
             k: Number of results to return
-            time_decay_half_life_days: Half-life for time decay in days
+            alpha: Hybrid search weight (0.0=BM25 only, 1.0=kNN only, 0.5=balanced)
 
         Returns:
-            SearchResponse with hybrid search results
+            SearchResponse with native hybrid search results
         """
-        # Use configured index alias if not specified
         if index is None:
             index = self.settings.search_index_alias
 
         # Log search start
         log_event(
-            stage="hybrid",
+            stage="hybrid_native",
             event="start",
             index=index,
-            query_type="hybrid_rrf" if query_vector else "bm25_only",
+            query_type="native_hybrid" if query_vector else "bm25_only",
             k=k,
+            alpha=alpha,
             filters_enabled=filters is not None,
             query_length=len(query),
             has_vector=query_vector is not None,
@@ -630,39 +541,76 @@ class OpenSearchClient:
 
         # If no vector provided, fall back to BM25 search
         if not query_vector:
-            logger.info("Hybrid search falling back to BM25 (no vector provided)")
-            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            logger.info("Native hybrid search falling back to BM25 (no vector provided)")
+            return self.bm25_search(query, filters, index, k)
 
         try:
-            # Perform separate BM25 and kNN searches
-            logger.info("Performing separate BM25 and kNN searches for RRF fusion")
-
-            # BM25 search
-            bm25_response = self.bm25_search(
-                query, filters, index, k, time_decay_half_life_days
+            # Build native hybrid query using OpenSearch hybrid query syntax
+            search_body = self._build_native_hybrid_query(
+                query, query_vector, filters, k, alpha, index
             )
 
-            # kNN search
-            knn_response = self.knn_search(
-                query_vector, filters, index, k, time_decay_half_life_days
-            )
+            logger.info("Performing native OpenSearch hybrid search with built-in RRF")
 
-            # RRF fusion
-            hybrid_response = self.rrf_fuse(bm25_response, knn_response, k=k, rrf_k=60)
-            hybrid_response.method = "hybrid_rrf"
+            # Execute request
+            url = f"{self.base_url}/{index}/_search"
+            start_time = time.time()
+
+            _setup_jpmc_proxy()
+            aws_auth = _get_aws_auth()
+            headers = {"Content-Type": "application/json"}
+
+            if aws_auth:
+                response = requests.post(
+                    url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
+                )
+            else:
+                response = self.session.post(
+                    url, json=search_body, timeout=30.0, headers=headers
+                )
+
+            took_ms = (time.time() - start_time) * 1000
+            response.raise_for_status()
+
+            # Parse response
+            data = response.json()
+            results = self._parse_search_response(data, index)
+            total_hits = get_total_hits(data)
 
             logger.info(
-                "Hybrid RRF fusion completed: BM25=%d hits, kNN=%d hits, fused=%d hits",
-                bm25_response.total_hits,
-                knn_response.total_hits,
-                hybrid_response.total_hits,
+                "Native hybrid search completed: %d results in %.1fms",
+                len(results),
+                took_ms,
             )
 
-            return hybrid_response
+            log_event(
+                stage="hybrid_native",
+                event="success",
+                took_ms=took_ms,
+                result_count=len(results),
+                total_hits=total_hits,
+                index=index,
+                elasticsearch_took=data.get("took", 0),
+            )
+
+            return SearchResponse(
+                results=results,
+                total_hits=total_hits,
+                took_ms=int(took_ms),
+                method="hybrid_native",
+            )
 
         except Exception as e:
-            logger.error(f"Hybrid search failed, falling back to BM25: {e}")
-            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            logger.error(f"Native hybrid search failed, falling back to BM25: {e}")
+            log_event(
+                stage="hybrid_native",
+                event="error",
+                err=True,
+                error_type=type(e).__name__,
+                error_message=str(e)[:200],
+                index=index,
+            )
+            return self.bm25_search(query, filters, index, k)
 
 
 
@@ -722,6 +670,211 @@ class OpenSearchClient:
             k=k,
         )
         return search_body
+
+    def _build_native_hybrid_query(
+        self,
+        query: str,
+        query_vector: List[float],
+        filters: Optional[SearchFilters],
+        k: int,
+        alpha: float,
+        index: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build native OpenSearch hybrid query with built-in RRF."""
+        
+        # Determine if we need nested structure based on index name
+        is_nested = index and "khub-opensearch" in index
+        
+        if is_nested:
+            # Build nested hybrid query for structured documents
+            search_body = {
+                "size": k,
+                "query": {
+                    "hybrid": {
+                        "queries": [
+                            # BM25 component with nested structure
+                            {
+                                "nested": {
+                                    "path": "content",
+                                    "query": {
+                                        "bool": {
+                                            "should": [
+                                                {
+                                                    "match": {
+                                                        "content.title": {
+                                                            "query": query,
+                                                            "boost": 2.0
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "match": {
+                                                        "content.body": {
+                                                            "query": query,
+                                                            "boost": 1.0
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            },
+                            # kNN component with nested structure
+                            {
+                                "nested": {
+                                    "path": "content",
+                                    "query": {
+                                        "knn": {
+                                            "content.embedding": {
+                                                "vector": query_vector,
+                                                "k": k
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "_source": ["content"]
+            }
+        else:
+            # Build flat hybrid query for simple documents
+            search_body = {
+                "size": k,
+                "query": {
+                    "hybrid": {
+                        "queries": [
+                            # BM25 component
+                            {
+                                "bool": {
+                                    "should": [
+                                        {
+                                            "match": {
+                                                "title": {
+                                                    "query": query,
+                                                    "boost": 2.0
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "match": {
+                                                "body": {
+                                                    "query": query,
+                                                    "boost": 1.0
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            # kNN component
+                            {
+                                "knn": {
+                                    "embedding": {
+                                        "vector": query_vector,
+                                        "k": k
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+
+        # Apply filters if provided
+        if filters:
+            self._apply_filters_to_hybrid_query(search_body, filters, is_nested)
+
+        return search_body
+
+    def _apply_filters_to_hybrid_query(
+        self, search_body: Dict[str, Any], filters: SearchFilters, is_nested: bool
+    ) -> None:
+        """Apply ACL and other filters to hybrid query."""
+        
+        filter_conditions = []
+        
+        # ACL filter
+        if filters.acl_hash:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.acl_hash": filters.acl_hash}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"acl_hash": filters.acl_hash}
+                })
+
+        # Space filter
+        if filters.space_key:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.metadata.space_key": filters.space_key}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"metadata.space_key": filters.space_key}
+                })
+
+        # Content type filter
+        if filters.content_type:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.content_type": filters.content_type}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"content_type": filters.content_type}
+                })
+
+        # Date range filters
+        if filters.updated_after or filters.updated_before:
+            date_range = {}
+            if filters.updated_after:
+                date_range["gte"] = filters.updated_after.strftime('%Y-%m-%d')
+            if filters.updated_before:
+                date_range["lte"] = filters.updated_before.strftime('%Y-%m-%d')
+            
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "range": {"content.updated_at": date_range}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "range": {"updated_at": date_range}
+                })
+
+        # Apply filters by wrapping the hybrid query in a bool query
+        if filter_conditions:
+            original_query = search_body["query"]
+            search_body["query"] = {
+                "bool": {
+                    "must": [original_query],
+                    "filter": filter_conditions
+                }
+            }
 
 
     def _check_index_exists(self, index_name: str) -> bool:
@@ -799,7 +952,7 @@ class OpenSearchClient:
             elif self.settings.requires_aws_auth:
                 return "aws_auth_configured"
             return "none"
-        except:
+        except Exception:
             return "none"
     
     def _build_healthy_response(
