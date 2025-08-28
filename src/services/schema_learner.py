@@ -230,5 +230,18 @@ def get_schema_learner() -> SchemaLearner:
     return _global_learner
 
 
+def observe_extraction(index: str, hit: Dict, passages: List[Passage]) -> None:
+    """
+    Global convenience function for observing extraction results.
+    
+    Args:
+        index: Index name
+        hit: Raw OpenSearch hit
+        passages: Extracted passages from the hit
+    """
+    learner = get_schema_learner()
+    learner.observe_hit(index, hit, passages)
+
+
 
 
