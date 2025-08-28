@@ -74,80 +74,128 @@ class AzureTokenManager:
 def _get_azure_access_token() -> str:
     """Obtain Azure access token using certificate credentials."""
     logger.info("Obtaining Azure access token via certificate")
+    
+    # Load configuration from various sources
+    config = _load_azure_configuration()
+    _validate_azure_configuration(config)
+    
+    # Authenticate and obtain token
+    return _authenticate_with_azure(config)
 
-    # Try environment variables first
-    tenant_id = os.getenv("AZURE_TENANT_ID")
-    client_id = os.getenv("AZURE_CLIENT_ID")
-    scope = os.getenv("AZURE_SCOPE", "https://cognitiveservices.azure.com/.default")
-    bucket_name = os.getenv("S3_BUCKET_NAME")
-    cert_file_name = os.getenv("AZURE_CERT_FILE_NAME", "UtilitiesAssist.pem")
 
+def _load_azure_configuration() -> dict:
+    """Load Azure configuration from environment variables and settings."""
+    config = _load_environment_config()
+    
     # Fallback to centralized settings if environment variables not available
-    if not tenant_id or not client_id:
-        try:
-            from src.infra.settings import get_settings
+    if not config["tenant_id"] or not config["client_id"]:
+        config = _load_centralized_settings(config)
+    
+    return config
 
-            settings = get_settings()
 
-            if settings.azure_openai:
-                tenant_id = tenant_id or settings.azure_openai.azure_tenant_id
-                client_id = client_id or settings.azure_openai.azure_client_id
-                scope = scope or settings.azure_openai.scope
+def _load_environment_config() -> dict:
+    """Load Azure configuration from environment variables."""
+    return {
+        "tenant_id": os.getenv("AZURE_TENANT_ID"),
+        "client_id": os.getenv("AZURE_CLIENT_ID"),
+        "scope": os.getenv("AZURE_SCOPE", "https://cognitiveservices.azure.com/.default"),
+        "bucket_name": os.getenv("S3_BUCKET_NAME"),
+        "cert_file_name": os.getenv("AZURE_CERT_FILE_NAME", "UtilitiesAssist.pem"),
+    }
 
-            if settings.aws_info:
-                bucket_name = bucket_name or settings.aws_info.s3_bucket_name
-                cert_file_name = (
-                    cert_file_name or settings.aws_info.azure_cert_file_name
-                )
 
-            logger.info("Using Azure configuration from centralized settings")
-        except Exception as e:
-            logger.warning(f"Failed to load centralized settings: {e}")
+def _load_centralized_settings(config: dict) -> dict:
+    """Load configuration from centralized settings as fallback."""
+    try:
+        config = _try_centralized_settings(config)
+        logger.info("Using Azure configuration from centralized settings")
+    except Exception as e:
+        logger.warning(f"Failed to load centralized settings: {e}")
+        config = _try_shared_config_fallback(config)
+    
+    return config
 
-            # Final fallback to shared config utility
-            try:
-                from src.infra.settings import get_config_value
 
-                tenant_id = tenant_id or get_config_value(
-                    "azure_openai", "azure_tenant_id"
-                )
-                client_id = client_id or get_config_value(
-                    "azure_openai", "azure_client_id"
-                )
-                scope = scope or get_config_value(
-                    "azure_openai",
-                    "scope",
-                    "https://cognitiveservices.azure.com/.default",
-                )
-                bucket_name = bucket_name or get_config_value(
-                    "aws_info", "s3_bucket_name"
-                )
-                cert_file_name = cert_file_name or get_config_value(
-                    "aws_info", "azure_cert_file_name", "UtilitiesAssist.pem"
-                )
-                logger.info("Using Azure configuration from shared config utility")
-            except Exception as e2:
-                logger.warning(f"Failed to load shared config: {e2}")
+def _try_centralized_settings(config: dict) -> dict:
+    """Try loading from centralized settings."""
+    from src.infra.settings import get_settings
+    
+    settings = get_settings()
+    
+    if settings.azure_openai:
+        config["tenant_id"] = config["tenant_id"] or settings.azure_openai.azure_tenant_id
+        config["client_id"] = config["client_id"] or settings.azure_openai.azure_client_id
+        config["scope"] = config["scope"] or settings.azure_openai.scope
+    
+    if settings.aws_info:
+        config["bucket_name"] = config["bucket_name"] or settings.aws_info.s3_bucket_name
+        config["cert_file_name"] = (
+            config["cert_file_name"] or settings.aws_info.azure_cert_file_name
+        )
+    
+    return config
 
-    if not all([tenant_id, client_id, bucket_name]):
+
+def _try_shared_config_fallback(config: dict) -> dict:
+    """Try shared config utility as final fallback."""
+    try:
+        from src.infra.settings import get_config_value
+        
+        config["tenant_id"] = config["tenant_id"] or get_config_value(
+            "azure_openai", "azure_tenant_id"
+        )
+        config["client_id"] = config["client_id"] or get_config_value(
+            "azure_openai", "azure_client_id"
+        )
+        config["scope"] = config["scope"] or get_config_value(
+            "azure_openai",
+            "scope",
+            "https://cognitiveservices.azure.com/.default",
+        )
+        config["bucket_name"] = config["bucket_name"] or get_config_value(
+            "aws_info", "s3_bucket_name"
+        )
+        config["cert_file_name"] = config["cert_file_name"] or get_config_value(
+            "aws_info", "azure_cert_file_name", "UtilitiesAssist.pem"
+        )
+        logger.info("Using Azure configuration from shared config utility")
+    except Exception as e2:
+        logger.warning(f"Failed to load shared config: {e2}")
+    
+    return config
+
+
+def _validate_azure_configuration(config: dict) -> None:
+    """Validate that required Azure configuration is available."""
+    required_fields = ["tenant_id", "client_id", "bucket_name"]
+    missing_fields = [field for field in required_fields if not config.get(field)]
+    
+    if missing_fields:
         raise ValueError(
-            "Missing required Azure configuration: AZURE_TENANT_ID, AZURE_CLIENT_ID, S3_BUCKET_NAME"
+            f"Missing required Azure configuration: {', '.join(missing_fields.upper())}"
         )
 
+
+def _authenticate_with_azure(config: dict) -> str:
+    """Authenticate with Azure and obtain access token."""
     try:
         # Load certificate from S3
-        pem_content = _load_certificate_from_s3(bucket_name, cert_file_name)
-
-        # Create certificate credential
-        credential = CertificateCredential(
-            tenant_id=tenant_id, client_id=client_id, certificate_data=pem_content
+        pem_content = _load_certificate_from_s3(
+            config["bucket_name"], config["cert_file_name"]
         )
-
-        # Get access token
-        token_result = credential.get_token(scope)
+        
+        # Create certificate credential and get token
+        credential = CertificateCredential(
+            tenant_id=config["tenant_id"],
+            client_id=config["client_id"],
+            certificate_data=pem_content
+        )
+        
+        token_result = credential.get_token(config["scope"])
         logger.info("Azure access token obtained successfully")
         return token_result.token
-
+    
     except ClientAuthenticationError as e:
         logger.error(f"Azure authentication failed: {e}")
         raise

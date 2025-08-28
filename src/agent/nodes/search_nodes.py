@@ -128,6 +128,145 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
 
     def __init__(self):
         super().__init__("search_confluence")
+    
+    def _analyze_query_type(self, query: str, intent) -> tuple[bool, Any]:
+        """Analyze query type and extract slot result for planning."""
+        from src.retrieval.tuning import should_build_procedure_view
+        
+        # Extract slot_result from intent (if available)
+        slot_result = intent if hasattr(intent, "colors") else None
+        
+        if slot_result:
+            is_procedure_query = should_build_procedure_view(slot_result)
+            logger.info(
+                f"Colors-based planning: procedure_view={is_procedure_query}, "
+                f"actionability={slot_result.colors.actionability_est:.1f}, "
+                f"suites={list(slot_result.colors.suite_affinity.keys())[:3]}"
+            )
+        else:
+            # Fallback to simple heuristics if no slot_result
+            is_procedure_query = (
+                "procedure" in query.lower()
+                or "how" in query.lower()
+                or "onboard" in query.lower()
+                or "setup" in query.lower()
+            )
+            logger.info("Using fallback heuristics for procedure view planning")
+        
+        logger.info(
+            f"Confluence search: procedure_query={is_procedure_query}, intent={getattr(intent, 'intent', 'unknown')}"
+        )
+        
+        return is_procedure_query, slot_result
+    
+    def _prepare_tuning_knobs(self, slot_result) -> tuple[dict, dict]:
+        """Prepare tuning knobs for search views."""
+        info_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
+        procedure_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
+        
+        # Apply color-based tuning if available
+        if slot_result and hasattr(slot_result, "colors"):
+            from src.retrieval.tuning import tune_for_colors
+            tune_for_colors(info_knobs, slot_result.colors)
+            tune_for_colors(procedure_knobs, slot_result.colors)
+        
+        return info_knobs, procedure_knobs
+    
+    async def _execute_search_views(
+        self, query: str, resources, is_procedure_query: bool, 
+        info_knobs: dict, procedure_knobs: dict
+    ) -> tuple:
+        """Execute search views and return results."""
+        info_view_task = run_info_view(
+            query=query,
+            search_client=resources.search_client,
+            embed_client=resources.embed_client,
+            embed_model=resources.settings.embed.model,
+            top_k=resources.settings.search_config.search_top_k_info,
+            # TODO: Pass knobs to view functions when they support it
+        )
+        
+        procedure_view_task = (
+            run_procedure_view(
+                query=query,
+                search_client=resources.search_client,
+                embed_client=resources.embed_client,
+                embed_model=resources.settings.embed.model,
+                top_k=resources.settings.search_config.search_top_k_info,
+            )
+            if is_procedure_query
+            else None
+        )
+        
+        # Await results
+        info_view = await info_view_task
+        procedure_view = await procedure_view_task if procedure_view_task else None
+        
+        return info_view, procedure_view
+    
+    def _build_search_response(
+        self, state: Dict[str, Any], decision, info_view
+    ) -> Dict[str, Any]:
+        """Build the final search response based on presenter decision."""
+        if decision.presenter in ["procedure", "info"]:
+            return self._build_actionable_response(state, decision)
+        else:
+            return self._build_fallback_response(state, decision, info_view)
+    
+    def _build_actionable_response(self, state: Dict[str, Any], decision) -> Dict[str, Any]:
+        """Build response for actionable content (procedure/info presenter)."""
+        material = materialize(decision)
+        rendered_content = render(material)
+        
+        # Store structured results for combine node
+        final_results = decision.sentences if decision.presenter == "info" else []
+        
+        if decision.spans:
+            final_results.extend(self._convert_spans_to_passages(decision.spans))
+        
+        return self._preserve_state_with_path(
+            state,
+            "search_confluence",
+            search_results=final_results,
+            rendered_content=rendered_content,
+            presenter_choice=decision.presenter,
+            actionable_score=decision.actionable_score,
+            suite_counts=decision.suite_counts,
+        )
+    
+    def _build_fallback_response(
+        self, state: Dict[str, Any], decision, info_view
+    ) -> Dict[str, Any]:
+        """Build fallback response when no actionable content is found."""
+        fallback_results = decision.fallback_paragraphs or []
+        if not fallback_results and info_view:
+            fallback_results = info_view.fused_top8[:5]
+        
+        return self._preserve_state_with_path(
+            state,
+            "search_confluence",
+            search_results=fallback_results,
+            presenter_choice="fallback",
+        )
+    
+    def _convert_spans_to_passages(self, spans: list) -> List[Passage]:
+        """Convert spans back to Passage format for backward compatibility."""
+        span_passages = []
+        for span in spans[:5]:  # Top 5 spans
+            span_result = Passage(
+                doc_id=span.doc_id,
+                index="actionability",
+                title=f"{span.suite.title()} Action",
+                page_url=span.url,
+                score=span.confidence,
+                text=span.text,
+                meta={
+                    "span_type": span.type,
+                    "capability": span.capability,
+                },
+            )
+            span_passages.append(span_result)
+        return span_passages
 
 
     async def execute(
@@ -142,119 +281,19 @@ class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
             if not query or query.strip() == "":
                 return self._handle_empty_query(state, "search_confluence")
 
-            # NEW: Use colors for planning which views to build
-            from src.retrieval.tuning import should_build_procedure_view
-
-            # Extract slot_result from intent (if available)
-            slot_result = intent if hasattr(intent, "colors") else None
-
-            if slot_result:
-                is_procedure_query = should_build_procedure_view(slot_result)
-                logger.info(
-                    f"Colors-based planning: procedure_view={is_procedure_query}, "
-                    f"actionability={slot_result.colors.actionability_est:.1f}, "
-                    f"suites={list(slot_result.colors.suite_affinity.keys())[:3]}"
-                )
-            else:
-                # Fallback to simple heuristics if no slot_result
-                is_procedure_query = (
-                    "procedure" in query.lower()
-                    or "how" in query.lower()
-                    or "onboard" in query.lower()
-                    or "setup" in query.lower()
-                )
-                logger.info("Using fallback heuristics for procedure view planning")
-
-            logger.info(
-                f"Confluence search: procedure_query={is_procedure_query}, intent={getattr(intent, 'intent', 'unknown')}"
+            # Determine query type and tuning parameters
+            is_procedure_query, slot_result = self._analyze_query_type(query, intent)
+            info_knobs, procedure_knobs = self._prepare_tuning_knobs(slot_result)
+            
+            # Execute search views
+            info_view, procedure_view = await self._execute_search_views(
+                query, resources, is_procedure_query, info_knobs, procedure_knobs
             )
-
-            # Run views with color-based tuning
-            info_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
-            procedure_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
-
-            # Apply color-based tuning if available
-            if slot_result and hasattr(slot_result, "colors"):
-                from src.retrieval.tuning import tune_for_colors
-
-                tune_for_colors(info_knobs, slot_result.colors)
-                tune_for_colors(procedure_knobs, slot_result.colors)
-
-            info_view_task = run_info_view(
-                query=query,
-                search_client=resources.search_client,
-                embed_client=resources.embed_client,
-                embed_model=resources.settings.embed.model,
-                top_k=self._get_resources().settings.search_config.search_top_k_info,
-                # TODO: Pass knobs to view functions when they support it
-            )
-
-            procedure_view_task = (
-                run_procedure_view(
-                    query=query,
-                    search_client=resources.search_client,
-                    embed_client=resources.embed_client,
-                    embed_model=resources.settings.embed.model,
-                    top_k=self._get_resources().settings.search_config.search_top_k_info,
-                )
-                if is_procedure_query
-                else None
-            )
-
-            # Await results
-            info_view = await info_view_task
-            procedure_view = await procedure_view_task if procedure_view_task else None
-
-            # Use actionability engine to choose best presenter
+            
+            # Choose presenter and build response
             decision = choose_presenter(info_view, procedure_view)
-
-            # If we have actionable content, materialize and render it
-            if decision.presenter in ["procedure", "info"]:
-                material = materialize(decision)
-                rendered_content = render(material)
-
-                # Store structured results for combine node
-                final_results = (
-                    decision.sentences if decision.presenter == "info" else []
-                )
-                if decision.spans:
-                    # Convert spans back to Passage format for backward compatibility
-                    for span in decision.spans[:5]:  # Top 5 spans
-                        span_result = Passage(
-                            doc_id=span.doc_id,
-                            index="actionability",
-                            title=f"{span.suite.title()} Action",
-                            page_url=span.url,
-                            score=span.confidence,
-                            text=span.text,
-                            meta={
-                                "span_type": span.type,
-                                "capability": span.capability,
-                            },
-                        )
-                        final_results.append(span_result)
-
-                return self._preserve_state_with_path(
-                    state,
-                    "search_confluence",
-                    search_results=final_results,
-                    rendered_content=rendered_content,  # Store rendered content
-                    presenter_choice=decision.presenter,
-                    actionable_score=decision.actionable_score,
-                    suite_counts=decision.suite_counts,
-                )
-            else:
-                # Fallback to traditional search results
-                fallback_results = decision.fallback_paragraphs or []
-                if not fallback_results and info_view:
-                    fallback_results = info_view.fused_top8[:5]
-
-                return self._preserve_state_with_path(
-                    state,
-                    "search_confluence",
-                    search_results=fallback_results,
-                    presenter_choice="fallback",
-                )
+            
+            return self._build_search_response(state, decision, info_view)
 
         except Exception as e:
             logger.error(f"Enhanced confluence search failed: {e}")

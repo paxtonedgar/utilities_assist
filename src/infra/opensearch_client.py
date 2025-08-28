@@ -128,11 +128,22 @@ class OpenSearchClient:
         Returns:
             SearchResponse with BM25 results
         """
-        # Use configured index alias if not specified
-        if index is None:
-            index = self.settings.search_index_alias
-
-        # Log search start
+        index = index or self.settings.search_index_alias
+        
+        self._log_bm25_search_start(query, index, k, filters)
+        search_body = self._build_simple_bm25_query(query, k, index)
+        self._log_bm25_query_structure(search_body, index)
+        
+        try:
+            response_data = self._execute_bm25_request(search_body, index)
+            return self._process_bm25_success_response(response_data, search_body, index)
+        except requests.exceptions.HTTPError as e:
+            return self._handle_bm25_http_error(e, index)
+        except Exception as e:
+            return self._handle_bm25_general_error(e, index)
+    
+    def _log_bm25_search_start(self, query: str, index: str, k: int, filters: Optional[SearchFilters]) -> None:
+        """Log the start of BM25 search."""
         log_event(
             stage="bm25",
             event="start",
@@ -142,162 +153,159 @@ class OpenSearchClient:
             filters_enabled=filters is not None,
             query_length=len(query),
         )
-
-        # Build BM25 query matching working v1 branch structure
-        search_body = self._build_simple_bm25_query(query, k, index)
-
-        try:
-            url = f"{self.base_url}/{index}/_search"
-            start_time = time.time()
-
-            # EXPLICIT OS QUERY LOG - for debugging query preservation
-            logger.info(
-                "OS_QUERY index=%s strategy=%s q=%r query_len=%d",
-                index,
-                "bm25",
-                query,
-                len(query),
+        
+        logger.info(
+            "OS_QUERY index=%s strategy=%s q=%r query_len=%d",
+            index, "bm25", query, len(query),
+        )
+    
+    def _log_bm25_query_structure(self, search_body: dict, index: str) -> None:
+        """Log BM25 query structure for debugging."""
+        if hasattr(search_body.get("query", {}), "get"):
+            query_structure = "nested" if "nested" in search_body["query"] else "flat"
+            logger.info(f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}")
+            
+            if query_structure == "flat" and "khub-opensearch" in index:
+                logger.warning(
+                    f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}"
+                )
+    
+    def _execute_bm25_request(self, search_body: dict, index: str) -> dict:
+        """Execute BM25 request and return response data."""
+        url = f"{self.base_url}/{index}/_search"
+        start_time = time.time()
+        
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        headers = {"Content-Type": "application/json"}
+        
+        if aws_auth:
+            response = requests.post(
+                url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
             )
-
-            # DEBUG: Log actual query structure on first request to catch regressions
-            if hasattr(search_body.get("query", {}), "get"):
-                query_structure = (
-                    "nested" if "nested" in search_body["query"] else "flat"
-                )
-                logger.info(
-                    f"BM25_QUERY_STRUCTURE: {query_structure} for index {index}"
-                )
-
-                # Warn if flat query is used for any khub index (both use nested sections[])
-                if query_structure == "flat" and "khub-opensearch" in index:
-                    logger.warning(
-                        f"BM25 using flat query for nested index: {json.dumps(search_body['query'], indent=2)}"
-                    )
-
-            # Use POST request for search with body
-            _setup_jpmc_proxy()  # Ensure proxy is configured
-            aws_auth = _get_aws_auth()
-            headers = {"Content-Type": "application/json"}
-            if aws_auth:
-                response = requests.post(
-                    url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
-                )
-            else:
-                response = self.session.post(
-                    url, json=search_body, timeout=30.0, headers=headers
-                )
-
-            took_ms = (time.time() - start_time) * 1000
-            status_code = response.status_code
-
-            # Log HTTP response details
+        else:
+            response = self.session.post(
+                url, json=search_body, timeout=30.0, headers=headers
+            )
+        
+        took_ms = (time.time() - start_time) * 1000
+        status_code = response.status_code
+        
+        log_event(
+            stage="bm25", event="http_response", status=status_code, took_ms=took_ms, index=index
+        )
+        
+        if not response.ok:
+            self._log_bm25_http_error(response, took_ms, index)
+            response.raise_for_status()
+        
+        return {
+            'data': response.json(),
+            'took_ms': took_ms,
+            'status_code': status_code
+        }
+    
+    def _log_bm25_http_error(self, response, took_ms: float, index: str) -> None:
+        """Log BM25 HTTP error details."""
+        error_body = response.text[:500]
+        log_event(
+            stage="bm25",
+            event="error",
+            status=response.status_code,
+            took_ms=took_ms,
+            err=True,
+            error_type="HTTPError",
+            error_message=f"HTTP {response.status_code}",
+            error_body_snippet=error_body,
+            index=index,
+        )
+    
+    def _process_bm25_success_response(
+        self, response_data: dict, search_body: dict, index: str
+    ) -> SearchResponse:
+        """Process successful BM25 response."""
+        data = response_data['data']
+        took_ms = response_data['took_ms']
+        status_code = response_data['status_code']
+        
+        results = self._parse_search_response(data, index)
+        total_hits = get_total_hits(data)
+        
+        self._log_bm25_response(results, index, took_ms, status_code)
+        self._log_bm25_zero_results(results, total_hits, search_body, index)
+        
+        log_event(
+            stage="bm25",
+            event="success",
+            took_ms=took_ms,
+            result_count=len(results),
+            total_hits=total_hits,
+            index=index,
+            elasticsearch_took=data.get("took", 0),
+        )
+        
+        return SearchResponse(
+            results=results,
+            total_hits=total_hits,
+            took_ms=int(took_ms),
+            method="bm25",
+        )
+    
+    def _log_bm25_response(
+        self, results: List[Passage], index: str, took_ms: float, status_code: int
+    ) -> None:
+        """Log BM25 response details."""
+        top_result_title = results[0].title if results else None
+        logger.info(
+            "OS_RESPONSE index=%s took_ms=%.1f status=%s hits=%d top=%r",
+            index, took_ms, status_code, len(results), top_result_title,
+        )
+    
+    def _log_bm25_zero_results(
+        self, results: List[Passage], total_hits: int, search_body: dict, index: str
+    ) -> None:
+        """Log zero results for debugging."""
+        if len(results) == 0 and total_hits == 0:
+            logger.warning(
+                f"BM25_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
+            )
+    
+    def _handle_bm25_http_error(self, e: requests.exceptions.HTTPError, index: str) -> SearchResponse:
+        """Handle BM25 HTTP errors."""
+        if hasattr(e.response, "status_code") and e.response.status_code == 404:
+            logger.warning(f"Index not found: {index}. Continuing with empty results.")
             log_event(
                 stage="bm25",
-                event="http_response",
-                status=status_code,
-                took_ms=took_ms,
+                event="index_not_found",
                 index=index,
+                status_code=404,
+                message=f"Index {index} not found, returning empty results",
             )
-
-            # Handle HTTP errors
-            if not response.ok:
-                error_body = response.text[:500]  # Snippet only
-                log_event(
-                    stage="bm25",
-                    event="error",
-                    status=status_code,
-                    took_ms=took_ms,
-                    err=True,
-                    error_type="HTTPError",
-                    error_message=f"HTTP {status_code}",
-                    error_body_snippet=error_body,
-                    index=index,
-                )
-                response.raise_for_status()
-
-            data = response.json()
-            results = self._parse_search_response(data, index)
-
-            # EXPLICIT OS RESPONSE LOG - for debugging query results
-            top_result_title = results[0].title if results else None
-            logger.info(
-                "OS_RESPONSE index=%s took_ms=%.1f status=%s hits=%d top=%r",
-                index,
-                took_ms,
-                status_code,
-                len(results),
-                top_result_title,
-            )
-
-            # Log successful completion
-            total_hits = get_total_hits(data)
-
-            # CANARY: Log query body when we get zero results for debugging
-            if len(results) == 0 and total_hits == 0:
-                logger.warning(
-                    f"BM25_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
-                )
-
-            log_event(
-                stage="bm25",
-                event="success",
-                took_ms=took_ms,
-                result_count=len(results),
-                total_hits=total_hits,
-                index=index,
-                elasticsearch_took=data.get("took", 0),
-            )
-
-            return SearchResponse(
-                results=results,
-                total_hits=total_hits,
-                took_ms=int(took_ms),
-                method="bm25",
-            )
-
-        except requests.exceptions.HTTPError as e:
-            # Special handling for 404 - index not found
-            if hasattr(e.response, "status_code") and e.response.status_code == 404:
-                logger.warning(
-                    f"Index not found: {index}. Continuing with empty results."
-                )
-                log_event(
-                    stage="bm25",
-                    event="index_not_found",
-                    index=index,
-                    status_code=404,
-                    message=f"Index {index} not found, returning empty results",
-                )
-            else:
-                log_event(
-                    stage="bm25",
-                    event="error",
-                    err=True,
-                    error_type="HTTPError",
-                    error_message=str(e)[:200],
-                    index=index,
-                    status_code=e.response.status_code
-                    if hasattr(e.response, "status_code")
-                    else None,
-                )
-
-            return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
-
-        except Exception as e:
-            # Log other errors
+        else:
             log_event(
                 stage="bm25",
                 event="error",
                 err=True,
-                error_type=type(e).__name__,
+                error_type="HTTPError",
                 error_message=str(e)[:200],
                 index=index,
-                status_code=getattr(response, "status_code", None)
-                if "response" in locals()
-                else None,
+                status_code=e.response.status_code if hasattr(e.response, "status_code") else None,
             )
-
-            return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
+        
+        return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
+    
+    def _handle_bm25_general_error(self, e: Exception, index: str) -> SearchResponse:
+        """Handle BM25 general errors."""
+        log_event(
+            stage="bm25",
+            event="error",
+            err=True,
+            error_type=type(e).__name__,
+            error_message=str(e)[:200],
+            index=index,
+        )
+        
+        return SearchResponse(results=[], total_hits=0, took_ms=0, method="bm25")
 
     @stage("knn")
     def knn_search(
@@ -323,11 +331,24 @@ class OpenSearchClient:
         Returns:
             SearchResponse with kNN results
         """
-        # Use configured index alias if not specified
-        if index is None:
-            index = self.settings.search_index_alias
-
-        # Log search start
+        index = index or self.settings.search_index_alias
+        
+        self._log_knn_search_start(query_vector, index, k, ef_search, filters)
+        search_body = self._build_simple_knn_query(query_vector, k, index)
+        self._log_knn_query_structure(search_body, index)
+        
+        try:
+            response_data = self._execute_knn_request(search_body, index)
+            return self._process_knn_success_response(response_data, search_body, index)
+        except requests.exceptions.HTTPError as e:
+            return self._handle_knn_http_error(e, index)
+        except Exception as e:
+            return self._handle_knn_general_error(e, index)
+    
+    def _log_knn_search_start(
+        self, query_vector: List[float], index: str, k: int, ef_search: int, filters: Optional[SearchFilters]
+    ) -> None:
+        """Log the start of kNN search."""
         log_event(
             stage="knn",
             event="start",
@@ -338,138 +359,142 @@ class OpenSearchClient:
             ef_search=ef_search,
             filters_enabled=filters is not None,
         )
-
-        # Build simple kNN query (like main branch)
-        search_body = self._build_simple_knn_query(query_vector, k, index)
-
-        # DEBUG: Log actual kNN query structure to catch regressions
+    
+    def _log_knn_query_structure(self, search_body: dict, index: str) -> None:
+        """Log kNN query structure for debugging."""
         if search_body and hasattr(search_body.get("query", {}), "get"):
             query_structure = "nested" if "nested" in search_body["query"] else "flat"
             logger.info(f"KNN_QUERY_STRUCTURE: {query_structure} for index {index}")
-
-            # Warn if flat query is used for any khub index (both use nested sections[])
+            
             if query_structure == "flat" and "khub-opensearch" in index:
                 logger.warning(
                     f"kNN using flat query for nested index: {json.dumps(search_body['query'], indent=2)}"
                 )
-
-        try:
-            url = f"{self.base_url}/{index}/_search"
-            start_time = time.time()
-
-            # Use direct requests with auth (like main branch) instead of session
-            _setup_jpmc_proxy()  # Ensure proxy is configured
-            aws_auth = _get_aws_auth()
-            headers = {"Content-Type": "application/json"}
-            if aws_auth:
-                response = requests.post(
-                    url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
-                )
-            else:
-                response = self.session.post(
-                    url, json=search_body, timeout=30.0, headers=headers
-                )
-
-            took_ms = (time.time() - start_time) * 1000
-            status_code = response.status_code
-
-            # Log HTTP response details
+    
+    def _execute_knn_request(self, search_body: dict, index: str) -> dict:
+        """Execute kNN request and return response data."""
+        url = f"{self.base_url}/{index}/_search"
+        start_time = time.time()
+        
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        headers = {"Content-Type": "application/json"}
+        
+        if aws_auth:
+            response = requests.post(
+                url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers
+            )
+        else:
+            response = self.session.post(
+                url, json=search_body, timeout=30.0, headers=headers
+            )
+        
+        took_ms = (time.time() - start_time) * 1000
+        status_code = response.status_code
+        
+        log_event(
+            stage="knn", event="http_response", status=status_code, took_ms=took_ms, index=index
+        )
+        
+        if not response.ok:
+            self._log_knn_http_error(response, took_ms, index)
+            response.raise_for_status()
+        
+        return {
+            'data': response.json(),
+            'took_ms': took_ms,
+            'status_code': status_code
+        }
+    
+    def _log_knn_http_error(self, response, took_ms: float, index: str) -> None:
+        """Log kNN HTTP error details."""
+        error_body = response.text[:500]
+        log_event(
+            stage="knn",
+            event="error",
+            status=response.status_code,
+            took_ms=took_ms,
+            err=True,
+            error_type="HTTPError",
+            error_message=f"HTTP {response.status_code}",
+            error_body_snippet=error_body,
+            index=index,
+        )
+    
+    def _process_knn_success_response(
+        self, response_data: dict, search_body: dict, index: str
+    ) -> SearchResponse:
+        """Process successful kNN response."""
+        data = response_data['data']
+        took_ms = response_data['took_ms']
+        
+        results = self._parse_search_response(data, index)
+        total_hits = get_total_hits(data)
+        
+        self._log_knn_zero_results(results, total_hits, search_body, index)
+        
+        log_event(
+            stage="knn",
+            event="success",
+            took_ms=took_ms,
+            result_count=len(results),
+            total_hits=total_hits,
+            index=index,
+            elasticsearch_took=data.get("took", 0),
+        )
+        
+        return SearchResponse(
+            results=results,
+            total_hits=total_hits,
+            took_ms=int(took_ms),
+            method="knn",
+        )
+    
+    def _log_knn_zero_results(
+        self, results: List[Passage], total_hits: int, search_body: dict, index: str
+    ) -> None:
+        """Log zero results for debugging."""
+        if len(results) == 0 and total_hits == 0:
+            logger.warning(
+                f"KNN_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
+            )
+    
+    def _handle_knn_http_error(self, e: requests.exceptions.HTTPError, index: str) -> SearchResponse:
+        """Handle kNN HTTP errors."""
+        if hasattr(e.response, "status_code") and e.response.status_code == 404:
+            logger.warning(f"Index not found: {index}. Continuing with empty results.")
             log_event(
                 stage="knn",
-                event="http_response",
-                status=status_code,
-                took_ms=took_ms,
+                event="index_not_found",
                 index=index,
+                status_code=404,
+                message=f"Index {index} not found, returning empty results",
             )
-
-            # Handle HTTP errors
-            if not response.ok:
-                error_body = response.text[:500]  # Snippet only
-                log_event(
-                    stage="knn",
-                    event="error",
-                    status=status_code,
-                    took_ms=took_ms,
-                    err=True,
-                    error_type="HTTPError",
-                    error_message=f"HTTP {status_code}",
-                    error_body_snippet=error_body,
-                    index=index,
-                )
-                response.raise_for_status()
-
-            data = response.json()
-            results = self._parse_search_response(data, index)
-
-            # Log successful completion
-            total_hits = get_total_hits(data)
-
-            # CANARY: Log query body when we get zero results for debugging
-            if len(results) == 0 and total_hits == 0:
-                logger.warning(
-                    f"KNN_ZERO_RESULTS for {index}: query={json.dumps(search_body, indent=2)}"
-                )
-
-            log_event(
-                stage="knn",
-                event="success",
-                took_ms=took_ms,
-                result_count=len(results),
-                total_hits=total_hits,
-                index=index,
-                elasticsearch_took=data.get("took", 0),
-            )
-
-            return SearchResponse(
-                results=results,
-                total_hits=total_hits,
-                took_ms=int(took_ms),
-                method="knn",
-            )
-
-        except requests.exceptions.HTTPError as e:
-            # Special handling for 404 - index not found
-            if hasattr(e.response, "status_code") and e.response.status_code == 404:
-                logger.warning(
-                    f"Index not found: {index}. Continuing with empty results."
-                )
-                log_event(
-                    stage="knn",
-                    event="index_not_found",
-                    index=index,
-                    status_code=404,
-                    message=f"Index {index} not found, returning empty results",
-                )
-            else:
-                log_event(
-                    stage="knn",
-                    event="error",
-                    err=True,
-                    error_type="HTTPError",
-                    error_message=str(e)[:200],
-                    index=index,
-                    status_code=e.response.status_code
-                    if hasattr(e.response, "status_code")
-                    else None,
-                )
-
-            return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
-
-        except Exception as e:
-            # Log other errors
+        else:
             log_event(
                 stage="knn",
                 event="error",
                 err=True,
-                error_type=type(e).__name__,
+                error_type="HTTPError",
                 error_message=str(e)[:200],
                 index=index,
-                status_code=getattr(response, "status_code", None)
-                if "response" in locals()
-                else None,
+                status_code=e.response.status_code if hasattr(e.response, "status_code") else None,
             )
-
-            return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
+        
+        return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
+    
+    def _handle_knn_general_error(self, e: Exception, index: str) -> SearchResponse:
+        """Handle kNN general errors."""
+        log_event(
+            stage="knn",
+            event="error",
+            err=True,
+            error_type=type(e).__name__,
+            error_message=str(e)[:200],
+            index=index,
+        )
+        
+        return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
 
     def rrf_fuse(
         self,
@@ -722,77 +747,84 @@ class OpenSearchClient:
     def health_check(self) -> Dict[str, Any]:
         """Comprehensive health check for JPMC-aware OpenSearch connectivity."""
         try:
-            health_url = f"{self.base_url}/_cluster/health"
-
-            if self.settings.requires_aws_auth:
-                # Use AWS auth for JPMC
-                _setup_jpmc_proxy()  # Ensure proxy is configured
-                aws_auth = _get_aws_auth()
-                if aws_auth:
-                    response = requests.get(health_url, auth=aws_auth, timeout=5.0)
-                else:
-                    # No auth available
-                    raise ValueError("No authentication available for JPMC profile")
-            else:
-                response = self.session.get(health_url, timeout=5.0)
-
-            response.raise_for_status()
-
-            health = response.json()
-
-            # Check if health data is valid
-            if not health or not isinstance(health, dict):
-                raise ValueError("Invalid health response format")
-
-            # Test default index exists
+            health_data = self._execute_health_request()
+            self._validate_health_response(health_data)
+            
             index_exists = self._check_index_exists(self.settings.search_index_alias)
-
-            # Authentication status
-            auth_status = "none"
-            try:
-                if (
-                    self.session is not None
-                    and hasattr(self.session, "auth")
-                    and self.session.auth
-                ):
-                    auth_status = "session_configured"
-                elif self.settings.requires_aws_auth:
-                    auth_status = "aws_auth_configured"
-            except:
-                pass
-
-            return {
-                "status": "healthy",
-                "cluster_name": health.get("cluster_name", "unknown"),
-                "cluster_status": health.get("status", "unknown"),
-                "node_count": health.get("number_of_nodes", 0),
-                "data_nodes": health.get("number_of_data_nodes", 0),
-                "index_exists": index_exists,
-                "authentication": auth_status,
-            }
-
+            auth_status = self._get_authentication_status()
+            
+            return self._build_healthy_response(health_data, index_exists, auth_status)
+        
         except Exception as e:
             logger.error(f"Health check failed: {e}")
-
-            # Safe authentication status for error case
-            auth_status = "none"
-            try:
-                if (
-                    self.session is not None
-                    and hasattr(self.session, "auth")
-                    and self.session.auth
-                ):
-                    auth_status = "session_configured"
-                elif self.settings.requires_aws_auth:
-                    auth_status = "aws_auth_configured"
-            except:
-                pass
-
-            return {
-                "status": "unhealthy",
-                "error": str(e),
-                "authentication": auth_status,
-            }
+            return self._build_unhealthy_response(e)
+    
+    def _execute_health_request(self) -> dict:
+        """Execute the health check request."""
+        health_url = f"{self.base_url}/_cluster/health"
+        
+        if self.settings.requires_aws_auth:
+            return self._execute_aws_auth_health_request(health_url)
+        else:
+            response = self.session.get(health_url, timeout=5.0)
+            response.raise_for_status()
+            return response.json()
+    
+    def _execute_aws_auth_health_request(self, health_url: str) -> dict:
+        """Execute health request with AWS authentication."""
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        
+        if not aws_auth:
+            raise ValueError("No authentication available for JPMC profile")
+        
+        response = requests.get(health_url, auth=aws_auth, timeout=5.0)
+        response.raise_for_status()
+        return response.json()
+    
+    def _validate_health_response(self, health_data: dict) -> None:
+        """Validate health response format."""
+        if not health_data or not isinstance(health_data, dict):
+            raise ValueError("Invalid health response format")
+    
+    def _get_authentication_status(self) -> str:
+        """Determine authentication status."""
+        try:
+            if (
+                self.session is not None
+                and hasattr(self.session, "auth")
+                and self.session.auth
+            ):
+                return "session_configured"
+            elif self.settings.requires_aws_auth:
+                return "aws_auth_configured"
+            return "none"
+        except:
+            return "none"
+    
+    def _build_healthy_response(
+        self, health_data: dict, index_exists: bool, auth_status: str
+    ) -> Dict[str, Any]:
+        """Build healthy response dictionary."""
+        return {
+            "status": "healthy",
+            "cluster_name": health_data.get("cluster_name", "unknown"),
+            "cluster_status": health_data.get("status", "unknown"),
+            "node_count": health_data.get("number_of_nodes", 0),
+            "data_nodes": health_data.get("number_of_data_nodes", 0),
+            "index_exists": index_exists,
+            "authentication": auth_status,
+        }
+    
+    def _build_unhealthy_response(self, error: Exception) -> Dict[str, Any]:
+        """Build unhealthy response dictionary."""
+        auth_status = self._get_authentication_status()
+        
+        return {
+            "status": "unhealthy",
+            "error": str(error),
+            "authentication": auth_status,
+        }
 
 
 def create_search_client(settings=None) -> OpenSearchClient:

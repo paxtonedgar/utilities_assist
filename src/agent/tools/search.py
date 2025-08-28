@@ -158,175 +158,33 @@ async def search_index_tool(
         if not search_client:
             raise ValueError("search_client is required")
 
-        # Optional orchestrator preprocessing
-        if use_orchestrator and chat_client:
-            try:
-                from src.agent.orchestrator import StreamlinedOrchestrator
-
-                orchestrator = StreamlinedOrchestrator(chat_client)
-                plan = orchestrator._llm_plan(query)
-
-                # Apply planned filters
-                if plan.steps and plan.steps[0].get("filters"):
-                    filters = {**(filters or {}), **plan.steps[0]["filters"]}
-                    logger.info(
-                        f"Orchestrator added filters: {plan.steps[0]['filters']}"
-                    )
-            except Exception as e:
-                logger.debug(f"Orchestrator preprocessing skipped: {e}")
-
+        # Apply orchestrator preprocessing if enabled
+        filters = await _handle_orchestrator_preprocessing(
+            query, filters, use_orchestrator, chat_client
+        )
+        
         logger.info(
             f"Searching index '{index}' with strategy '{strategy}' for query: '{query[:50]}...'"
         )
 
+        # Execute appropriate search strategy
         if strategy == "enhanced_rrf" and embed_client:
-            # Enhanced RRF with vector search
-            try:
-                # Use enhanced embedding utility
-                query_embedding = await _create_enhanced_embedding(
-                    query, embed_client, embed_model
-                )
-
-                # Get configurable candidates from RRF
-                from src.infra.settings import get_settings
-
-                settings = get_settings()
-
-                rrf_result, diagnostics = await enhanced_rrf_search(
-                    query=query,
-                    query_embedding=query_embedding,
-                    search_client=search_client,
-                    index_name=index,
-                    filters=filters,
-                    top_k=settings.search_config.rrf_expansion_candidates,  # Configurable (was 36)
-                    use_mmr=False,  # MMR removed to save latency
-                    lambda_param=settings.search_config.rrf_lambda_param,  # Configurable (was 0.75)
-                )
-
-                # CRITICAL FIX: Check unique docs in RRF BEFORE expensive cross-encoder
-                # Count unique doc_ids to avoid rerank→collapse→coverage fail loop
-                unique_docs = len(set(r.doc_id for r in rrf_result.results))
-                min_docs_threshold = settings.quality_thresholds.min_unique_docs
-                logger.info(
-                    f"RRF unique docs: {unique_docs} (need ≥{min_docs_threshold} for coverage)"
-                )
-
-                if unique_docs >= min_docs_threshold:
-                    # Sufficient unique docs - safe to run cross-encoder reranking
-                    try:
-                        # Import the cross-encoder function directly (avoid import cache issues)
-                        from src.services.retrieve import _cross_encoder_rerank
-
-                        logger.info(
-                            "Running cross-encoder reranking with timeout guardrail"
-                        )
-                        reranked_results = _cross_encoder_rerank(
-                            query=query,
-                            results=rrf_result.results,
-                            top_k=settings.search_config.rerank_top_k,  # Configurable (was 4)
-                            max_rerank_ms=settings.search_config.rerank_timeout_ms,  # Configurable (was 15000)
-                        )
-                    except TypeError as e:
-                        if "max_rerank_ms" in str(e):
-                            logger.warning(
-                                "Function doesn't support max_rerank_ms yet, using fallback"
-                            )
-                            from src.services.retrieve import _cross_encoder_rerank
-
-                            reranked_results = _cross_encoder_rerank(
-                                query=query,
-                                results=rrf_result.results,
-                                top_k=settings.reranker.top_k,
-                            )
-                        else:
-                            raise
-
-                    # If rerank collapses too much, fall back to RRF results
-                    min_rerank_threshold = (
-                        3  # Keep as reasonable default for rerank quality
-                    )
-                    if len(reranked_results) < min_rerank_threshold:
-                        logger.warning(
-                            f"Cross-encoder collapsed to {len(reranked_results)} docs, falling back to RRF top-{settings.search_config.rrf_unique_limit}"
-                        )
-                        final_results = rrf_result.results[
-                            : settings.search_config.rrf_unique_limit
-                        ]
-                        method_name = "enhanced_rrf_fallback"
-                    else:
-                        final_results = reranked_results
-                        method_name = "enhanced_rrf_ce"
-                else:
-                    # Insufficient unique docs - skip expensive reranking
-                    logger.info(
-                        f"Insufficient unique docs ({unique_docs} < {min_docs_threshold}), skipping cross-encoder to save ~7-8s"
-                    )
-                    method_name = "enhanced_rrf_no_ce"
-                    final_results = rrf_result.results[
-                        : settings.search_config.rrf_unique_limit
-                    ]  # Return more docs when not reranking
-
-                # Return result with diagnostics
-                diagnostics.update(
-                    {
-                        "unique_docs_pre_rerank": unique_docs,
-                        "coverage_check": "unique_doc_count",
-                        "cross_encoder_skipped": unique_docs < min_docs_threshold,
-                        "method": method_name,
-                    }
-                )
-
-                return RetrievalResult(
-                    results=final_results,
-                    total_found=rrf_result.total_found,
-                    retrieval_time_ms=rrf_result.retrieval_time_ms,
-                    method=method_name,
-                    diagnostics=diagnostics,
-                )
-
-            except EmbeddingError as e:
-                logger.warning(f"Embedding failed, falling back to BM25: {e}")
-                # Fall through to BM25
-
-        if strategy == "knn" and embed_client:
-            # Vector search only
-            try:
-                # Use enhanced embedding utility
-                query_embedding = await _create_enhanced_embedding(
-                    query, embed_client, embed_model
-                )
-
-                return await knn_search(
-                    query_embedding=query_embedding,
-                    search_client=search_client,
-                    index_name=index,
-                    filters=filters,
-                    top_k=top_k,
-                )
-
-            except EmbeddingError as e:
-                logger.warning(f"Embedding failed, falling back to BM25: {e}")
-                # Fall through to BM25
-
-        # BM25 search (default fallback)
-        return await bm25_search(
-            query=query,
-            search_client=search_client,
-            index_name=index,
-            filters=filters,
-            top_k=top_k,
-        )
+            return await _execute_enhanced_rrf_strategy(
+                query, index, filters, search_client, embed_client, embed_model
+            )
+        elif strategy == "knn" and embed_client:
+            return await _execute_knn_strategy(
+                query, index, filters, search_client, embed_client, embed_model, top_k
+            )
+        else:
+            # BM25 search (default fallback)
+            return await _execute_bm25_fallback(
+                query, index, filters, search_client, top_k
+            )
 
     except Exception as e:
         logger.error(f"Search tool failed: {e}")
-        # Return empty result on failure
-        return RetrievalResult(
-            results=[],
-            total_found=0,
-            retrieval_time_ms=0,
-            method="error",
-            diagnostics={"error": str(e)},
-        )
+        return _build_error_result(str(e))
 
 
 async def multi_index_search_tool(
@@ -484,3 +342,226 @@ async def adaptive_search_tool(
             method="error",
             diagnostics={"error": str(e)},
         )
+
+
+async def _handle_orchestrator_preprocessing(
+    query: str, filters: Optional[Dict[str, Any]], use_orchestrator: bool, chat_client
+) -> Optional[Dict[str, Any]]:
+    """Handle orchestrator preprocessing if enabled."""
+    if not (use_orchestrator and chat_client):
+        return filters
+    
+    try:
+        from src.agent.orchestrator import StreamlinedOrchestrator
+        
+        orchestrator = StreamlinedOrchestrator(chat_client)
+        plan = orchestrator._llm_plan(query)
+        
+        # Apply planned filters
+        if plan.steps and plan.steps[0].get("filters"):
+            updated_filters = {**(filters or {}), **plan.steps[0]["filters"]}
+            logger.info(f"Orchestrator added filters: {plan.steps[0]['filters']}")
+            return updated_filters
+    except Exception as e:
+        logger.debug(f"Orchestrator preprocessing skipped: {e}")
+    
+    return filters
+
+
+async def _execute_enhanced_rrf_strategy(
+    query: str, index: str, filters: Optional[Dict[str, Any]], 
+    search_client: OpenSearchClient, embed_client, embed_model: str
+) -> RetrievalResult:
+    """Execute enhanced RRF search strategy with cross-encoder reranking."""
+    try:
+        # Create embedding for vector search
+        query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
+        
+        # Get RRF results with configurable parameters
+        rrf_result, diagnostics = await _get_rrf_results(
+            query, query_embedding, search_client, index, filters
+        )
+        
+        # Determine if cross-encoder reranking is viable
+        should_rerank, unique_docs = _should_apply_cross_encoder_reranking(rrf_result)
+        
+        if should_rerank:
+            # Apply cross-encoder reranking
+            final_results, method_name = await _apply_cross_encoder_reranking(
+                query, rrf_result
+            )
+        else:
+            # Skip reranking for insufficient unique docs
+            final_results, method_name = _skip_cross_encoder_reranking(
+                rrf_result, unique_docs
+            )
+        
+        # Build final result with diagnostics
+        return _build_enhanced_rrf_result(
+            final_results, rrf_result, method_name, diagnostics, unique_docs
+        )
+        
+    except EmbeddingError as e:
+        logger.warning(f"Embedding failed, falling back to BM25: {e}")
+        return await _execute_bm25_fallback(query, index, filters, search_client, 10)
+
+
+async def _execute_knn_strategy(
+    query: str, index: str, filters: Optional[Dict[str, Any]],
+    search_client: OpenSearchClient, embed_client, embed_model: str, top_k: int
+) -> RetrievalResult:
+    """Execute KNN vector search strategy."""
+    try:
+        query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
+        
+        return await knn_search(
+            query_embedding=query_embedding,
+            search_client=search_client,
+            index_name=index,
+            filters=filters,
+            top_k=top_k,
+        )
+    except EmbeddingError as e:
+        logger.warning(f"Embedding failed, falling back to BM25: {e}")
+        return await _execute_bm25_fallback(query, index, filters, search_client, top_k)
+
+
+async def _execute_bm25_fallback(
+    query: str, index: str, filters: Optional[Dict[str, Any]], 
+    search_client: OpenSearchClient, top_k: int
+) -> RetrievalResult:
+    """Execute BM25 search as fallback strategy."""
+    return await bm25_search(
+        query=query,
+        search_client=search_client,
+        index_name=index,
+        filters=filters,
+        top_k=top_k,
+    )
+
+
+async def _get_rrf_results(
+    query: str, query_embedding, search_client: OpenSearchClient, 
+    index: str, filters: Optional[Dict[str, Any]]
+):
+    """Get RRF search results with configurable parameters."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    return await enhanced_rrf_search(
+        query=query,
+        query_embedding=query_embedding,
+        search_client=search_client,
+        index_name=index,
+        filters=filters,
+        top_k=settings.search_config.rrf_expansion_candidates,
+        use_mmr=False,  # MMR removed to save latency
+        lambda_param=settings.search_config.rrf_lambda_param,
+    )
+
+
+def _should_apply_cross_encoder_reranking(rrf_result) -> tuple[bool, int]:
+    """Determine if cross-encoder reranking should be applied."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    unique_docs = len(set(r.doc_id for r in rrf_result.results))
+    min_docs_threshold = settings.quality_thresholds.min_unique_docs
+    
+    logger.info(f"RRF unique docs: {unique_docs} (need ≥{min_docs_threshold} for coverage)")
+    
+    return unique_docs >= min_docs_threshold, unique_docs
+
+
+async def _apply_cross_encoder_reranking(query: str, rrf_result) -> tuple[list, str]:
+    """Apply cross-encoder reranking with fallback handling."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    try:
+        from src.services.retrieve import _cross_encoder_rerank
+        
+        logger.info("Running cross-encoder reranking with timeout guardrail")
+        reranked_results = _cross_encoder_rerank(
+            query=query,
+            results=rrf_result.results,
+            top_k=settings.search_config.rerank_top_k,
+            max_rerank_ms=settings.search_config.rerank_timeout_ms,
+        )
+    except TypeError as e:
+        if "max_rerank_ms" in str(e):
+            logger.warning("Function doesn't support max_rerank_ms yet, using fallback")
+            reranked_results = _cross_encoder_rerank(
+                query=query,
+                results=rrf_result.results,
+                top_k=settings.reranker.top_k,
+            )
+        else:
+            raise
+    
+    # Check for reranking collapse
+    min_rerank_threshold = 3
+    if len(reranked_results) < min_rerank_threshold:
+        logger.warning(
+            f"Cross-encoder collapsed to {len(reranked_results)} docs, "
+            f"falling back to RRF top-{settings.search_config.rrf_unique_limit}"
+        )
+        final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]
+        method_name = "enhanced_rrf_fallback"
+    else:
+        final_results = reranked_results
+        method_name = "enhanced_rrf_ce"
+    
+    return final_results, method_name
+
+
+def _skip_cross_encoder_reranking(rrf_result, unique_docs: int) -> tuple[list, str]:
+    """Skip cross-encoder reranking due to insufficient unique docs."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    min_docs_threshold = settings.quality_thresholds.min_unique_docs
+    logger.info(
+        f"Insufficient unique docs ({unique_docs} < {min_docs_threshold}), "
+        "skipping cross-encoder to save ~7-8s"
+    )
+    
+    final_results = rrf_result.results[:settings.search_config.rrf_unique_limit]
+    method_name = "enhanced_rrf_no_ce"
+    
+    return final_results, method_name
+
+
+def _build_enhanced_rrf_result(
+    final_results: list, rrf_result, method_name: str, 
+    diagnostics: dict, unique_docs: int
+) -> RetrievalResult:
+    """Build final enhanced RRF result with diagnostics."""
+    from src.infra.settings import get_settings
+    settings = get_settings()
+    
+    diagnostics.update({
+        "unique_docs_pre_rerank": unique_docs,
+        "coverage_check": "unique_doc_count",
+        "cross_encoder_skipped": unique_docs < settings.quality_thresholds.min_unique_docs,
+        "method": method_name,
+    })
+    
+    return RetrievalResult(
+        results=final_results,
+        total_found=rrf_result.total_found,
+        retrieval_time_ms=rrf_result.retrieval_time_ms,
+        method=method_name,
+        diagnostics=diagnostics,
+    )
+
+
+def _build_error_result(error_message: str) -> RetrievalResult:
+    """Build error result for failed searches."""
+    return RetrievalResult(
+        results=[],
+        total_found=0,
+        retrieval_time_ms=0,
+        method="error",
+        diagnostics={"error": error_message},
+    )

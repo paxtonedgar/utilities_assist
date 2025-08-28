@@ -39,151 +39,14 @@ async def run_info_view(
     Returns:
         ViewResult with info-focused search results
     """
-    start_time = time.time()
-
-    try:
-        # Get resources if not provided
-        if not search_client or not embed_client:
-            resources = get_resources()
-            search_client = search_client or resources.search_client
-            embed_client = embed_client or resources.embed_client
-            embed_model = embed_model or resources.settings.embed.model
-
-        # Use default index for broad info coverage
-        index_name = OpenSearchConfig.get_default_index()
-
-        # Get consistent filters (won't flip during rewrite loops)
-        req_id = get_or_create_req_id()
-
-        # Check if this is a utility-related query
-        query_lower = query.lower()
-        is_utility_query = any(
-            term in query_lower
-            for term in [
-                "ciu",
-                "customer interaction utility",
-                "etu",
-                "enhanced transaction",
-                "utility",
-                "utilities",
-            ]
-        )
-
-        # For utility queries, use broader filters or no filters
-        if is_utility_query:
-            # Use None filters for utility queries to ensure broad coverage
-            filter_state = get_consistent_filters(
-                req_id, intent_type="utilities", view_type="info"
-            )
-            logger.info(
-                f"Detected utility query - using broader filters for: '{query[:50]}...'"
-            )
-        else:
-            filter_state = get_consistent_filters(
-                req_id, intent_type="confluence", view_type="info"
-            )
-
-        filters = filter_state.to_opensearch_filters()
-
-        logger.info(f"Running info view for query: '{query[:50]}...'")
-
-        # Run enhanced RRF search via existing tool
-        result = await search_index_tool(
-            index=index_name,
-            query=query,
-            filters=filters,
-            search_client=search_client,
-            embed_client=embed_client,
-            embed_model=embed_model,
-            top_k=36,  # Get more candidates for better info coverage
-            strategy="enhanced_rrf",
-        )
-
-        # Extract results with deduplication by doc_id
-        fused_results = _dedupe_by_doc_id(result.results)
-
-        # Check if we got too few results for utility queries
-        # If so, retry without filters for broader coverage
-        if is_utility_query and len(fused_results) < 5:
-            logger.warning(
-                f"Utility query returned only {len(fused_results)} results with filters. "
-                f"Retrying without filters for broader coverage."
-            )
-
-            # Retry without any filters
-            fallback_result = await search_index_tool(
-                index=index_name,
-                query=query,
-                filters=None,  # No filters for maximum coverage
-                search_client=search_client,
-                embed_client=embed_client,
-                embed_model=embed_model,
-                top_k=50,  # Get even more candidates in fallback
-                strategy="enhanced_rrf",
-            )
-
-            # Merge results, preferring the fallback results but keeping original if unique
-            seen_doc_ids = {r.doc_id for r in fallback_result.results}
-            for orig_result in fused_results:
-                if orig_result.doc_id not in seen_doc_ids:
-                    fallback_result.results.append(orig_result)
-
-            # Update to use fallback results
-            result = fallback_result
-            fused_results = _dedupe_by_doc_id(result.results)
-
-            logger.info(
-                f"Fallback search for utility query yielded {len(fused_results)} unique results"
-            )
-
-        # Determine reranked results (may be None if CE timed out)
-        reranked_results = None
-        if hasattr(result, "method") and "ce" in result.method:
-            reranked_results = fused_results  # Already reranked
-
-        elapsed_ms = (time.time() - start_time) * 1000
-
-        # Build metrics
-        metrics = {
-            "view": "info",
-            "index": index_name,
-            "bm25_hits": result.diagnostics.get("bm25_hits", 0),
-            "knn_hits": result.diagnostics.get("knn_hits", 0),
-            "rrf_candidates": result.diagnostics.get("rrf_candidates", 0),
-            "ce_kept": len(reranked_results) if reranked_results else 0,
-            "timeline_ms": elapsed_ms,
-            "method": result.method,
-            "unique_docs_pre_rerank": result.diagnostics.get(
-                "unique_docs_pre_rerank", 0
-            ),
-            "cross_encoder_skipped": result.diagnostics.get(
-                "cross_encoder_skipped", False
-            ),
-        }
-
-        # Log view completion
-        log_event(stage="info_view", event="success", ms=elapsed_ms, **metrics)
-
-        return ViewResult(
-            view="info",
-            fused_top8=fused_results[:8],
-            reranked_topk=reranked_results[:top_k] if reranked_results else None,
-            metrics=metrics,
-        )
-
-    except Exception as e:
-        elapsed_ms = (time.time() - start_time) * 1000
-        logger.error(f"Info view failed after {elapsed_ms:.0f}ms: {e}")
-
-        log_event(
-            stage="info_view",
-            event="error",
-            ms=elapsed_ms,
-            error_type=type(e).__name__,
-            error_message=str(e)[:200],
-        )
-
-        return None
+    return await _run_search_view(
+        query=query,
+        view_type="info",
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=top_k,
+    )
 
 
 async def run_procedure_view(
@@ -206,150 +69,226 @@ async def run_procedure_view(
     Returns:
         ViewResult with procedure-focused search results
     """
+    return await _run_search_view(
+        query=query,
+        view_type="procedure",
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=top_k,
+    )
+
+
+async def _run_search_view(
+    query: str,
+    view_type: str,
+    search_client=None,
+    embed_client=None,
+    embed_model: str = "text-embedding-ada-002",
+    top_k: int = 10,
+) -> Optional[ViewResult]:
+    """Common search view implementation for both info and procedure views."""
     start_time = time.time()
-
+    
     try:
-        # Get resources if not provided
-        if not search_client or not embed_client:
-            resources = get_resources()
-            search_client = search_client or resources.search_client
-            embed_client = embed_client or resources.embed_client
-            embed_model = embed_model or resources.settings.embed.model
-
-        # Use default index but with procedure-focused filters
-        index_name = OpenSearchConfig.get_default_index()
-
-        # Get consistent filters (won't flip during rewrite loops)
-        req_id = get_or_create_req_id()
-
-        # Check if this is a utility-related query (same logic as info view)
-        query_lower = query.lower()
-        is_utility_query = any(
-            term in query_lower
-            for term in [
-                "ciu",
-                "customer interaction utility",
-                "etu",
-                "enhanced transaction",
-                "utility",
-                "utilities",
-            ]
+        # Setup search clients and resources
+        search_client, embed_client, embed_model, index_name = _setup_search_resources(
+            search_client, embed_client, embed_model
         )
-
-        # For utility queries, use utilities intent type to bypass filters
-        if is_utility_query:
-            filter_state = get_consistent_filters(
-                req_id, intent_type="utilities", view_type="procedure"
-            )
-            logger.info(
-                f"Detected utility query in procedure view - using broader filters"
-            )
-        else:
-            filter_state = get_consistent_filters(
-                req_id, intent_type="confluence", view_type="procedure"
-            )
-
-        filters = filter_state.to_opensearch_filters()
-
-        logger.info(f"Running procedure view for query: '{query[:50]}...'")
-
-        # Run enhanced RRF search via existing tool
-        result = await search_index_tool(
-            index=index_name,
-            query=query,
-            filters=filters,
-            search_client=search_client,
-            embed_client=embed_client,
-            embed_model=embed_model,
-            top_k=36,  # Get more candidates for better procedure detection
-            strategy="enhanced_rrf",
+        
+        # Get filters based on query and view type
+        filters, is_utility_query = _get_search_filters(query, view_type)
+        
+        logger.info(f"Running {view_type} view for query: '{query[:50]}...'")
+        
+        # Execute search with fallback handling
+        result, fused_results = await _execute_search_with_fallback(
+            query, filters, is_utility_query, view_type,
+            search_client, embed_client, embed_model, index_name
         )
-
-        # Extract results with deduplication by doc_id
-        fused_results = _dedupe_by_doc_id(result.results)
-
-        # Check if we got too few results for utility queries
-        # If so, retry without filters for broader coverage
-        if is_utility_query and len(fused_results) < 5:
-            logger.warning(
-                f"Utility query in procedure view returned only {len(fused_results)} results. "
-                f"Retrying without filters for broader coverage."
-            )
-
-            # Retry without any filters
-            fallback_result = await search_index_tool(
-                index=index_name,
-                query=query,
-                filters=None,  # No filters for maximum coverage
-                search_client=search_client,
-                embed_client=embed_client,
-                embed_model=embed_model,
-                top_k=50,  # Get even more candidates in fallback
-                strategy="enhanced_rrf",
-            )
-
-            # Merge results, preferring the fallback results but keeping original if unique
-            seen_doc_ids = {r.doc_id for r in fallback_result.results}
-            for orig_result in fused_results:
-                if orig_result.doc_id not in seen_doc_ids:
-                    fallback_result.results.append(orig_result)
-
-            # Update to use fallback results
-            result = fallback_result
-            fused_results = _dedupe_by_doc_id(result.results)
-
-            logger.info(
-                f"Fallback search in procedure view yielded {len(fused_results)} unique results"
-            )
-
-        # Determine reranked results (may be None if CE timed out)
-        reranked_results = None
-        if hasattr(result, "method") and "ce" in result.method:
-            reranked_results = fused_results  # Already reranked
-
-        elapsed_ms = (time.time() - start_time) * 1000
-
-        # Build metrics
-        metrics = {
-            "view": "procedure",
-            "index": index_name,
-            "bm25_hits": result.diagnostics.get("bm25_hits", 0),
-            "knn_hits": result.diagnostics.get("knn_hits", 0),
-            "rrf_candidates": result.diagnostics.get("rrf_candidates", 0),
-            "ce_kept": len(reranked_results) if reranked_results else 0,
-            "timeline_ms": elapsed_ms,
-            "method": result.method,
-            "unique_docs_pre_rerank": result.diagnostics.get(
-                "unique_docs_pre_rerank", 0
-            ),
-            "cross_encoder_skipped": result.diagnostics.get(
-                "cross_encoder_skipped", False
-            ),
-        }
-
-        # Log view completion
-        log_event(stage="procedure_view", event="success", ms=elapsed_ms, **metrics)
-
-        return ViewResult(
-            view="procedure",
-            fused_top8=fused_results[:8],
-            reranked_topk=reranked_results[:top_k] if reranked_results else None,
-            metrics=metrics,
+        
+        # Process results and build response
+        return _build_view_result(
+            result, fused_results, view_type, index_name, start_time, top_k
         )
-
+        
     except Exception as e:
-        elapsed_ms = (time.time() - start_time) * 1000
-        logger.error(f"Procedure view failed after {elapsed_ms:.0f}ms: {e}")
+        return _handle_view_error(e, view_type, start_time)
 
-        log_event(
-            stage="procedure_view",
-            event="error",
-            ms=elapsed_ms,
-            error_type=type(e).__name__,
-            error_message=str(e)[:200],
+
+def _setup_search_resources(search_client, embed_client, embed_model):
+    """Setup search resources with fallback to default resources."""
+    if not search_client or not embed_client:
+        resources = get_resources()
+        search_client = search_client or resources.search_client
+        embed_client = embed_client or resources.embed_client
+        embed_model = embed_model or resources.settings.embed.model
+    
+    index_name = OpenSearchConfig.get_default_index()
+    return search_client, embed_client, embed_model, index_name
+
+
+def _get_search_filters(query: str, view_type: str):
+    """Get search filters based on query type and view type."""
+    req_id = get_or_create_req_id()
+    
+    # Check if this is a utility-related query
+    query_lower = query.lower()
+    is_utility_query = _is_utility_query(query_lower)
+    
+    # Determine intent type and get filters
+    intent_type = "utilities" if is_utility_query else "confluence"
+    filter_state = get_consistent_filters(req_id, intent_type=intent_type, view_type=view_type)
+    filters = filter_state.to_opensearch_filters()
+    
+    if is_utility_query:
+        logger.info(f"Detected utility query in {view_type} view - using broader filters")
+    
+    return filters, is_utility_query
+
+
+def _is_utility_query(query_lower: str) -> bool:
+    """Check if query is utility-related."""
+    utility_terms = [
+        "ciu", "customer interaction utility", "etu", 
+        "enhanced transaction", "utility", "utilities"
+    ]
+    return any(term in query_lower for term in utility_terms)
+
+
+async def _execute_search_with_fallback(
+    query: str, filters, is_utility_query: bool, view_type: str,
+    search_client, embed_client, embed_model: str, index_name: str
+):
+    """Execute search with fallback for utility queries."""
+    # Initial search
+    result = await search_index_tool(
+        index=index_name,
+        query=query,
+        filters=filters,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=36,
+        strategy="enhanced_rrf",
+    )
+    
+    fused_results = _dedupe_by_doc_id(result.results)
+    
+    # Fallback for utility queries with insufficient results
+    if is_utility_query and len(fused_results) < 5:
+        result, fused_results = await _execute_fallback_search(
+            query, view_type, search_client, embed_client, embed_model, 
+            index_name, result, fused_results
         )
+    
+    return result, fused_results
 
-        return None
+
+async def _execute_fallback_search(
+    query: str, view_type: str, search_client, embed_client, 
+    embed_model: str, index_name: str, original_result, original_fused_results
+):
+    """Execute fallback search without filters for better coverage."""
+    logger.warning(
+        f"Utility query in {view_type} view returned only {len(original_fused_results)} results. "
+        "Retrying without filters for broader coverage."
+    )
+    
+    fallback_result = await search_index_tool(
+        index=index_name,
+        query=query,
+        filters=None,
+        search_client=search_client,
+        embed_client=embed_client,
+        embed_model=embed_model,
+        top_k=50,
+        strategy="enhanced_rrf",
+    )
+    
+    # Merge results
+    merged_results = _merge_search_results(fallback_result.results, original_fused_results)
+    fallback_result.results = merged_results
+    fused_results = _dedupe_by_doc_id(merged_results)
+    
+    logger.info(
+        f"Fallback search in {view_type} view yielded {len(fused_results)} unique results"
+    )
+    
+    return fallback_result, fused_results
+
+
+def _merge_search_results(fallback_results: List[Passage], original_results: List[Passage]) -> List[Passage]:
+    """Merge fallback results with original results, avoiding duplicates."""
+    seen_doc_ids = {r.doc_id for r in fallback_results}
+    merged_results = list(fallback_results)
+    
+    for orig_result in original_results:
+        if orig_result.doc_id not in seen_doc_ids:
+            merged_results.append(orig_result)
+    
+    return merged_results
+
+
+def _build_view_result(
+    result, fused_results: List[Passage], view_type: str, 
+    index_name: str, start_time: float, top_k: int
+) -> ViewResult:
+    """Build ViewResult from search results."""
+    # Determine reranked results
+    reranked_results = None
+    if hasattr(result, "method") and "ce" in result.method:
+        reranked_results = fused_results
+    
+    elapsed_ms = (time.time() - start_time) * 1000
+    
+    # Build metrics
+    metrics = _build_view_metrics(result, reranked_results, view_type, index_name, elapsed_ms)
+    
+    # Log completion
+    log_event(stage=f"{view_type}_view", event="success", ms=elapsed_ms, **metrics)
+    
+    return ViewResult(
+        view=view_type,
+        fused_top8=fused_results[:8],
+        reranked_topk=reranked_results[:top_k] if reranked_results else None,
+        metrics=metrics,
+    )
+
+
+def _build_view_metrics(
+    result, reranked_results: Optional[List[Passage]], 
+    view_type: str, index_name: str, elapsed_ms: float
+) -> dict:
+    """Build metrics dictionary for view result."""
+    return {
+        "view": view_type,
+        "index": index_name,
+        "bm25_hits": result.diagnostics.get("bm25_hits", 0),
+        "knn_hits": result.diagnostics.get("knn_hits", 0),
+        "rrf_candidates": result.diagnostics.get("rrf_candidates", 0),
+        "ce_kept": len(reranked_results) if reranked_results else 0,
+        "timeline_ms": elapsed_ms,
+        "method": result.method,
+        "unique_docs_pre_rerank": result.diagnostics.get("unique_docs_pre_rerank", 0),
+        "cross_encoder_skipped": result.diagnostics.get("cross_encoder_skipped", False),
+    }
+
+
+def _handle_view_error(e: Exception, view_type: str, start_time: float) -> None:
+    """Handle view execution error."""
+    elapsed_ms = (time.time() - start_time) * 1000
+    logger.error(f"{view_type.capitalize()} view failed after {elapsed_ms:.0f}ms: {e}")
+    
+    log_event(
+        stage=f"{view_type}_view",
+        event="error",
+        ms=elapsed_ms,
+        error_type=type(e).__name__,
+        error_message=str(e)[:200],
+    )
+    
+    return None
 
 
 def _dedupe_by_doc_id(results: List[Passage]) -> List[Passage]:
