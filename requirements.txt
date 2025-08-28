@@ -46,4 +46,4 @@ rich>=13.7  # Rich CLI output
 pydantic>=2.0  # Settings validation 
 pydantic-settings>=2.0  # Settings management
 regex>=2024.5.10
-ranx>=0.3.21  # Fast ranking evaluation and fusion library for hybrid search
+ranx>=0.3.20  # Fast ranking evaluation and fusion library for hybrid search (0.3.20-compatible)
