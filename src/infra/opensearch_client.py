@@ -545,12 +545,16 @@ class OpenSearchClient:
             return self.bm25_search(query, filters, index, k)
 
         try:
+            # Check OpenSearch version for hybrid search compatibility
+            self._check_hybrid_search_support(index)
+            
             # Build native hybrid query using OpenSearch hybrid query syntax
             search_body = self._build_native_hybrid_query(
                 query, query_vector, filters, k, alpha, index
             )
 
             logger.info("Performing native OpenSearch hybrid search with built-in RRF")
+            logger.info(f"Hybrid query body: {json.dumps(search_body, indent=2)}")
 
             # Execute request
             url = f"{self.base_url}/{index}/_search"
@@ -602,6 +606,12 @@ class OpenSearchClient:
 
         except Exception as e:
             logger.error(f"Native hybrid search failed, falling back to BM25: {e}")
+            
+            # Log detailed error response if it's an HTTP error
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                error_response = e.response.text[:500]
+                logger.error(f"OpenSearch error response: {error_response}")
+            
             log_event(
                 stage="hybrid_native",
                 event="error",
@@ -875,6 +885,51 @@ class OpenSearchClient:
                     "filter": filter_conditions
                 }
             }
+
+    def _check_hybrid_search_support(self, index: str) -> None:
+        """Check OpenSearch version and hybrid search plugin support."""
+        try:
+            # Get OpenSearch cluster info
+            info_url = f"{self.base_url}/"
+            _setup_jpmc_proxy()
+            aws_auth = _get_aws_auth()
+            headers = {"Content-Type": "application/json"}
+            
+            if aws_auth:
+                response = requests.get(info_url, auth=aws_auth, timeout=10.0, headers=headers)
+            else:
+                response = self.session.get(info_url, timeout=10.0, headers=headers)
+            
+            if response.ok:
+                cluster_info = response.json()
+                version = cluster_info.get("version", {}).get("number", "unknown")
+                distribution = cluster_info.get("version", {}).get("distribution", "unknown")
+                
+                logger.info(f"OpenSearch cluster info: version={version}, distribution={distribution}")
+                
+                # Check if neural search plugin is available
+                plugins_url = f"{self.base_url}/_cat/plugins?format=json"
+                if aws_auth:
+                    plugins_response = requests.get(plugins_url, auth=aws_auth, timeout=10.0, headers=headers)
+                else:
+                    plugins_response = self.session.get(plugins_url, timeout=10.0, headers=headers)
+                
+                if plugins_response.ok:
+                    plugins = plugins_response.json()
+                    neural_search_installed = any("neural-search" in str(plugin).lower() for plugin in plugins)
+                    logger.info(f"Neural search plugin installed: {neural_search_installed}")
+                    
+                    if not neural_search_installed:
+                        logger.warning("Neural search plugin not found - hybrid search may not be supported")
+                else:
+                    logger.warning(f"Could not check plugins: {plugins_response.status_code}")
+                    
+            else:
+                logger.warning(f"Could not get cluster info: {response.status_code}")
+                
+        except Exception as e:
+            logger.warning(f"Failed to check hybrid search support: {e}")
+            # Don't fail - just log and continue
 
 
     def _check_index_exists(self, index_name: str) -> bool:
