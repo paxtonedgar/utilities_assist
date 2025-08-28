@@ -34,9 +34,25 @@ def _load_shared_config():
         configparser.ConfigParser: Loaded configuration or empty config on error
     """
     try:
-        from utils import load_config
-
-        config = load_config()
+        import configparser
+        import os
+        
+        # Load configuration from config.ini file (inline implementation)
+        config_file = os.getenv("UTILITIES_CONFIG", "config.local.ini")
+        
+        # If it's a relative path, look in the current directory first, then src/
+        if not os.path.isabs(config_file):
+            if os.path.exists(config_file):
+                file_path = config_file
+            elif os.path.exists(f"src/{config_file}"):
+                file_path = f"src/{config_file}"
+            else:
+                file_path = config_file
+        else:
+            file_path = config_file
+        
+        config = configparser.ConfigParser()
+        config.read(file_path)
         logger.debug("Loaded shared config.ini successfully")
         return config
     except Exception as e:

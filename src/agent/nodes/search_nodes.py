@@ -540,13 +540,16 @@ IMPORTANT: This is JPMorgan utilities documentation.
             from langchain_openai import AzureChatOpenAI
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            # Get authentication parameters from working clients.py approach
-            from utils import load_config
+            # Get authentication parameters from centralized settings
             import os
-
-            # Load config for API key (matching clients.py pattern)
-            auth_config = load_config()
-            api_key = auth_config.get("azure_openai", "api_key", fallback=None)
+            
+            # Use centralized settings instead of legacy config
+            try:
+                from src.infra.settings import get_settings
+                settings = get_settings()
+                api_key = settings.chat.api_key if hasattr(settings, 'chat') else None
+            except Exception:
+                api_key = None
 
             # Get Bearer token from token provider if available
             headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}

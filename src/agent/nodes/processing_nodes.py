@@ -5,13 +5,15 @@ Processing node handlers for combining results, generating answers, etc.
 Clean implementations using base node pattern.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, AsyncGenerator
 import logging
+from pathlib import Path
+import re
+from jinja2 import Environment, FileSystemLoader
 
 from .base_node import BaseNodeHandler
 from src.agent.nodes.combine import combine_node
-from src.services.respond import generate_response, extract_source_chips, verify_answer
-from src.services.models import Passage
+from src.services.models import Passage, SourceChip
 
 # Pre-import resource management and common utilities to avoid repeated dynamic imports
 from src.infra.resource_manager import get_resources
@@ -20,6 +22,10 @@ from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.agent.tools.search import multi_index_search_tool
 
 logger = logging.getLogger(__name__)
+
+# Load jinja templates for response generation
+template_dir = Path(__file__).parent.parent / "prompts"
+jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
 
 
 class BaseProcessingNodeMixin:
@@ -566,4 +572,205 @@ class WorkflowSynthesizerNode(BaseNodeHandler, BaseProcessingNodeMixin):
             return ". ".join(sentences[:-1]) + "."
 
         return content[: max_length - 3] + "..."
+
+
+# === MIGRATED FUNCTIONS FROM SERVICES.RESPOND ===
+
+async def generate_response(
+    query: str,
+    context: str,
+    intent,  # Can be either dict or IntentResult
+    chat_client,
+    chat_history: List[Dict[str, str]] = None,
+    model_name: str = "gpt-3.5-turbo",
+    temperature: float = 0.2,
+    max_tokens: int = 2500,
+) -> AsyncGenerator[str, None]:
+    """Generate streaming response using LLM with Jinja2 template."""
+    try:
+        # Use answer.jinja template instead of hardcoded prompt
+        template = jinja_env.get_template("answer.jinja")
+
+        # Ensure intent is in correct format for template
+        if isinstance(intent, dict):
+            template_intent = intent
+        elif hasattr(intent, "intent") and hasattr(intent, "confidence"):
+            template_intent = {"intent": intent.intent, "confidence": intent.confidence}
+        else:
+            template_intent = {
+                "intent": str(intent) if intent else "unknown",
+                "confidence": 0.5,
+            }
+
+        prompt = template.render(
+            query=query,
+            context=context,
+            intent=template_intent,
+            chat_history=chat_history or [],
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        logger.info(
+            f"Azure OpenAI request - model: {model_name}, temperature: {temperature}, max_tokens: {max_tokens}"
+        )
+        logger.info(f"Context length: {len(context)} chars, Query: '{query[:100]}...'")
+        logger.debug(f"Full prompt preview: {prompt[:500]}...")
+
+        try:
+            response_stream = chat_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                stream=True,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            logger.error(f"Azure OpenAI request failed: {type(e).__name__}: {str(e)}")
+            raise
+
+        response_chunks = []
+        for chunk in response_stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                response_chunks.append(content)
+                yield content
+
+        full_response = "".join(response_chunks)
+        logger.info(f"LLM response length: {len(full_response)} chars")
+        logger.info(f"Response preview: {full_response[:200]}...")
+        if len(full_response) > 2000:
+            logger.warning(
+                f"Long response ({len(full_response)} chars) - check for truncation"
+            )
+
+    except Exception as e:
+        logger.error(f"Response generation failed: {e}")
+        yield f"I encountered an error while generating a response: {str(e)}"
+
+
+def verify_answer(answer: str, context: str, query: str) -> Dict[str, Any]:
+    """Verify answer quality and relevance."""
+    metrics = {
+        "has_content": len(answer.strip()) > 10,
+        "not_error": not _contains_error_phrases(answer),
+        "contextual": _answer_uses_context(answer, context),
+        "relevant": _answer_addresses_query(answer, query),
+        "complete": not _answer_seems_truncated(answer),
+        "confidence_score": 0.0,
+    }
+
+    # Calculate overall confidence
+    passed_checks = sum(metrics[k] for k in metrics if k != "confidence_score")
+    metrics["confidence_score"] = passed_checks / 5.0
+
+    return metrics
+
+
+def extract_source_chips(
+    retrieval_results: List[Passage], max_chips: int = 5
+) -> List[SourceChip]:
+    """Extract source citation chips from retrieval results."""
+    chips = []
+
+    for result in retrieval_results[:max_chips]:
+        # Extract title from metadata or content
+        title = result.meta.get("title", "")
+        if not title:
+            # Fallback: use first sentence of content
+            sentences = result.text.split(". ")
+            title = (
+                sentences[0][:50] + "..." if len(sentences[0]) > 50 else sentences[0]
+            )
+
+        # Create excerpt
+        excerpt = _create_excerpt(result.text, max_length=150)
+
+        chip = SourceChip(
+            title=title,
+            doc_id=result.doc_id,
+            url=result.meta.get("url"),
+            excerpt=excerpt,
+        )
+        chips.append(chip)
+
+    return chips
+
+
+# Helper functions for answer verification
+def _contains_error_phrases(answer: str) -> bool:
+    """Check if answer contains common error phrases."""
+    error_phrases = [
+        "i don't have information",
+        "i cannot find",
+        "no information available",
+        "unable to provide",
+        "i don't know",
+        "insufficient information",
+        "cannot determine",
+        "not enough context",
+        "error occurred",
+        "something went wrong",
+    ]
+    answer_lower = answer.lower()
+    return any(phrase in answer_lower for phrase in error_phrases)
+
+
+def _answer_uses_context(answer: str, context: str) -> bool:
+    """Check if answer appears to use provided context."""
+    if len(context) < 50:
+        return False
+    
+    # Extract meaningful words from context and answer
+    context_words = set(re.findall(r"\w{4,}", context.lower()))
+    answer_words = set(re.findall(r"\w{4,}", answer.lower()))
+    
+    # Check overlap (excluding common stopwords)
+    overlap = context_words.intersection(answer_words)
+    return len(overlap) >= max(3, len(context_words) * 0.1)
+
+
+def _answer_addresses_query(answer: str, query: str) -> bool:
+    """Check if answer addresses the original query."""
+    query_words = set(re.findall(r"\w{3,}", query.lower()))
+    answer_words = set(re.findall(r"\w{3,}", answer.lower()))
+    
+    overlap = query_words.intersection(answer_words)
+    return len(overlap) >= max(1, len(query_words) * 0.3)
+
+
+def _answer_seems_truncated(answer: str) -> bool:
+    """Check if answer seems truncated or incomplete."""
+    answer = answer.strip()
+    if len(answer) < 20:
+        return True
+    
+    # Check for abrupt endings
+    truncation_indicators = [
+        "...",
+        "[truncated]",
+        "[cut off]",
+        "more info",
+        "additional details",
+    ]
+    
+    return any(indicator in answer.lower()[-50:] for indicator in truncation_indicators)
+
+
+def _create_excerpt(text: str, max_length: int = 150) -> str:
+    """Create a clean excerpt from text."""
+    if len(text) <= max_length:
+        return text.strip()
+    
+    # Try to break at sentence boundary
+    sentences = text[:max_length].split(". ")
+    if len(sentences) > 1:
+        return ". ".join(sentences[:-1]) + "."
+    
+    # Break at word boundary
+    words = text[:max_length].split()
+    if len(words) > 1:
+        return " ".join(words[:-1]) + "..."
+    
+    return text[:max_length - 3] + "..."
 
