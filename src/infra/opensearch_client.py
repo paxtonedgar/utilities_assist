@@ -620,15 +620,17 @@ class OpenSearchClient:
         if bm25_run and knn_run:
             # Ranx expects Run objects for fusion
             runs = [bm25_run, knn_run]
+            # Use params dict for RRF constant; limit results after conversion
             fused_run = ranx.fuse(
                 runs=runs,
                 method="rrf",           # Reciprocal Rank Fusion
-                rrf_k=rrf_k,            # RRF constant (research shows 60 is optimal)
-                max_docs=k              # Final result count
+                params={"k": rrf_k},     # RRF constant (works across ranx versions)
             )
             
-            # Convert back to SearchResponse format
+            # Convert back to SearchResponse format and limit to top-k
             fused_results = self._convert_from_ranx_run(fused_run, bm25_response, knn_response)
+            if len(fused_results) > k:
+                fused_results = fused_results[:k]
             
         elif bm25_run:
             # Only BM25 results available
