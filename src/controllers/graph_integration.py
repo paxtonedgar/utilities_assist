@@ -94,11 +94,11 @@ def _extract_clean_search_query(text: str) -> str:
     if match:
         # Extract the actual question after "Current question:"
         clean_query = match.group(1).strip()
-        logger.debug(f"Extracted clean query: '{clean_query}' from contaminated: '{text[:50]}...'")
+        logger.info(f"🧹 QUERY CLEAN: Extracted '{clean_query}' from contaminated: '{text[:50]}...'")
         return clean_query
     
     # If no pattern matches, return original text (already clean)
-    logger.debug(f"No context wrapper found, using original: '{text}'")
+    logger.info(f"🧹 QUERY CLEAN: No wrapper found, using original: '{text}'")
     return text.strip()
 
 

@@ -235,6 +235,7 @@ class CombineNode(BaseNodeHandler):
         
         try:
             # Compose evidence-gated briefing
+            logger.info(f"🔍 EVIDENCE: Using query for evidence composition: '{query}'")
             composition = compose_evidence_briefing(search_results, query, max_sections=4)
             
             if not composition.sections:
