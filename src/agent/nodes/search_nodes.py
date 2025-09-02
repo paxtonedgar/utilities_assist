@@ -11,6 +11,7 @@ from dataclasses import asdict
 
 from .base_node import BaseNodeHandler
 from src.agent.routing.micro_router import micro_route, RouteResult
+from src.agent.constants import SEARCH_QUERY
 from src.agent.tools.search import search_docs, search_api_docs, search_procedures, search_general, SearchOptions, ContentType
 from src.search.comparison_search import search_comparison, render_comparison_briefing
 from src.agent.nodes.combine import compose_evidence_briefing, render_briefing_markdown
@@ -28,7 +29,7 @@ class IntentNode(BaseNodeHandler):
     
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
         """Execute micro-routing logic."""
-        query = state.get("normalized_query", state.get("original_query", ""))
+        query = state.get(SEARCH_QUERY, state.get("normalized_query", state.get("original_query", "")))
         
         if not query or not query.strip():
             logger.warning("Empty query provided to router")
@@ -67,7 +68,7 @@ class SearchNode(BaseNodeHandler):
                 logger.error("Resources not available for search")
                 return self._handle_search_error(state, "Resources unavailable")
             
-            query = state.get("query_normalized", state.get("normalized_query", ""))
+            query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
             route_action = state.get("next_action", "general")
             filters = self._build_filters_from_state(state)
             
@@ -222,7 +223,7 @@ class CombineNode(BaseNodeHandler):
             }
         
         search_results = state.get("search_results", [])
-        query = state.get("query_normalized", state.get("normalized_query", ""))
+        query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
         
         if not search_results:
             logger.warning("No search results available for evidence composition")
