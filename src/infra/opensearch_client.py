@@ -551,8 +551,8 @@ class OpenSearchClient:
             start_time = time.time()
 
             # Execute BM25 and kNN searches in parallel (industry standard approach)
-            bm25_response = self.bm25_search(query, filters, index, k * 2)  # Get more for better fusion
-            knn_response = self.knn_search(query_vector, filters, index, k * 2)
+            bm25_response = self.bm25_search(query, filters, index, k + 15)  # Get more for better fusion (45 total)
+            knn_response = self.knn_search(query_vector, filters, index, k + 15)
 
             # Use ranx library for optimal RRF fusion
             fused_response = self._ranx_rrf_fusion(
@@ -620,12 +620,11 @@ class OpenSearchClient:
         if bm25_run and knn_run:
             # Ranx expects Run objects for fusion
             runs = [bm25_run, knn_run]
-            # ranx API uses params dict for RRF constant, disable normalization for speed
+            # ranx API uses params dict for RRF constant
             fused_run = ranx.fuse(
                 runs=runs,
                 method="rrf",           # Reciprocal Rank Fusion
                 params={"k": rrf_k},    # RRF constant in params dict per docs
-                norm=None,              # Disable expensive min-max normalization (~40s savings)
             )
             
             # Convert back to SearchResponse format and limit to top-k

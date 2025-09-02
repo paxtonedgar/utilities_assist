@@ -630,7 +630,7 @@ async def hybrid_search_with_timeout(
     index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    timeout_seconds: float = 5.0,  # Updated to match retrieve.py timeout fix
+    timeout_seconds: float = 30.0,  # Increased for ranx RRF processing time
 ) -> RetrievalResult:
     """True hybrid search with aggressive timeout and fallback.
 
@@ -748,7 +748,7 @@ async def _try_hybrid_search(
             index_name=index_name,
             filters=filters,
             top_k=top_k,
-            timeout_seconds=5.0,
+            timeout_seconds=30.0,
         )
 
         if hybrid_result.results:

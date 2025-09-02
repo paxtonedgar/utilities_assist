@@ -524,7 +524,7 @@ async def _get_native_hybrid_results(
         index_name=index,
         filters=filters,
         top_k=settings.search_config.rrf_expansion_candidates,
-        timeout_seconds=5.0,
+        timeout_seconds=30.0,
     )
     
     # Return in same format as enhanced_rrf_search for compatibility
