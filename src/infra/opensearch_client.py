@@ -620,11 +620,11 @@ class OpenSearchClient:
         if bm25_run and knn_run:
             # Ranx expects Run objects for fusion
             runs = [bm25_run, knn_run]
-            # ranx 0.3.20 API uses direct k parameter for RRF
+            # ranx API uses params dict for RRF constant
             fused_run = ranx.fuse(
                 runs=runs,
                 method="rrf",           # Reciprocal Rank Fusion
-                k=rrf_k,               # RRF constant for v0.3.20 compatibility
+                params={"k": rrf_k},    # RRF constant in params dict per docs
             )
             
             # Convert back to SearchResponse format and limit to top-k
