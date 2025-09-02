@@ -70,12 +70,55 @@ class SearchNode(BaseNodeHandler):
             
             query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
             route_action = state.get("next_action", "general")
+            plan = state.get("plan")
             filters = self._build_filters_from_state(state)
             
             if not query:
                 logger.warning("No query available for search")
                 return self._handle_search_error(state, "No query provided")
             
+            # NEW: Plan-driven per-aspect search (no branching, small k per aspect)
+            if isinstance(plan, dict) and plan.get("aspects"):
+                aspects = plan.get("aspects", [])
+                plan_filters = plan.get("filters") or {}
+                # Merge filters (state-derived < plan-derived)
+                merged_filters = {**(filters or {}), **plan_filters}
+                k_per_aspect = int(plan.get("k_per_aspect", 3))
+
+                sections: Dict[str, List[Passage]] = {}
+                flat: List[Passage] = []
+                for aspect in aspects:
+                    if aspect == "api":
+                        r = await search_api_docs(
+                            query, resources.search_client, resources.embed_client,
+                            resources.settings.embed.model, filters=merged_filters
+                        )
+                    elif aspect == "steps":
+                        r = await search_procedures(
+                            query, resources.search_client, resources.embed_client,
+                            resources.settings.embed.model, filters=merged_filters
+                        )
+                    else:
+                        r = await search_general(
+                            query, resources.search_client, resources.embed_client,
+                            resources.settings.embed.model, filters=merged_filters
+                        )
+                    keep = r.passages[:k_per_aspect]
+                    sections[aspect] = keep
+                    flat.extend(keep)
+
+                if not flat:
+                    return self._handle_empty_results(state, query)
+
+                return {
+                    **state,
+                    "search_sections": self._to_serializable_sections(sections),
+                    "search_results": flat,
+                    "total_results": len(flat),
+                    "search_strategy": "plan_per_aspect",
+                    "workflow_path": state.get("workflow_path", []) + ["search"],
+                }
+
             # Handle comparison queries specially
             if route_action == "compare":
                 return await self._handle_comparison_search(state, query, resources)
@@ -190,6 +233,26 @@ class SearchNode(BaseNodeHandler):
             "briefing_ready": True,  # Skip evidence composer
             "workflow_path": state.get("workflow_path", []) + ["search_empty"]
         }
+
+    def _to_serializable_sections(self, sections: Dict[str, List[Passage]]):
+        """Convert Passage objects to plain dicts for composer service."""
+        out: Dict[str, List[Dict]] = {}
+        for aspect, items in sections.items():
+            rows: List[Dict] = []
+            for p in items:
+                meta = getattr(p, "meta", {}) or {}
+                rows.append(
+                    {
+                        "doc_id": p.doc_id,
+                        "title": getattr(p, "title", None) or meta.get("title"),
+                        "url": getattr(p, "url", None),
+                        "snippet": getattr(p, "text", ""),
+                        "score": float(getattr(p, "score", 0.0)),
+                        "heading": meta.get("heading"),
+                    }
+                )
+            out[aspect] = rows
+        return out
 
     def _build_filters_from_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Extract ACL/space/time filters from state for downstream search."""

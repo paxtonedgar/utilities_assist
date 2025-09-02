@@ -22,14 +22,10 @@ from jinja2 import Environment, FileSystemLoader
 
 # Import new modular components
 from src.agent.nodes.summarize import SummarizeNode
-from src.agent.nodes.search_nodes import (
-    IntentNode,
-    SearchNode,
-    CombineNode as EvidenceComposerNode,
-)
-from src.agent.nodes.processing_nodes import (
-    AnswerNode,
-)
+from src.agent.nodes.plan import PlanNode
+from src.agent.nodes.search_nodes import SearchNode
+from src.agent.nodes.composer_node import ComposerNode
+from src.agent.nodes.processing_nodes import AnswerNode
 # Simplified routing - no complex router needed
 
 logger = logging.getLogger(__name__)
@@ -98,9 +94,9 @@ def create_graph(checkpointer=None, store=None) -> StateGraph:
 
     # Create simplified node instances
     summarize_node = SummarizeNode()
-    intent_node = IntentNode()
+    plan_node = PlanNode()
     search_node = SearchNode()
-    combine_node = EvidenceComposerNode()
+    compose_node = ComposerNode()
     answer_node = AnswerNode()
 
     # Create the graph
@@ -108,17 +104,17 @@ def create_graph(checkpointer=None, store=None) -> StateGraph:
 
     # Add nodes to graph
     workflow.add_node("summarize", summarize_node.execute)
-    workflow.add_node("intent", intent_node.execute)
+    workflow.add_node("plan", plan_node.execute)
     workflow.add_node("search", search_node.execute) 
-    workflow.add_node("combine", combine_node.execute)
+    workflow.add_node("compose", compose_node.execute)
     workflow.add_node("answer", answer_node.execute)
 
     # Define linear workflow edges
     workflow.add_edge(START, "summarize")
-    workflow.add_edge("summarize", "intent")
-    workflow.add_edge("intent", "search")
-    workflow.add_edge("search", "combine")
-    workflow.add_edge("combine", "answer")
+    workflow.add_edge("summarize", "plan")
+    workflow.add_edge("plan", "search")
+    workflow.add_edge("search", "compose")
+    workflow.add_edge("compose", "answer")
     workflow.add_edge("answer", END)
 
     # Compile graph
