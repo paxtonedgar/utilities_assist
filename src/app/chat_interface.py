@@ -409,8 +409,6 @@ def _build_stage_details(start_log, error_log):
 
 async def _stream_response_chunks(user_input: str, assistant_response: dict):
     """Stream response chunks from the turn handler."""
-    import time
-    
     async for chunk in handle_turn(
         user_input,
         st.session_state.resources,
@@ -431,10 +429,8 @@ async def _stream_response_chunks(user_input: str, assistant_response: dict):
             # Handle evidence-gated responses (no prior chunks)
             if not assistant_response["content"] and result.get("answer"):
                 assistant_response["content"] = result["answer"]
-                # Stream in chunks for smooth display
-                for i in range(0, len(result["answer"]), 50):
-                    yield result["answer"][i:i+50]
-                    time.sleep(0.02)
+                # Return full answer as single chunk - streaming handled in UI
+                yield result["answer"]
             break
         elif chunk["type"] == "error":
             error_msg = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
@@ -449,28 +445,32 @@ def process_user_input(user_input: str) -> None:
         assistant_response = {"role": "assistant", "content": "", "sources": [], "req_id": None}
 
         try:
-            # Stream response using Streamlit's native streaming
+            # Stream response using simpler approach to avoid asyncio issues
             def response_generator():
                 try:
-                    # Convert async generator to sync generator for Streamlit
-                    async def async_wrapper():
-                        async for chunk in _stream_response_chunks(user_input, assistant_response):
-                            yield chunk
+                    # Collect all chunks from async generator first, then yield
+                    chunks = []
                     
-                    # Run async generator synchronously
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        async_gen = async_wrapper()
-                        while True:
-                            try:
-                                chunk = loop.run_until_complete(async_gen.__anext__())
-                                yield chunk
-                            except StopAsyncIteration:
-                                break
-                    finally:
-                        loop.close()
-                        
+                    async def collect_chunks():
+                        async for chunk in _stream_response_chunks(user_input, assistant_response):
+                            chunks.append(chunk)
+                    
+                    # Run async collection
+                    asyncio.run(collect_chunks())
+                    
+                    # For evidence-gated responses, simulate streaming
+                    if len(chunks) == 1 and len(chunks[0]) > 100:
+                        # Break large response into streaming chunks with timing
+                        import time
+                        full_text = chunks[0]
+                        for i in range(0, len(full_text), 50):
+                            yield full_text[i:i+50]
+                            time.sleep(0.01)  # Small delay for visual effect
+                    else:
+                        # Yield collected chunks normally
+                        for chunk in chunks:
+                            yield chunk
+                            
                 except Exception as e:
                     error_msg = f"❌ Error: {str(e)}"
                     assistant_response["content"] = error_msg
