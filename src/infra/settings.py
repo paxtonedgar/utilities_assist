@@ -474,6 +474,24 @@ class ApplicationSettings(BaseSettings):
     # Confluence
     confluence_directory: str = "data"
 
+    # OpenAI planner/composer (disabled by default)
+    enable_openai_planner: bool = Field(
+        default=False, validation_alias="ENABLE_OPENAI_PLANNER"
+    )
+    enable_openai_composer: bool = Field(
+        default=False, validation_alias="ENABLE_OPENAI_COMPOSER"
+    )
+    openai_planner_model: str = Field(
+        default="gpt-4o-mini", validation_alias="OPENAI_PLANNER_MODEL"
+    )
+    openai_composer_model: str = Field(
+        default="gpt-4o-mini", validation_alias="OPENAI_COMPOSER_MODEL"
+    )
+    openai_timeout_ms: int = Field(
+        default=900, validation_alias="OPENAI_TIMEOUT_MS",
+        description="Per-call timeout for planner/composer"
+    )
+
     def __init__(self, **kwargs):
         # Load config.ini data using simplified approach
         config_ini_data = self._load_config_ini_simplified()
@@ -718,4 +736,3 @@ def get_settings() -> ApplicationSettings:
     if _settings is None:
         _settings = ApplicationSettings()
     return _settings
-
