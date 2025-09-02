@@ -358,7 +358,7 @@ class ResponseSettings(BaseModel):
     """LLM response generation configuration."""
 
     max_tokens: int = Field(
-        default=2500,
+        default=3000,  # +20% budget per user request
         validation_alias="LLM_MAX_TOKENS",
         description="Maximum tokens for LLM response generation",
     )
@@ -368,7 +368,7 @@ class ResponseSettings(BaseModel):
         description="LLM temperature for response generation",
     )
     max_context_length: int = Field(
-        default=50000,
+        default=60000,  # +20% context budget
         validation_alias="MAX_CONTEXT_LENGTH",
         description="Maximum context length in characters (from respond.py:87)",
     )
@@ -383,12 +383,12 @@ class OrchestratorSettings(BaseModel):
         description="Enable LLM orchestrator for conversational RAG",
     )
     max_total_time_ms: int = Field(
-        default=4000,
+        default=4800,  # +20% orchestration budget
         validation_alias="ORCHESTRATOR_MAX_TIME_MS",
         description="Maximum total orchestration time (p95 ≤ 4s)",
     )
     target_time_ms: int = Field(
-        default=2500,
+        default=3000,  # +20% target time
         validation_alias="ORCHESTRATOR_TARGET_TIME_MS",
         description="Target orchestration time (p50 ≤ 2.5s)",
     )
@@ -718,5 +718,4 @@ def get_settings() -> ApplicationSettings:
     if _settings is None:
         _settings = ApplicationSettings()
     return _settings
-
 
