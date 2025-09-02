@@ -130,6 +130,8 @@ class AnswerNode(BaseNodeHandler, BaseProcessingNodeMixin):
         presenter_choice = state.get("presenter_choice", "")
         intent = state.get("intent")
 
+        logger.info(f"🔄 PROCESSING: final_briefing length={len(final_briefing) if final_briefing else 0}, content_preview='{str(final_briefing)[:50] if final_briefing else 'None'}...'")
+
         # 1) Use evidence-gated structured briefing if available
         if final_briefing and str(final_briefing).strip():
             logger.info("Using evidence-gated final_briefing (skipping LLM)")

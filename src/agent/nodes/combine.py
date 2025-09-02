@@ -315,7 +315,13 @@ def _determine_composition_strategy(sections: Dict[BriefingSection, List[Passage
 
 def render_briefing_markdown(composition: BriefingComposition) -> str:
     """Render evidence-gated briefing as markdown."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"📝 RENDER: Rendering briefing with {len(composition.sections)} sections")
+    
     if not composition.sections:
+        logger.warning("📝 RENDER: No sections found, returning empty message")
         return "No sufficient evidence found to compose a structured briefing."
     
     lines = []
@@ -330,7 +336,9 @@ def render_briefing_markdown(composition: BriefingComposition) -> str:
         lines.append(section_content)
         lines.append("")  # Blank line between sections
     
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    logger.info(f"📝 RENDER: Generated {len(result)} characters of markdown content")
+    return result
 
 
 def _get_section_title(section: BriefingSection) -> str:

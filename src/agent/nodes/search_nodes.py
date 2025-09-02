@@ -254,6 +254,7 @@ class CombineNode(BaseNodeHandler):
             briefing_markdown = render_briefing_markdown(composition)
             
             logger.info(f"Evidence briefing composed: {len(composition.sections)} sections, strategy: {composition.composition_strategy}")
+            logger.info(f"📝 FINAL_BRIEFING: Setting final_briefing with {len(briefing_markdown) if briefing_markdown else 0} characters")
             
             return {
                 **state,
