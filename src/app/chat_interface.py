@@ -434,6 +434,9 @@ def process_user_input(user_input: str) -> None:
                         assistant_response["content"] += chunk["content"]
                     elif chunk["type"] == "complete":
                         result = chunk["result"]
+                        # Fix: Extract final answer from complete message when no chunks were streamed
+                        if not assistant_response["content"] and result.get("answer"):
+                            assistant_response["content"] = result["answer"]
                         assistant_response["sources"] = result.get("sources", [])
                         assistant_response["req_id"] = chunk.get("req_id")
                         break
