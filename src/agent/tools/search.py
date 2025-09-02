@@ -432,20 +432,14 @@ async def _execute_enhanced_rrf_strategy(
         # Create embedding for vector search
         query_embedding = await _create_enhanced_embedding(query, embed_client, embed_model)
         
-        # Use (so-called) hybrid search wrapper
+        # Use hybrid search wrapper (no CE rerank)
         rrf_result, diagnostics = await _get_native_hybrid_results(
             query, query_embedding, search_client, index, filters
         )
-        
-        # If hybrid produced no results (timeout/error), fall back to BM25 immediately
-        if not rrf_result.results:
-            logger.info("Hybrid produced no results; falling back to BM25")
-            return await _execute_bm25_fallback(query, index, filters, search_client, 10)
-
         # No cross-encoder rerank (latency): compute unique doc count and return
         unique_docs = len(set(r.doc_id for r in rrf_result.results))
         final_results = rrf_result.results
-        method_name = "hybrid_no_rerank"
+        method_name = "hybrid_native_no_rerank"
 
         logger.info(
             f"Hybrid search: {len(final_results)} results, {unique_docs} unique docs (no reranking)"
