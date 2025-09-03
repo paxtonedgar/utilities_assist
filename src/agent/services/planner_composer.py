@@ -11,11 +11,8 @@ from typing import Dict, List, Optional
 
 from src.services.models import Plan, Card, Citation, Step, ApiItem
 from src.infra.settings import get_settings
-
-try:
-    from openai import OpenAI
-except Exception:  # pragma: no cover
-    OpenAI = None
+from src.infra.clients import make_chat_client
+from src.infra.config import ChatCfg
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +46,16 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
         aspects.append("troubleshoot")
 
     # Try OpenAI planner if enabled; fall back to local
-    if settings.enable_openai_planner and OpenAI is not None:
+    if settings.enable_openai_planner:
         try:
-            client = OpenAI()
+            # Use configured client (Azure in cluster), not a direct public OpenAI instantiation
+            cfg = ChatCfg(
+                provider="azure" if settings.requires_azure_auth else "openai",
+                model=settings.chat.model,
+                api_base=getattr(settings.chat, "api_base", None),
+                api_version=getattr(settings.chat, "api_version", None),
+            )
+            client = make_chat_client(cfg)
             system = (
                 "You are a planner for an enterprise utilities assistant. "
                 "Return strict JSON with: aspects (list of section names), "
@@ -141,9 +145,15 @@ def compose_card(
     settings = get_settings()
 
     # Attempt OpenAI composer if enabled
-    if settings.enable_openai_composer and OpenAI is not None:
+    if settings.enable_openai_composer:
         try:
-            client = OpenAI()
+            cfg = ChatCfg(
+                provider="azure" if settings.requires_azure_auth else "openai",
+                model=settings.chat.model,
+                api_base=getattr(settings.chat, "api_base", None),
+                api_version=getattr(settings.chat, "api_version", None),
+            )
+            client = make_chat_client(cfg)
             system = (
                 "Compose a structured knowledge card as strict JSON with "
                 "fields: utility, overview{text,citations[{title,url}]}, "
