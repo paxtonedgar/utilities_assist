@@ -10,6 +10,8 @@ from typing import Dict, Any, List
 
 from .base_node import BaseNodeHandler
 from src.agent.services.planner_composer import compose_card
+from src.infra.resource_manager import get_resources
+from src.agent.constants import ORIGINAL_QUERY, SEARCH_QUERY, NORMALIZED_QUERY
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,50 @@ class ComposerNode(BaseNodeHandler):
                 "final_briefing": "No information available to compose.",
                 "workflow_path": state.get("workflow_path", []) + ["compose_empty"],
             }
+
+        # Optional direct LLM answering without trimming
+        resources = get_resources()
+        settings = resources.settings if resources else None
+        if settings and getattr(settings, "enable_llm_direct_answer", False) and resources and resources.chat_client:
+            question = state.get(SEARCH_QUERY) or state.get(ORIGINAL_QUERY) or state.get(NORMALIZED_QUERY) or ""
+            logger.info("ComposerNode: direct LLM answer enabled (no trimming)")
+            ctx_lines: List[str] = []
+            for aspect, items in sections.items():
+                ctx_lines.append(f"## {aspect}")
+                for i, p in enumerate(items, 1):
+                    title = p.get("title") or "Untitled"
+                    url = p.get("url") or ""
+                    text = p.get("snippet") or ""
+                    ctx_lines.append(f"### {i}. {title}")
+                    if url:
+                        ctx_lines.append(f"Source: {url}")
+                    ctx_lines.append(text)
+                    ctx_lines.append("")
+            context_blob = "\n".join(ctx_lines)
+            system = (
+                "You are an enterprise utilities assistant. Answer using ONLY the provided context. "
+                "Cite sources inline with Markdown links where possible. Be precise and comprehensive."
+            )
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Question: {question}\n\nContext:\n{context_blob}"},
+            ]
+            try:
+                resp = resources.chat_client.chat.completions.create(
+                    model=settings.chat.model,
+                    temperature=0.2,
+                    messages=messages,
+                    timeout=settings.openai_timeout_ms / 1000.0,
+                )
+                answer = resp.choices[0].message.content if resp and resp.choices else ""
+                answer = answer or "No answer generated."
+                return {
+                    **state,
+                    "final_briefing": answer,
+                    "workflow_path": state.get("workflow_path", []) + ["compose_direct_llm"],
+                }
+            except Exception as e:
+                logger.error(f"Direct LLM answering failed: {e}")
 
         card = compose_card(sections=sections, budgets=budgets, utility=utility)
 

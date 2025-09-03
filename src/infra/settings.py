@@ -492,6 +492,13 @@ class ApplicationSettings(BaseSettings):
         description="Per-call timeout for planner/composer"
     )
 
+    # Direct LLM answering using full passages (no composer trimming)
+    enable_llm_direct_answer: bool = Field(
+        default=True,
+        validation_alias="ENABLE_LLM_DIRECT_ANSWER",
+        description="If true, bypass composer and send full selected passages to LLM with the original question",
+    )
+
     def __init__(self, **kwargs):
         # Load config.ini data using simplified approach
         config_ini_data = self._load_config_ini_simplified()
