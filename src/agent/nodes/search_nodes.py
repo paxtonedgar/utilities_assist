@@ -1,771 +1,333 @@
 # src/agent/nodes/search_nodes.py
-"""
-Search-specific node handlers implementing the base node pattern.
+"""Search Node for the opinionated Jarvis path.
 
-Replaces individual wrapper functions with clean, testable classes.
+Linear pipeline: summarize -> plan -> search(per-aspect) -> compose -> answer
 """
 
-from typing import Dict, Any, List
 import logging
-import re
-
-from .base_node import SearchNodeHandler
-from src.agent.nodes.summarize import summarize_node
-from src.agent.nodes.intent import intent_node
-from src.agent.tools.search import adaptive_search_tool, multi_index_search_tool
-from src.services.models import Passage
-from src.retrieval.views import run_info_view, run_procedure_view
-from src.retrieval.actionability import choose_presenter, materialize
-from src.compose.present import render
-
-# Import constants to prevent KeyError issues
-from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
-
-# Pre-import resource management and utilities to avoid repeated dynamic imports
+from typing import Dict, Any, List
+from .base_node import BaseNodeHandler
+from src.agent.constants import SEARCH_QUERY
+from src.agent.tools.search import (
+    search_api_docs,
+    search_procedures,
+    search_general,
+)
 from src.infra.resource_manager import get_resources
-from src.agent.nodes.base_node import get_intent_confidence
-from src.infra.search_config import OpenSearchConfig
-
-# Constants for query expansion
-UTILITY_SYNONYMS = {
-    "api": ["service", "endpoint", "interface"],
-    "service": ["api", "utility", "tool"],
-    "onboard": ["setup", "configure", "integrate"],
-    "setup": ["onboard", "configure", "install"],
-    "guide": ["documentation", "instructions", "tutorial"],
-    "help": ["documentation", "guide", "support"],
-    "client": ["application", "integration", "consumer"],
-    "auth": ["authentication", "authorization", "security"],
-    "config": ["configuration", "settings", "properties"],
-    "error": ["issue", "problem", "troubleshooting"],
-}
-
-SEARCH_OPERATORS = ["AND", "OR", "NOT", '"', "(", ")", "*", "?"]
+from src.services.models import Passage
 
 logger = logging.getLogger(__name__)
 
 
-class BaseSearchNodeMixin:
-    """Consolidated utilities to eliminate repeated boilerplate across search nodes."""
-
-    def _get_resources(self):
-        """Centralized resource access with error handling."""
-        return get_resources()
-
-    def _preserve_state_with_path(
-        self, state: Dict[str, Any], node_name: str, **updates
-    ) -> Dict[str, Any]:
-        """Preserve all existing state fields with standardized path tracking."""
-        return {
-            **state,  # Preserve all existing state
-            "workflow_path": state.get("workflow_path", []) + [node_name],
-            **updates,
-        }
-
-    def _preserve_state_with_error(
-        self, state: Dict[str, Any], node_name: str, error: str
-    ) -> Dict[str, Any]:
-        """Preserve state with error tracking."""
-        return {
-            **state,  # Preserve all existing state
-            "search_results": [],
-            "workflow_path": state.get("workflow_path", []) + [f"{node_name}_error"],
-            "error_messages": state.get("error_messages", []) + [error],
-        }
-
-    def _handle_empty_query(
-        self, state: Dict[str, Any], node_name: str
-    ) -> Dict[str, Any]:
-        """Standardized empty query handling."""
-        logger.error(f"Empty query provided to {node_name}")
-        return self._preserve_state_with_error(state, node_name, "Empty query provided")
-
-    def _mark_search_results(
-        self, results: List[Passage], search_method: str, search_id: str = None
-    ):
-        """Mark search results with metadata."""
-        search_id = search_id or search_method
-        for search_result in results:
-            search_result.meta["search_method"] = search_method
-            search_result.meta["search_id"] = search_id
+"""IntentNode removed: planning now drives routing and structure."""
 
 
-
-class SummarizeNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles query summarization and normalization."""
-
+class SearchNode(BaseNodeHandler):
+    """Search node using evidence-based approach."""
+    
     def __init__(self):
-        super().__init__("summarize")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute query summarization logic."""
-        if config is None:
-            config = {"configurable": {}}
-        result = await summarize_node(state, config)
-        return result
-
-
-class IntentNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles intent classification."""
-
-    def __init__(self):
-        super().__init__("intent")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute intent classification logic."""
-        if config is None:
-            config = {"configurable": {}}
-        result = await intent_node(state, config)
-        return result
-
-
-class ConfluenceSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles Confluence-specific search."""
-
-    def __init__(self):
-        super().__init__("search_confluence")
+        super().__init__("search")
     
-    def _analyze_query_type(self, query: str, intent) -> tuple[bool, Any]:
-        """Analyze query type and extract slot result for planning."""
-        from src.retrieval.tuning import should_build_procedure_view
-        
-        # Extract slot_result from intent (if available)
-        slot_result = intent if hasattr(intent, "colors") else None
-        
-        if slot_result:
-            is_procedure_query = should_build_procedure_view(slot_result)
-            logger.info(
-                f"Colors-based planning: procedure_view={is_procedure_query}, "
-                f"actionability={slot_result.colors.actionability_est:.1f}, "
-                f"suites={list(slot_result.colors.suite_affinity.keys())[:3]}"
-            )
-        else:
-            # Fallback to simple heuristics if no slot_result
-            is_procedure_query = (
-                "procedure" in query.lower()
-                or "how" in query.lower()
-                or "onboard" in query.lower()
-                or "setup" in query.lower()
-            )
-            logger.info("Using fallback heuristics for procedure view planning")
-        
-        logger.info(
-            f"Confluence search: procedure_query={is_procedure_query}, intent={getattr(intent, 'intent', 'unknown')}"
-        )
-        
-        return is_procedure_query, slot_result
-    
-    def _prepare_tuning_knobs(self, slot_result) -> tuple[dict, dict]:
-        """Prepare tuning knobs for search views."""
-        info_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
-        procedure_knobs = {"knn_k": 30, "bm25_size": 50, "ce_timeout_s": 1.8}
-        
-        # Apply color-based tuning if available
-        if slot_result and hasattr(slot_result, "colors"):
-            from src.retrieval.tuning import tune_for_colors
-            tune_for_colors(info_knobs, slot_result.colors)
-            tune_for_colors(procedure_knobs, slot_result.colors)
-        
-        return info_knobs, procedure_knobs
-    
-    async def _execute_search_views(
-        self, query: str, resources, is_procedure_query: bool, 
-        info_knobs: dict, procedure_knobs: dict
-    ) -> tuple:
-        """Execute search views and return results."""
-        info_view_task = run_info_view(
-            query=query,
-            search_client=resources.search_client,
-            embed_client=resources.embed_client,
-            embed_model=resources.settings.embed.model,
-            top_k=resources.settings.search_config.search_top_k_info,
-            # TODO: Pass knobs to view functions when they support it
-        )
-        
-        procedure_view_task = (
-            run_procedure_view(
-                query=query,
-                search_client=resources.search_client,
-                embed_client=resources.embed_client,
-                embed_model=resources.settings.embed.model,
-                top_k=resources.settings.search_config.search_top_k_info,
-            )
-            if is_procedure_query
-            else None
-        )
-        
-        # Await results
-        info_view = await info_view_task
-        procedure_view = await procedure_view_task if procedure_view_task else None
-        
-        return info_view, procedure_view
-    
-    def _build_search_response(
-        self, state: Dict[str, Any], decision, info_view
-    ) -> Dict[str, Any]:
-        """Build the final search response based on presenter decision."""
-        if decision.presenter in ["procedure", "info"]:
-            return self._build_actionable_response(state, decision)
-        else:
-            return self._build_fallback_response(state, decision, info_view)
-    
-    def _build_actionable_response(self, state: Dict[str, Any], decision) -> Dict[str, Any]:
-        """Build response for actionable content (procedure/info presenter)."""
-        material = materialize(decision)
-        rendered_content = render(material)
-        
-        # Store structured results for combine node
-        final_results = decision.sentences if decision.presenter == "info" else []
-        
-        if decision.spans:
-            final_results.extend(self._convert_spans_to_passages(decision.spans))
-        
-        return self._preserve_state_with_path(
-            state,
-            "search_confluence",
-            search_results=final_results,
-            rendered_content=rendered_content,
-            presenter_choice=decision.presenter,
-            actionable_score=decision.actionable_score,
-            suite_counts=decision.suite_counts,
-        )
-    
-    def _build_fallback_response(
-        self, state: Dict[str, Any], decision, info_view
-    ) -> Dict[str, Any]:
-        """Build fallback response when no actionable content is found."""
-        fallback_results = decision.fallback_paragraphs or []
-        if not fallback_results and info_view:
-            fallback_results = info_view.fused_top8[:5]
-        
-        return self._preserve_state_with_path(
-            state,
-            "search_confluence",
-            search_results=fallback_results,
-            presenter_choice="fallback",
-        )
-    
-    def _convert_spans_to_passages(self, spans: list) -> List[Passage]:
-        """Convert spans back to Passage format for backward compatibility."""
-        span_passages = []
-        for span in spans[:5]:  # Top 5 spans
-            span_result = Passage(
-                doc_id=span.doc_id,
-                index="actionability",
-                title=f"{span.suite.title()} Action",
-                page_url=span.url,
-                score=span.confidence,
-                text=span.text,
-                meta={
-                    "span_type": span.type,
-                    "capability": span.capability,
-                },
-            )
-            span_passages.append(span_result)
-        return span_passages
-
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute Confluence search using new view system and actionability engine."""
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
+        """Execute search logic."""
         try:
-            resources = self._get_resources()
-            query = state.get(NORMALIZED_QUERY, "")
-            intent = state.get("intent")
-
-            if not query or query.strip() == "":
-                return self._handle_empty_query(state, "search_confluence")
-
-            # Determine query type and tuning parameters
-            is_procedure_query, slot_result = self._analyze_query_type(query, intent)
-            info_knobs, procedure_knobs = self._prepare_tuning_knobs(slot_result)
-            
-            # Execute search views
-            info_view, procedure_view = await self._execute_search_views(
-                query, resources, is_procedure_query, info_knobs, procedure_knobs
-            )
-            
-            # Choose presenter and build response
-            decision = choose_presenter(info_view, procedure_view)
-            
-            return self._build_search_response(state, decision, info_view)
-
-        except Exception as e:
-            logger.error(f"Enhanced confluence search failed: {e}")
-            return self._preserve_state_with_error(
-                state, "search_confluence", f"Enhanced search failed: {e}"
-            )
-
-
-class SwaggerSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles Swagger/API documentation search."""
-
-    def __init__(self):
-        super().__init__("search_swagger")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute Swagger search logic."""
-        try:
-            resources = self._get_resources()
-            query = state["normalized_query"]
-            intent = state.get("intent")
-
-            intent_confidence = get_intent_confidence(intent)
-            logger.debug(
-                f"Using intent confidence: {intent_confidence} for swagger search"
-            )
-
-            optimal_index = OpenSearchConfig.get_swagger_index()
-            logger.info(f"Using Swagger-specific index: {optimal_index}")
-
-            result = await adaptive_search_tool(
-                query=query,
-                intent_confidence=intent_confidence,
-                intent_type="swagger",
-                search_client=resources.search_client,
-                embed_client=resources.embed_client,
-                embed_model=resources.settings.embed.model,
-                search_index=optimal_index,
-                top_k=self._get_resources().settings.search_config.search_top_k_info,
-            )
-
-            self._mark_search_results(result.results, "swagger")
-
-            if len(result.results) == 0:
-                return self._preserve_state_with_path(
-                    state,
-                    "search_swagger_empty_guard",
-                    search_results=[],
-                    combined_results=[],
-                    final_context="No swagger/API documents found matching your query. Please try more specific terms or check if the API documentation exists.",
-                    final_answer="I couldn't find any relevant API documentation for your query. Please try using different keywords or more specific terms.",
-                )
-
-            return self._preserve_state_with_path(
-                state, "search_swagger", search_results=result.results
-            )
-
-        except Exception as e:
-            logger.error(f"Swagger search failed: {e}")
-            return self._preserve_state_with_error(
-                state, "search_swagger", f"Swagger search failed: {e}"
-            )
-
-
-class MultiSearchNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles multi-index search for complex queries."""
-
-    def __init__(self):
-        super().__init__("search_multi")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute multi-index search logic."""
-        try:
-            resources = self._get_resources()
-            query = state["normalized_query"]
-            # intent = state.get("intent")  # Currently unused in multi-index search
-
-            indices = [
-                OpenSearchConfig.get_default_index(),
-                OpenSearchConfig.get_swagger_index(),
-            ]
-
-            results_list = await multi_index_search_tool(
-                indices=indices,
-                query=query,
-                search_client=resources.search_client,
-                embed_client=resources.embed_client,
-                embed_model=resources.settings.embed.model,
-                top_k_per_index=self._get_resources().settings.search_config.search_top_k_per_index_info,
-            )
-
-            all_results = []
-            for i, result in enumerate(results_list):
-                index_name = indices[i] if i < len(indices) else f"index_{i}"
-                for search_result in result.results:
-                    search_result.meta["search_method"] = "multi_index"
-                    search_result.meta["search_id"] = f"multi_{index_name}"
-                    all_results.append(search_result)
-
-            logger.info(
-                f"Multi-search found {len(all_results)} results across {len(indices)} indices"
-            )
-
-            if len(all_results) == 0:
-                return self._preserve_state_with_path(
-                    state,
-                    "search_multi_empty_guard",
-                    search_results=[],
-                    combined_results=[],
-                    final_context="No documents found matching your query. Please try more specific terms or check if the information exists in the knowledge base.",
-                    final_answer="I couldn't find any relevant documents for your query. Please try using different keywords or more specific terms.",
-                )
-
-            return self._preserve_state_with_path(
-                state, "search_multi", search_results=all_results
-            )
-
-        except Exception as e:
-            logger.error(f"Multi-index search failed: {e}")
-            return self._preserve_state_with_error(
-                state, "search_multi", f"Multi-search failed: {e}"
-            )
-
-
-class RewriteQueryNode(SearchNodeHandler, BaseSearchNodeMixin):
-    """Handles query rewriting for improved search results."""
-
-    def __init__(self):
-        super().__init__("rewrite_query")
-
-    async def execute(
-        self, state: Dict[str, Any], config: Dict = None
-    ) -> Dict[str, Any]:
-        """Execute query rewriting logic."""
-        original_query = state.get(ORIGINAL_QUERY, "")
-        normalized_query = state.get(NORMALIZED_QUERY, "")
-        search_results = state.get("search_results", [])
-        loop_count = state.get("loop_count", 0)
-
-        # Handle empty queries - don't rewrite if there's nothing to work with
-        if not normalized_query or normalized_query.strip() == "":
-            logger.warning("Cannot rewrite empty query, using original query")
-            fallback_query = original_query or "general information"
-            return self._preserve_state_with_path(
-                state,
-                "rewrite_query",
-                **{NORMALIZED_QUERY: fallback_query},
-                loop_count=loop_count + 1,
-                rewrite_attempts=state.get("rewrite_attempts", 0) + 1,
-            )
-
-        # Check if we can use lightweight expansion instead of expensive LLM rewrite
-        if len(normalized_query) < 32 and not self._has_operators(normalized_query):
-            logger.info(
-                f"Short query detected ({len(normalized_query)} chars), trying lightweight expansion first"
-            )
-            expanded_query = self._lightweight_query_expansion(normalized_query)
-            if expanded_query != normalized_query:
-                logger.info(
-                    f"Lightweight expansion: '{normalized_query}' -> '{expanded_query}'"
-                )
-                return self._preserve_state_with_path(
-                    state,
-                    "rewrite_query",
-                    **{NORMALIZED_QUERY: expanded_query},
-                    loop_count=loop_count + 1,
-                    rewrite_attempts=state.get("rewrite_attempts", 0) + 1,
-                )
-
-        # Perform full LLM query rewriting
-        rewritten_query = await self._rewrite_query(
-            original_query, normalized_query, search_results
-        )
-
-        # Ensure we don't return an empty query
-        if not rewritten_query or rewritten_query.strip() == "":
-            logger.warning("Rewrite produced empty query, using fallback")
-            rewritten_query = (
-                normalized_query or original_query or "general information"
-            )
-
-        # Strip quotes and clean query for better BM25 recall
-        rewritten_query = self._clean_rewritten_query(rewritten_query)
-
-        logger.info(f"Query rewrite: '{normalized_query}' -> '{rewritten_query}'")
-
-        return self._preserve_state_with_path(
-            state,
-            "rewrite_query",
-            **{NORMALIZED_QUERY: rewritten_query},
-            loop_count=loop_count + 1,
-            rewrite_attempts=state.get("rewrite_attempts", 0) + 1,
-        )
-
-    async def _rewrite_query(
-        self,
-        original_query: str,
-        normalized_query: str,
-        search_results: List[Passage],
-    ) -> str:
-        """Rewrite query using LLM for better search results with domain awareness."""
-        # Use centralized resource access
-        resources = self._get_resources()
-
-        try:
+            resources = get_resources()
             if not resources:
-                logger.warning(
-                    "Resources not available, using fallback rewrite strategy"
-                )
-                return self._fallback_rewrite(normalized_query)
-
-            # Add domain context to prevent misinterpretation
-            domain_context = """
-IMPORTANT: This is JPMorgan utilities documentation.
-- Focus on financial technology APIs, services, and utilities
-- Preserve any utility acronyms in their technical context
-- Avoid medical or non-financial domain interpretations
-"""
-
-            # Analyze current results to understand what's missing
-            result_titles = [r.meta.get("title", "") for r in search_results[:5]]
-            result_summary = "; ".join(result_titles[:3])
-
-            rewrite_prompt = f"""
-            The original query "{normalized_query}" returned {len(search_results)} results, but coverage seems insufficient.
-            {domain_context}
-            Current results include: {result_summary}
+                logger.error("Resources not available for search")
+                return self._handle_search_error(state, "Resources unavailable")
             
-            Please rewrite this query to find more comprehensive information in the utilities documentation. Consider:
-            - Using different keywords or synonyms related to financial utilities/APIs
-            - Being more specific about technical aspects (APIs, onboarding, configuration)
-            - Expanding utility-specific terminology 
-            - Focus on actionable documentation keywords
+            query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
+            plan = state.get("plan")
+            filters = build_filters_from_state(state)
             
-            CRITICAL: Preserve the original technical/utility context. Do not change domain (e.g., finance to healthcare).
+            if not query:
+                logger.warning("No query available for search")
+                return self._handle_search_error(state, "No query provided")
             
-            Rewritten query:
-            """
+            # Plan-driven per-aspect search (no branching, small k per aspect)
+            if isinstance(plan, dict) and plan.get("aspects"):
+                aspects = plan.get("aspects", [])
+                plan_filters = plan.get("filters") or {}
+                # Merge filters (state-derived < plan-derived)
+                merged_filters = {**(filters or {}), **plan_filters}
+                k_per_aspect = int(plan.get("k_per_aspect", 3))
+                strategies = plan.get("aspect_strategies") or {}
 
-            # Use the working Azure OpenAI client configuration
-            from langchain_openai import AzureChatOpenAI
-            from langchain_core.messages import HumanMessage, SystemMessage
-
-            # Get authentication parameters from working clients.py approach
-            from utils import load_config
-            import os
-
-            # Load config for API key (matching clients.py pattern)
-            auth_config = load_config()
-            api_key = auth_config.get("azure_openai", "api_key", fallback=None)
-
-            # Get Bearer token from token provider if available
-            headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
-            if resources.token_provider:
+                sections: Dict[str, List[Passage]] = {}
+                flat: List[Passage] = []
+                # Prepare query variants: acronym form + expanded form
+                q_variants = [query]
                 try:
-                    bearer_token = resources.token_provider()
-                    headers["Authorization"] = f"Bearer {bearer_token}"
-                except Exception as e:
-                    logger.warning(f"Bearer token failed, using API key only: {e}")
+                    from src.agent.acronym_map import expand_acronym
+                    exp_q, expansions = expand_acronym(query)
+                    if expansions:
+                        # Include the bare expansion phrase and the expanded query text
+                        q_variants.append(expansions[0])
+                        q_variants.append(exp_q)
+                except Exception:
+                    pass
 
-            # Create LangChain client with same auth pattern as clients.py
-            langchain_client = AzureChatOpenAI(
-                api_version=resources.settings.chat.api_version,
-                azure_deployment=resources.settings.chat.model,
-                azure_endpoint=resources.settings.chat.api_base,
-                api_key=api_key,
-                default_headers=headers,
-                temperature=0.1,
-                max_tokens=200,
-            )
+                for aspect in aspects:
+                    strategy = strategies.get(
+                        aspect,
+                        "bm25" if aspect in ("steps", "api", "troubleshoot") else "enhanced_rrf",
+                    )
+                    if aspect == "api":
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_api_docs(
+                                q,
+                                resources.search_client,
+                                resources.embed_client,
+                                resources.settings.embed.model,
+                                filters=merged_filters,
+                                strategy=strategy,
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
+                    elif aspect == "steps":
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_procedures(
+                                q, resources.search_client, resources.embed_client,
+                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
+                    else:
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_general(
+                                q, resources.search_client, resources.embed_client,
+                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
+                    sections[aspect] = keep
+                    flat.extend(keep)
 
-            response = await langchain_client.ainvoke(
-                [
-                    SystemMessage(
-                        content="""You are a query optimization expert for JPMorgan utility documentation. 
-                Rewrite queries to improve search results within the financial technology domain.
-                CRITICAL: Never change domain context (e.g., financial utilities to healthcare).
-                Preserve utility acronyms and their technical context.
-                Return ONLY the rewritten query, nothing else."""
-                    ),
-                    HumanMessage(content=rewrite_prompt),
-                ]
-            )
+                if not flat:
+                    return self._handle_empty_results(state, query)
 
-            # Extract actual query from LLM response (often contains explanations)
-            raw_response = response.content.strip()
-            rewritten_query = self._extract_query_from_response(
-                raw_response, normalized_query
-            )
-
-            logger.info(f"Query rewritten: '{normalized_query}' -> '{rewritten_query}'")
-
-            return rewritten_query
-
-        except Exception as e:
-            logger.error(f"LLM query rewriting failed: {e}")
-            return self._fallback_rewrite(normalized_query)
-
-    def _extract_query_from_response(
-        self, raw_response: str, original_query: str
-    ) -> str:
-        """Extract actual query from LLM response that may contain explanations."""
-        # Handle empty/whitespace responses
-        if not raw_response or raw_response.strip() == "":
-            logger.warning("Empty response from LLM, using fallback")
-            return self._fallback_rewrite(original_query)
-
-        # Look for patterns that indicate actual queries
-
-        # Pattern 1: Look for "Rewritten query:" followed by actual query
-        rewritten_pattern = r"(?i)rewritten\s+query:?\s*(.+?)(?:\n|$)"
-        match = re.search(rewritten_pattern, raw_response)
-        if match:
-            extracted = match.group(1).strip().strip("\"'")
-            if len(extracted) > 3 and len(extracted) < 200:  # Reasonable query length
-                return extracted
-
-        # Pattern 2: Look for queries in quotes
-        quote_pattern = r'["\']([^"\'\n]{10,100})["\']'
-        matches = re.findall(quote_pattern, raw_response)
-        if matches:
-            # Pick the longest reasonable match
-            valid_matches = [
-                m
-                for m in matches
-                if len(m.strip()) > 5 and not m.startswith("Example:")
-            ]
-            if valid_matches:
-                return max(valid_matches, key=len).strip()
-
-        # Pattern 3: Last resort - take first sentence that's reasonable length
-        sentences = raw_response.split("\n")
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if (
-                10 <= len(sentence) <= 150
-                and not sentence.startswith(
-                    ("To ", "Please ", "Consider ", "Here ", "Original ", "Since ")
-                )
-                and not sentence.endswith((":",))
-            ):
-                return sentence
-
-        # If all else fails, use fallback
-        logger.warning("Could not extract query from LLM response, using fallback")
-        return self._fallback_rewrite(original_query)
-
-    def _clean_rewritten_query(self, query: str) -> str:
-        """Clean rewritten query by removing quotes and operators that hurt BM25 recall."""
-        if not query:
-            return query
-
-        cleaned = query.strip()
-
-        # Strip surrounding quotes that reduce BM25 recall
-        if (cleaned.startswith('"') and cleaned.endswith('"')) or (
-            cleaned.startswith("'") and cleaned.endswith("'")
-        ):
-            cleaned = cleaned[1:-1]
-
-        # Remove operator-style syntax that may confuse BM25
-        # Remove explicit AND/OR operators (let BM25 handle naturally)
-        cleaned = re.sub(r"\s+AND\s+", " ", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s+OR\s+", " ", cleaned, flags=re.IGNORECASE)
-
-        # Clean up multiple spaces
-        cleaned = " ".join(cleaned.split())
-
-        return cleaned
-
-    def _has_operators(self, query: str) -> bool:
-        """Check if query already has search operators."""
-        query_upper = query.upper()
-        return any(op in query_upper for op in SEARCH_OPERATORS)
-
-    def _lightweight_query_expansion(self, query: str) -> str:
-        """Lightweight query expansion using synonyms and domain context."""
-        # Try acronym expansion first (most specific)
-        acronym_result = self._try_acronym_expansion(query)
-        if acronym_result != query:
-            return acronym_result
-
-        # Try synonym expansion
-        return self._apply_synonym_expansion(query)
-
-    def _try_acronym_expansion(self, query: str) -> str:
-        """Try to expand utility acronyms."""
-        try:
-            from agent.acronym_map import expand_acronym
-
-            expanded_query, expansions = expand_acronym(query)
-            if expansions:
-                return f"{query} {expansions[0]} onboarding"
-        except ImportError:
-            logger.debug("Acronym map not available for query expansion")
-        except Exception as e:
-            logger.debug(f"Acronym expansion failed: {e}")
-        return query
-
-    def _apply_synonym_expansion(self, query: str) -> str:
-        """Apply synonym expansion to query terms."""
-        tokens = query.lower().split()
-        expanded_terms = []
-
-        # Add synonyms for key terms
-        for token in tokens:
-            if token in UTILITY_SYNONYMS:
-                # Add one synonym to broaden search
-                expanded_terms.extend([token, UTILITY_SYNONYMS[token][0]])
+                return {
+                    **state,
+                    "search_sections": self._to_serializable_sections(sections),
+                    "search_results": flat,
+                    "total_results": len(flat),
+                    "search_strategy": "plan_per_aspect",
+                    "workflow_path": state.get("workflow_path", []) + ["search"],
+                }
             else:
-                expanded_terms.append(token)
+                logger.error("Plan missing or empty; refusing legacy routing")
+                return self._handle_search_error(state, "plan_missing")
 
-        # Add common utility search terms if query is very short
-        if len(tokens) <= 2:
-            expanded_terms.extend(["documentation", "guide"])
-
-        return " ".join(expanded_terms)
-
-    def _fallback_rewrite(self, query: str) -> str:
-        """Fallback rewrite strategy when LLM is unavailable - REAL implementation."""
-        # Enhanced fallback strategy with comprehensive synonym mapping
-
-        # Create a copy to modify
-        rewritten = query.lower()
-
-        # API terminology expansions
-        api_synonyms = {
-            r"\bapi\b": "service endpoint interface",
-            r"\bendpoint\b": "API service method",
-            r"\brest\b": "RESTful web service",
-            r"\bhttp\b": "web protocol request",
+            # No legacy comparison path; planner would specify a compare aspect in the future
+            
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return self._handle_search_error(state, str(e))
+    
+    # Legacy comparison and specialized router paths removed: plan drives routing
+    
+    def _handle_search_error(self, state: Dict[str, Any], error_msg: str) -> Dict[str, Any]:
+        """Handle search errors gracefully."""
+        return {
+            **state,
+            "search_results": [],
+            "search_error": error_msg,
+            "workflow_path": state.get("workflow_path", []) + ["search_error"]
+        }
+    
+    def _handle_empty_results(self, state: Dict[str, Any], query: str) -> Dict[str, Any]:
+        """Handle empty search results."""
+        no_results_msg = (
+            f"No relevant information found for: {query}. "
+            "Try rephrasing your question or being more specific."
+        )
+        
+        return {
+            **state,
+            "search_results": [],
+            "final_briefing": no_results_msg,
+            "briefing_ready": True,  # Skip evidence composer
+            "workflow_path": state.get("workflow_path", []) + ["search_empty"]
         }
 
-        # Utility and service expansions
-        utility_synonyms = {
-            r"\butility\b": "service tool component",
-            r"\bservice\b": "utility component system",
-            r"\btool\b": "utility service function",
-        }
+    def _to_serializable_sections(self, sections: Dict[str, List[Passage]]):
+        """Convert Passage objects to plain dicts for composer service."""
+        out: Dict[str, List[Dict]] = {}
+        for aspect, items in sections.items():
+            rows: List[Dict] = []
+            for p in items:
+                meta = getattr(p, "meta", {}) or {}
+                rows.append(
+                    {
+                        "doc_id": p.doc_id,
+                        "title": getattr(p, "title", None) or meta.get("title"),
+                        "url": getattr(p, "url", None),
+                        "snippet": getattr(p, "text", ""),
+                        "score": float(getattr(p, "score", 0.0)),
+                        "heading": meta.get("heading"),
+                    }
+                )
+            out[aspect] = rows
+        return out
 
-        # Technical concept expansions
-        technical_synonyms = {
-            r"\bauthentication\b": "auth security credential validation",
-            r"\bauthorization\b": "permission access control security",
-            r"\bconfigur\w*\b": "setup configuration parameter settings",
-            r"\berror\b": "exception failure issue problem",
-            r"\bresponse\b": "result output return data",
-        }
 
-        # Apply synonym mappings
-        all_synonyms = {**api_synonyms, **utility_synonyms, **technical_synonyms}
+def _dedupe_chain(lists_of_passages: List[List[Passage]], k: int) -> List[Passage]:
+    """Round‑robin merge of multiple lists, dedupe by doc_id, cap at k.
 
-        for pattern, replacement in all_synonyms.items():
-            if re.search(pattern, rewritten):
-                rewritten = re.sub(pattern, replacement, rewritten)
-                break  # Only apply first matching synonym to avoid over-expansion
+    This truly interleaves results from acronym and expansion queries so the
+    first list doesn't monopolize slots.
+    """
+    merged: List[Passage] = []
+    seen = set()
+    # Determine the longest list length
+    max_len = max((len(pl) for pl in lists_of_passages), default=0)
+    for i in range(max_len):
+        for plist in lists_of_passages:
+            if i < len(plist):
+                p = plist[i]
+                if p.doc_id not in seen:
+                    merged.append(p)
+                    seen.add(p.doc_id)
+                    if len(merged) >= k:
+                        return merged
+    return merged[:k]
 
-        # Add context hints based on query intent
-        if any(
-            term in query.lower() for term in ["how", "configure", "setup", "install"]
-        ):
-            rewritten += " procedure steps guide documentation"
-        elif any(term in query.lower() for term in ["what", "define", "explain"]):
-            rewritten += " definition explanation overview"
-        elif any(
-            term in query.lower() for term in ["list", "show", "all", "available"]
-        ):
-            rewritten += " available options catalog inventory"
-        else:
-            rewritten += " documentation guide reference"
 
-        return rewritten.title()  # Return with proper capitalization
+def build_filters_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract ACL/space/time filters from state for downstream search."""
+    filters: Dict[str, Any] = {}
+    for key in ("acl_hash", "space_key", "content_type"):
+        if state.get(key):
+            filters[key] = state[key]
+    for key in ("updated_after", "updated_before"):
+        if state.get(key):
+            filters[key] = state[key]
+    user_filters = state.get("user_filters")
+    if isinstance(user_filters, dict):
+        filters.update(user_filters)
+    return filters
+
+
+class CombineNode(BaseNodeHandler):
+    """Evidence-gated briefing composer node."""
+    
+    def __init__(self):
+        super().__init__("combine")
+    
+    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
+        """Execute evidence-based briefing composition."""
+        # Skip if briefing already ready (e.g., from comparison search)
+        if state.get("briefing_ready", False):
+            logger.info("Briefing already prepared, skipping evidence composer")
+            return {
+                **state,
+                "workflow_path": state.get("workflow_path", []) + ["combine_skipped"]
+            }
+        
+        search_results = state.get("search_results", [])
+        query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
+        
+        if not search_results:
+            logger.warning("No search results available for evidence composition")
+            return {
+                **state,
+                "final_briefing": "No information found to compose a briefing.",
+                "workflow_path": state.get("workflow_path", []) + ["combine_empty"]
+            }
+        
+        try:
+            # Compose evidence-gated briefing
+            logger.info(f"🔍 EVIDENCE: Using query for evidence composition: '{query}'")
+            composition = compose_evidence_briefing(search_results, query, max_sections=4)
+            
+            if not composition.sections:
+                # Fallback to simple presentation
+                fallback_briefing = self._create_fallback_briefing(search_results, query)
+                logger.info("No evidence sections found, using fallback briefing")
+                
+                return {
+                    **state,
+                    "final_briefing": fallback_briefing,
+                    "composition_strategy": "fallback_simple",
+                    "workflow_path": state.get("workflow_path", []) + ["combine_fallback"]
+                }
+            
+            # Render structured briefing
+            briefing_markdown = render_briefing_markdown(composition)
+            
+            logger.info(f"Evidence briefing composed: {len(composition.sections)} sections, strategy: {composition.composition_strategy}")
+            logger.info(f"📝 FINAL_BRIEFING: Setting final_briefing with {len(briefing_markdown) if briefing_markdown else 0} characters")
+            
+            return {
+                **state,
+                "final_briefing": briefing_markdown,
+                "composition": {
+                    "sections": list(composition.sections.keys()),
+                    "strategy": composition.composition_strategy,
+                    "total_passages": composition.total_passages
+                },
+                "workflow_path": state.get("workflow_path", []) + ["combine"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Evidence composition failed: {e}")
+            fallback_briefing = self._create_fallback_briefing(search_results, query)
+            
+            return {
+                **state,
+                "final_briefing": fallback_briefing,
+                "composition_error": str(e),
+                "workflow_path": state.get("workflow_path", []) + ["combine_error"]
+            }
+    
+    def _create_fallback_briefing(self, results: List[Passage], query: str) -> str:
+        """Create simple fallback briefing when evidence composition fails."""
+        if not results:
+            return f"No information found for: {query}"
+        
+        lines = [
+            f"# {query}",
+            "",
+            f"Found {len(results)} relevant sources:",
+            "",
+        ]
+        
+        for i, result in enumerate(results[:5], 1):
+            title = result.meta.get("title", f"Source {i}")
+            score = result.score
+            snippet = result.text[:200] + "..." if len(result.text) > 200 else result.text
+            
+            lines.extend([
+                f"## {i}. {title}",
+                f"*Relevance: {score:.2f}*",
+                "",
+                snippet,
+                "",
+            ])
+        
+        return "\n".join(lines)
+
+
+# Specialized search node variants
+class ConfluenceSearchNode(SearchNode):
+    """Confluence-specific search node."""
+    def __init__(self):
+        super().__init__()
+        self.node_name = "search_confluence"
+
+
+class SwaggerSearchNode(SearchNode):
+    """Swagger/API documentation search node."""
+    def __init__(self):
+        super().__init__()
+        self.node_name = "search_swagger"
+
+
+class MultiSearchNode(SearchNode):
+    """Multi-index search node."""
+    def __init__(self):
+        super().__init__()
+        self.node_name = "search_multi"
