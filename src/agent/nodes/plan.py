@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any
 
 from .base_node import BaseNodeHandler
+from src.agent.constants import ORIGINAL_QUERY, SEARCH_QUERY
 from src.agent.services.planner_composer import get_plan
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,9 @@ class PlanNode(BaseNodeHandler):
         super().__init__("plan")
 
     async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        query = state.get("normalized_query") or state.get("original_query", "")
+        # Use the cleanest raw user query for planning to avoid losing detail.
+        # Prefer an explicit SEARCH_QUERY (set by controller), then ORIGINAL_QUERY.
+        query = state.get(SEARCH_QUERY) or state.get(ORIGINAL_QUERY, "")
         if not query:
             logger.warning("PlanNode: empty query")
             return {**state, "plan": None}

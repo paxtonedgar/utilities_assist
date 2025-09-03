@@ -17,7 +17,6 @@ from src.search.comparison_search import search_comparison, render_comparison_br
 from src.agent.nodes.combine import compose_evidence_briefing, render_briefing_markdown
 from src.infra.resource_manager import get_resources
 from src.services.models import Passage
-from src.agent.services.planner_composer import get_plan as _autoplan
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +78,6 @@ class SearchNode(BaseNodeHandler):
                 return self._handle_search_error(state, "No query provided")
             
             # NEW: Plan-driven per-aspect search (no branching, small k per aspect)
-            if not plan:
-                # Auto-plan when upstream PlanNode is not present
-                p = _autoplan(query, {"user_id": state.get("user_id"), "thread_id": state.get("thread_id")})
-                plan = {
-                    "aspects": p.aspects,
-                    "filters": p.filters,
-                    "k_per_aspect": p.k_per_aspect,
-                    "budgets": p.budgets,
-                }
             if isinstance(plan, dict) and plan.get("aspects"):
                 aspects = plan.get("aspects", [])
                 plan_filters = plan.get("filters") or {}
@@ -97,23 +87,46 @@ class SearchNode(BaseNodeHandler):
 
                 sections: Dict[str, List[Passage]] = {}
                 flat: List[Passage] = []
+                # Prepare query variants: acronym form + expanded form
+                q_variants = [query]
+                try:
+                    from src.agent.acronym_map import expand_acronym
+                    exp_q, expansions = expand_acronym(query)
+                    if expansions:
+                        # Include the bare expansion phrase and the expanded query text
+                        q_variants.append(expansions[0])
+                        q_variants.append(exp_q)
+                except Exception:
+                    pass
+
                 for aspect in aspects:
                     if aspect == "api":
-                        r = await search_api_docs(
-                            query, resources.search_client, resources.embed_client,
-                            resources.settings.embed.model, filters=merged_filters
-                        )
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_api_docs(
+                                q, resources.search_client, resources.embed_client,
+                                resources.settings.embed.model, filters=merged_filters
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
                     elif aspect == "steps":
-                        r = await search_procedures(
-                            query, resources.search_client, resources.embed_client,
-                            resources.settings.embed.model, filters=merged_filters
-                        )
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_procedures(
+                                q, resources.search_client, resources.embed_client,
+                                resources.settings.embed.model, filters=merged_filters
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
                     else:
-                        r = await search_general(
-                            query, resources.search_client, resources.embed_client,
-                            resources.settings.embed.model, filters=merged_filters
-                        )
-                    keep = r.passages[:k_per_aspect]
+                        results_lists = []
+                        for q in q_variants:
+                            r = await search_general(
+                                q, resources.search_client, resources.embed_client,
+                                resources.settings.embed.model, filters=merged_filters
+                            )
+                            results_lists.append(r.passages)
+                        keep = _dedupe_chain(results_lists, k_per_aspect)
                     sections[aspect] = keep
                     flat.extend(keep)
 
@@ -263,6 +276,24 @@ class SearchNode(BaseNodeHandler):
                 )
             out[aspect] = rows
         return out
+
+
+def _dedupe_chain(lists_of_passages: List[List[Passage]], k: int) -> List[Passage]:
+    """Merge multiple passage lists, dedupe by doc_id, keep first-seen/top-scored order.
+
+    This allows us to search both acronym and expansion variants and keep the
+    best small set per aspect.
+    """
+    merged: List[Passage] = []
+    seen = set()
+    for plist in lists_of_passages:
+        for p in plist:
+            if p.doc_id not in seen:
+                merged.append(p)
+                seen.add(p.doc_id)
+                if len(merged) >= k:
+                    return merged
+    return merged[:k]
 
     def _build_filters_from_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Extract ACL/space/time filters from state for downstream search."""

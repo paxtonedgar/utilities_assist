@@ -476,10 +476,10 @@ class ApplicationSettings(BaseSettings):
 
     # OpenAI planner/composer (disabled by default)
     enable_openai_planner: bool = Field(
-        default=False, validation_alias="ENABLE_OPENAI_PLANNER"
+        default=True, validation_alias="ENABLE_OPENAI_PLANNER"
     )
     enable_openai_composer: bool = Field(
-        default=False, validation_alias="ENABLE_OPENAI_COMPOSER"
+        default=True, validation_alias="ENABLE_OPENAI_COMPOSER"
     )
     openai_planner_model: str = Field(
         default="gpt-4o-mini", validation_alias="OPENAI_PLANNER_MODEL"
