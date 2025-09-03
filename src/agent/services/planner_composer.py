@@ -7,6 +7,7 @@ OpenAI Responses API and local fallbacks without changing node code.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Dict, List, Optional
 
 from src.services.models import Plan, Card, Citation, Step, ApiItem
@@ -73,7 +74,8 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                 "required": ["aspects", "filters", "k_per_aspect", "budgets"],
                 "additionalProperties": False,
             }
-            # Use json_object for broad Azure compatibility
+            # Use json_object for broad Azure compatibility; no timeout (logged instead)
+            start = time.time()
             resp = client.chat.completions.create(
                 model=(settings.openai_planner_model or settings.chat.model),
                 temperature=0.0,
@@ -82,8 +84,8 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                     {"role": "system", "content": system},
                     {"role": "user", "content": f"Query: {normalized_query}"},
                 ],
-                timeout=settings.openai_timeout_ms / 1000.0,
             )
+            logger.info(f"Planner LLM completed in {(time.time()-start)*1000:.1f} ms")
             content = resp.choices[0].message.content if resp.choices else "{}"
             import json
 
@@ -179,6 +181,7 @@ def compose_card(
             user_payload = json.dumps(
                 {"utility": utility, "budgets": budgets, "sections": sections}
             )
+            start = time.time()
             resp = client.chat.completions.create(
                 model=(settings.openai_composer_model or settings.chat.model),
                 temperature=0.1,
@@ -187,8 +190,8 @@ def compose_card(
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_payload},
                 ],
-                timeout=settings.openai_timeout_ms / 1000.0,
             )
+            logger.info(f"Composer LLM completed in {(time.time()-start)*1000:.1f} ms")
             content = resp.choices[0].message.content if resp.choices else "{}"
             data = json.loads(content or "{}")
 

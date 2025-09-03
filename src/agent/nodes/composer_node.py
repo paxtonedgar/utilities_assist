@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, Any, List
+import time
 
 from .base_node import BaseNodeHandler
 from src.agent.services.planner_composer import compose_card
@@ -63,21 +64,24 @@ class ComposerNode(BaseNodeHandler):
                 {"role": "user", "content": f"Question: {question}\n\nContext:\n{context_blob}"},
             ]
             try:
+                start = time.time()
                 resp = resources.chat_client.chat.completions.create(
                     model=settings.chat.model,
                     temperature=0.2,
                     messages=messages,
-                    timeout=settings.openai_timeout_ms / 1000.0,
                 )
                 answer = resp.choices[0].message.content if resp and resp.choices else ""
                 answer = answer or "No answer generated."
+                elapsed = (time.time() - start) * 1000
+                logger.info(f"Direct LLM answer completed in {elapsed:.1f} ms with model={settings.chat.model}")
                 return {
                     **state,
                     "final_briefing": answer,
                     "workflow_path": state.get("workflow_path", []) + ["compose_direct_llm"],
                 }
             except Exception as e:
-                logger.error(f"Direct LLM answering failed: {e}")
+                elapsed = (time.time() - start) * 1000
+                logger.error(f"Direct LLM answering failed after {elapsed:.1f} ms: {e}")
 
         card = compose_card(sections=sections, budgets=budgets, utility=utility)
 
