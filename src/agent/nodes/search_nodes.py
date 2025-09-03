@@ -76,8 +76,12 @@ class SearchNode(BaseNodeHandler):
                         results_lists = []
                         for q in q_variants:
                             r = await search_api_docs(
-                                q, resources.search_client, resources.embed_client,
-                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
+                                q,
+                                resources.search_client,
+                                resources.embed_client,
+                                resources.settings.embed.model,
+                                filters=merged_filters,
+                                strategy=strategy,
                             )
                             results_lists.append(r.passages)
                         keep = _dedupe_chain(results_lists, k_per_aspect)
@@ -123,71 +127,7 @@ class SearchNode(BaseNodeHandler):
             logger.error(f"Search failed: {e}")
             return self._handle_search_error(state, str(e))
     
-    async def _handle_comparison_search(self, state: Dict[str, Any], query: str, resources) -> Dict[str, Any]:
-        """Handle comparison search separately."""
-        comparison_result = await search_comparison(
-            query, resources.search_client, resources.embed_client, 
-            resources.settings.embed.model
-        )
-        
-        if not comparison_result:
-            # Fall back to general search
-            logger.info("Comparison extraction failed, falling back to general search")
-            search_result = await search_general(
-                query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model
-            )
-            
-            return {
-                **state,
-                "search_results": search_result.passages,
-                "search_strategy": "comparison_fallback_to_general",
-                "workflow_path": state.get("workflow_path", []) + ["search_comparison"]
-            }
-        
-        # Create comparison briefing directly
-        comparison_briefing = render_comparison_briefing(comparison_result, query)
-        
-        return {
-            **state,
-            "search_results": comparison_result.merged_results,
-            "comparison_result": {
-                "entity1": comparison_result.entity1,
-                "entity2": comparison_result.entity2,
-                "confidence": comparison_result.comparison_confidence
-            },
-            "final_briefing": comparison_briefing,
-            "briefing_ready": True,  # Skip evidence composer for comparisons
-            "workflow_path": state.get("workflow_path", []) + ["search_comparison"]
-        }
-    
-    async def _execute_specialized_search(self, route_action: str, query: str, resources, filters: Optional[Dict[str, Any]]):
-        """Execute appropriate search based on route."""
-        if route_action == "api":
-            return await search_api_docs(
-                query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model, filters=filters
-            )
-        elif route_action == "procedure": 
-            return await search_procedures(
-                query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model, filters=filters
-            )
-        elif route_action == "list":
-            # For list queries, use general search but with specific content filtering
-            options = SearchOptions(
-                content_boost={ContentType.LIST_DATA: 2.0},
-                top_k=25  # Get more results for lists
-            )
-            return await search_docs(
-                query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model, options, filters=filters
-            )
-        else:  # general and default
-            return await search_general(
-                query, resources.search_client, resources.embed_client,
-                resources.settings.embed.model, filters=filters
-            )
+    # Legacy comparison and specialized router paths removed: plan drives routing
     
     def _handle_search_error(self, state: Dict[str, Any], error_msg: str) -> Dict[str, Any]:
         """Handle search errors gracefully."""
