@@ -10,10 +10,10 @@ from typing import Dict, Any, List, Optional
 from dataclasses import asdict
 
 from .base_node import BaseNodeHandler
-from src.agent.routing.micro_router import micro_route, RouteResult
+# Router removed; plan drives routing
 from src.agent.constants import SEARCH_QUERY
 from src.agent.tools.search import search_docs, search_api_docs, search_procedures, search_general, SearchOptions, ContentType
-from src.search.comparison_search import search_comparison, render_comparison_briefing
+# Comparison path handled by planner in the future; not wired here
 from src.agent.nodes.combine import compose_evidence_briefing, render_briefing_markdown
 from src.infra.resource_manager import get_resources
 from src.services.models import Passage
@@ -21,37 +21,7 @@ from src.services.models import Passage
 logger = logging.getLogger(__name__)
 
 
-class IntentNode(BaseNodeHandler):
-    """Intent/routing node using simple regex patterns."""
-    
-    def __init__(self):
-        super().__init__("intent")
-    
-    async def execute(self, state: Dict[str, Any], config: Dict = None) -> Dict[str, Any]:
-        """Execute micro-routing logic."""
-        query = state.get(SEARCH_QUERY, state.get("normalized_query", state.get("original_query", "")))
-        
-        if not query or not query.strip():
-            logger.warning("Empty query provided to router")
-            return {
-                **state,
-                "route_result": None,
-                "next_action": "general",
-                "workflow_path": state.get("workflow_path", []) + ["router_empty"]
-            }
-        
-        # Use micro-router for simple, transparent routing
-        route_result = micro_route(query)
-        
-        logger.info(f"Micro-route decision: '{query}' -> {route_result.route} ({route_result.confidence:.1f})")
-        
-        return {
-            **state,
-            "route_result": asdict(route_result),
-            "next_action": route_result.route,
-            "query_normalized": route_result.query_normalized,
-            "workflow_path": state.get("workflow_path", []) + ["intent"]
-        }
+"""IntentNode removed: planning now drives routing and structure."""
 
 
 class SearchNode(BaseNodeHandler):
@@ -69,9 +39,8 @@ class SearchNode(BaseNodeHandler):
                 return self._handle_search_error(state, "Resources unavailable")
             
             query = state.get(SEARCH_QUERY, state.get("query_normalized", state.get("normalized_query", "")))
-            route_action = state.get("next_action", "general")
             plan = state.get("plan")
-            filters = self._build_filters_from_state(state)
+            filters = build_filters_from_state(state)
             
             if not query:
                 logger.warning("No query available for search")
@@ -105,7 +74,7 @@ class SearchNode(BaseNodeHandler):
                         for q in q_variants:
                             r = await search_api_docs(
                                 q, resources.search_client, resources.embed_client,
-                                resources.settings.embed.model, filters=merged_filters
+                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
                             )
                             results_lists.append(r.passages)
                         keep = _dedupe_chain(results_lists, k_per_aspect)
@@ -114,7 +83,7 @@ class SearchNode(BaseNodeHandler):
                         for q in q_variants:
                             r = await search_procedures(
                                 q, resources.search_client, resources.embed_client,
-                                resources.settings.embed.model, filters=merged_filters
+                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
                             )
                             results_lists.append(r.passages)
                         keep = _dedupe_chain(results_lists, k_per_aspect)
@@ -123,7 +92,7 @@ class SearchNode(BaseNodeHandler):
                         for q in q_variants:
                             r = await search_general(
                                 q, resources.search_client, resources.embed_client,
-                                resources.settings.embed.model, filters=merged_filters
+                                resources.settings.embed.model, filters=merged_filters, strategy=strategy
                             )
                             results_lists.append(r.passages)
                         keep = _dedupe_chain(results_lists, k_per_aspect)
@@ -141,27 +110,11 @@ class SearchNode(BaseNodeHandler):
                     "search_strategy": "plan_per_aspect",
                     "workflow_path": state.get("workflow_path", []) + ["search"],
                 }
+            else:
+                logger.error("Plan missing or empty; refusing legacy routing")
+                return self._handle_search_error(state, "plan_missing")
 
-            # Handle comparison queries specially
-            if route_action == "compare":
-                return await self._handle_comparison_search(state, query, resources)
-            
-            # Handle other route types with specialized search functions
-            search_result = await self._execute_specialized_search(route_action, query, resources, filters)
-            
-            if not search_result or not search_result.passages:
-                logger.warning(f"No results found for query: '{query}'")
-                return self._handle_empty_results(state, query)
-            
-            logger.info(f"Search completed: {len(search_result.passages)} results for '{query}'")
-            
-            return {
-                **state,
-                "search_results": search_result.passages,
-                "total_results": search_result.total_found,
-                "search_strategy": search_result.search_strategy,
-                "workflow_path": state.get("workflow_path", []) + ["search"]
-            }
+            # No legacy comparison path; planner would specify a compare aspect in the future
             
         except Exception as e:
             logger.error(f"Search failed: {e}")
@@ -295,19 +248,20 @@ def _dedupe_chain(lists_of_passages: List[List[Passage]], k: int) -> List[Passag
                     return merged
     return merged[:k]
 
-    def _build_filters_from_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract ACL/space/time filters from state for downstream search."""
-        filters: Dict[str, Any] = {}
-        for key in ("acl_hash", "space_key", "content_type"):
-            if state.get(key):
-                filters[key] = state[key]
-        for key in ("updated_after", "updated_before"):
-            if state.get(key):
-                filters[key] = state[key]
-        user_filters = state.get("user_filters")
-        if isinstance(user_filters, dict):
-            filters.update(user_filters)
-        return filters
+
+def build_filters_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract ACL/space/time filters from state for downstream search."""
+    filters: Dict[str, Any] = {}
+    for key in ("acl_hash", "space_key", "content_type"):
+        if state.get(key):
+            filters[key] = state[key]
+    for key in ("updated_after", "updated_before"):
+        if state.get(key):
+            filters[key] = state[key]
+    user_filters = state.get("user_filters")
+    if isinstance(user_filters, dict):
+        filters.update(user_filters)
+    return filters
 
 
 class CombineNode(BaseNodeHandler):

@@ -662,7 +662,7 @@ class UnifiedSearchResult:
         self.search_strategy = search_strategy
 
 
-async def search_docs(query: str, search_client, embed_client, embed_model: str, options=None, filters: Optional[Dict[str, Any]] = None):
+async def search_docs(query: str, search_client, embed_client, embed_model: str, options=None, filters: Optional[Dict[str, Any]] = None, strategy: str = "bm25"):
     """Bridge function for unified search."""
     from src.infra.search_config import OpenSearchConfig
     
@@ -674,6 +674,7 @@ async def search_docs(query: str, search_client, embed_client, embed_model: str,
         embed_model=embed_model,
         top_k=options.top_k if options else 15,
         filters=filters,
+        strategy=strategy,
     )
     
     return UnifiedSearchResult(
@@ -683,7 +684,7 @@ async def search_docs(query: str, search_client, embed_client, embed_model: str,
     )
 
 
-async def search_api_docs(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None):
+async def search_api_docs(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None, strategy: str = "bm25"):
     """Search API documentation."""
     from src.infra.search_config import OpenSearchConfig
     
@@ -695,6 +696,7 @@ async def search_api_docs(query: str, search_client, embed_client, embed_model: 
         embed_model=embed_model,
         top_k=15,
         filters=filters,
+        strategy=strategy,
     )
     
     return UnifiedSearchResult(
@@ -704,7 +706,7 @@ async def search_api_docs(query: str, search_client, embed_client, embed_model: 
     )
 
 
-async def search_procedures(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None):
+async def search_procedures(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None, strategy: str = "bm25"):
     """Search procedures and runbooks."""
     from src.infra.search_config import OpenSearchConfig
     
@@ -715,7 +717,7 @@ async def search_procedures(query: str, search_client, embed_client, embed_model
         embed_client=embed_client,
         embed_model=embed_model,
         top_k=15,
-        strategy="enhanced_rrf",
+        strategy=strategy,
         filters=filters,
     )
     
@@ -726,7 +728,7 @@ async def search_procedures(query: str, search_client, embed_client, embed_model
     )
 
 
-async def search_general(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None):
+async def search_general(query: str, search_client, embed_client, embed_model: str, filters: Optional[Dict[str, Any]] = None, strategy: str = "bm25"):
     """General search without specific focus."""
     from src.infra.search_config import OpenSearchConfig
     
@@ -738,6 +740,7 @@ async def search_general(query: str, search_client, embed_client, embed_model: s
         embed_model=embed_model,
         top_k=15,
         filters=filters,
+        strategy=strategy,
     )
     
     return UnifiedSearchResult(

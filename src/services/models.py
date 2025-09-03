@@ -147,9 +147,9 @@ class IndexProfile:
 
 @dataclass
 class Plan:
-    """Planner output contract: aspects + filters + budgets.
+    """Planner output contract: aspects + filters + budgets + strategies.
 
-    Defaults are tuned for helpfulness over concision.
+    Opinionated defaults: overview uses hybrid, steps/api use bm25.
     """
 
     aspects: list[str] = field(default_factory=lambda: ["overview", "steps", "api"])  # dynamic list
@@ -161,6 +161,14 @@ class Plan:
             "steps_chars": 900,
             "api_chars": 500,
             "troubleshoot_chars": 600,
+        }
+    )
+    aspect_strategies: dict = field(
+        default_factory=lambda: {
+            "overview": "hybrid",
+            "steps": "bm25",
+            "api": "bm25",
+            "troubleshoot": "bm25",
         }
     )
 

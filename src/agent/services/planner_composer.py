@@ -95,7 +95,14 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                 filters["utility_name"] = util
             kpa = int(data.get("k_per_aspect", 3))
             budgets = data.get("budgets") or Plan().budgets
-            return Plan(aspects=aspects, filters=filters, k_per_aspect=kpa, budgets=budgets)
+            strategies = data.get("aspect_strategies") or Plan().aspect_strategies
+            return Plan(
+                aspects=aspects,
+                filters=filters,
+                k_per_aspect=kpa,
+                budgets=budgets,
+                aspect_strategies=strategies,
+            )
         except Exception as e:  # Fallback to local
             logger.warning(f"OpenAI planner failed, using local: {e}")
 
