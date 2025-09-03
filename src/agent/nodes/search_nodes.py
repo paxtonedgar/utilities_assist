@@ -17,6 +17,7 @@ from src.search.comparison_search import search_comparison, render_comparison_br
 from src.agent.nodes.combine import compose_evidence_briefing, render_briefing_markdown
 from src.infra.resource_manager import get_resources
 from src.services.models import Passage
+from src.agent.services.planner_composer import get_plan as _autoplan
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,15 @@ class SearchNode(BaseNodeHandler):
                 return self._handle_search_error(state, "No query provided")
             
             # NEW: Plan-driven per-aspect search (no branching, small k per aspect)
+            if not plan:
+                # Auto-plan when upstream PlanNode is not present
+                p = _autoplan(query, {"user_id": state.get("user_id"), "thread_id": state.get("thread_id")})
+                plan = {
+                    "aspects": p.aspects,
+                    "filters": p.filters,
+                    "k_per_aspect": p.k_per_aspect,
+                    "budgets": p.budgets,
+                }
             if isinstance(plan, dict) and plan.get("aspects"):
                 aspects = plan.get("aspects", [])
                 plan_filters = plan.get("filters") or {}
