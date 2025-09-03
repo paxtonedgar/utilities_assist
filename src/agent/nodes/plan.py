@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any
 
 from .base_node import BaseNodeHandler
-from src.agent.openai.service import get_plan
+from src.agent.services.planner_composer import get_plan
 
 logger = logging.getLogger(__name__)
 
@@ -44,4 +44,3 @@ class PlanNode(BaseNodeHandler):
             },
             "workflow_path": state.get("workflow_path", []) + ["plan"],
         }
-

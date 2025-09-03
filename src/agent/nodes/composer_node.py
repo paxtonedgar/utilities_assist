@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List
 
 from .base_node import BaseNodeHandler
-from src.agent.openai.service import compose_card
+from src.agent.services.planner_composer import compose_card
 
 logger = logging.getLogger(__name__)
 
@@ -66,4 +66,3 @@ class ComposerNode(BaseNodeHandler):
             "final_briefing": final_md,
             "workflow_path": state.get("workflow_path", []) + ["compose"],
         }
-

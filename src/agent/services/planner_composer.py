@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-from src.agent.openai.schemas import Plan, Card, Citation, Step, ApiItem
+from src.services.models import Plan, Card, Citation, Step, ApiItem
 from src.infra.settings import get_settings
 
 try:
