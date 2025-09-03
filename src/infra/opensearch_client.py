@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import requests
 
 from src.infra.settings import get_settings
-from src.infra.search_config import OpenSearchConfig, QueryTemplates
+from src.infra.search_config import QueryTemplates
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.telemetry.logger import log_event, stage
 from src.services.passage_extractor import extract_passages
@@ -64,6 +64,7 @@ class SearchFilters:
     acl_hash: Optional[str] = None
     space_key: Optional[str] = None
     content_type: Optional[str] = None
+    utility_name: Optional[str] = None
     updated_after: Optional[datetime] = None
     updated_before: Optional[datetime] = None
 
@@ -496,133 +497,46 @@ class OpenSearchClient:
         
         return SearchResponse(results=[], total_hits=0, took_ms=0, method="knn")
 
-    def rrf_fuse(
-        self,
-        bm25_response: SearchResponse,
-        knn_response: SearchResponse,
-        k: int = 8,
-        rrf_k: int = 60,
-    ) -> SearchResponse:
-        """
-        Reciprocal Rank Fusion (RRF) for hybrid search.
 
-        Pure Python implementation combining BM25 and kNN results.
 
-        Args:
-            bm25_response: BM25 search results
-            knn_response: kNN search results
-            k: Final number of results to return
-            rrf_k: RRF constant (typically 60, higher = less aggressive fusion)
-
-        Returns:
-            SearchResponse with fused results
-        """
-        start_time = time.time()
-
-        # Create rank maps for both result sets
-        bm25_ranks = {
-            result.doc_id: idx + 1 for idx, result in enumerate(bm25_response.results)
-        }
-        knn_ranks = {
-            result.doc_id: idx + 1 for idx, result in enumerate(knn_response.results)
-        }
-
-        # Create document map for result data
-        doc_map = {}
-        for result in bm25_response.results:
-            doc_map[result.doc_id] = result
-        for result in knn_response.results:
-            doc_map[result.doc_id] = result
-
-        # Calculate RRF scores
-        rrf_scores = {}
-        all_doc_ids = set(bm25_ranks.keys()) | set(knn_ranks.keys())
-
-        for doc_id in all_doc_ids:
-            rrf_score = 0.0
-
-            # Add BM25 contribution: 1 / (k + rank)
-            if doc_id in bm25_ranks:
-                rrf_score += 1.0 / (rrf_k + bm25_ranks[doc_id])
-
-            # Add kNN contribution: 1 / (k + rank)
-            if doc_id in knn_ranks:
-                rrf_score += 1.0 / (rrf_k + knn_ranks[doc_id])
-
-            rrf_scores[doc_id] = rrf_score
-
-        # Sort by RRF score (descending) and take top k
-        sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-
-        # Build final results with RRF scores
-        fused_results = []
-        for doc_id, rrf_score in sorted_docs:
-            if doc_id in doc_map:
-                result = doc_map[doc_id]
-                # Create new result with RRF score, preserving all fields
-                fused_result = Passage(
-                    doc_id=result.doc_id,
-                    index=result.index,
-                    text=result.text,
-                    section_title=result.section_title,
-                    score=rrf_score,  # Use RRF-computed score
-                    page_url=result.page_url,
-                    api_name=result.api_name,
-                    title=result.title,
-                    meta=getattr(result, "meta", {}),  # Preserve metadata
-                    rerank_score=getattr(result, "rerank_score", None),
-                )
-                fused_results.append(fused_result)
-
-        logger.info(
-            f"RRF fusion: {len(bm25_response.results)} BM25 + {len(knn_response.results)} kNN → {len(fused_results)} fused"
-        )
-
-        return SearchResponse(
-            results=fused_results,
-            total_hits=len(fused_results),
-            took_ms=int((time.time() - start_time) * 1000)
-            + bm25_response.took_ms
-            + knn_response.took_ms,
-            method="rrf",
-        )
-
-    @stage("hybrid")
-    def hybrid_search(
+    @stage("hybrid_ranx")
+    def hybrid_search_ranx(
         self,
         query: str,
         query_vector: Optional[List[float]] = None,
         filters: Optional[SearchFilters] = None,
         index: Optional[str] = None,
         k: int = 50,
-        time_decay_half_life_days: int = 120,
+        rrf_k: int = 60,
     ) -> SearchResponse:
         """
-        Hybrid search using RRF fusion of separate BM25 and kNN searches.
-        This approach avoids OpenSearch parsing issues with nested knn queries.
+        Hybrid search using separate BM25 + kNN queries with ranx RRF fusion.
+        
+        This is the industry-standard approach used before OpenSearch 2.10+ native hybrid support.
+        Uses ranx library for optimal RRF implementation as recommended by research.
 
         Args:
             query: Search query string
-            query_vector: Optional query embedding vector
+            query_vector: Query embedding vector
             filters: ACL, space, and time filters
             index: Index name or alias to search
             k: Number of results to return
-            time_decay_half_life_days: Half-life for time decay in days
+            rrf_k: RRF constant (typically 60 for optimal performance)
 
         Returns:
-            SearchResponse with hybrid search results
+            SearchResponse with ranx RRF fused results
         """
-        # Use configured index alias if not specified
         if index is None:
             index = self.settings.search_index_alias
 
         # Log search start
         log_event(
-            stage="hybrid",
+            stage="hybrid_ranx",
             event="start",
             index=index,
-            query_type="hybrid_rrf" if query_vector else "bm25_only",
+            query_type="ranx_hybrid" if query_vector else "bm25_only",
             k=k,
+            rrf_k=rrf_k,
             filters_enabled=filters is not None,
             query_length=len(query),
             has_vector=query_vector is not None,
@@ -631,40 +545,163 @@ class OpenSearchClient:
         # If no vector provided, fall back to BM25 search
         if not query_vector:
             logger.info("Hybrid search falling back to BM25 (no vector provided)")
-            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            return self.bm25_search(query, filters, index, k)
 
         try:
-            # Perform separate BM25 and kNN searches
-            logger.info("Performing separate BM25 and kNN searches for RRF fusion")
+            logger.info("Performing separate BM25 + kNN searches for ranx RRF fusion")
+            start_time = time.time()
 
-            # BM25 search
-            bm25_response = self.bm25_search(
-                query, filters, index, k, time_decay_half_life_days
+            # Execute BM25 and kNN searches in parallel (industry standard approach)
+            bm25_response = self.bm25_search(query, filters, index, k + 15)  # Get more for better fusion (45 total)
+            knn_response = self.knn_search(query_vector, filters, index, k + 15)
+
+            # Use ranx library for optimal RRF fusion
+            fused_response = self._ranx_rrf_fusion(
+                bm25_response, knn_response, k=k, rrf_k=rrf_k
             )
-
-            # kNN search
-            knn_response = self.knn_search(
-                query_vector, filters, index, k, time_decay_half_life_days
-            )
-
-            # RRF fusion
-            hybrid_response = self.rrf_fuse(bm25_response, knn_response, k=k, rrf_k=60)
-            hybrid_response.method = "hybrid_rrf"
+            
+            total_took_ms = int((time.time() - start_time) * 1000)
+            fused_response.took_ms = total_took_ms
+            fused_response.method = "hybrid_ranx"
 
             logger.info(
-                "Hybrid RRF fusion completed: BM25=%d hits, kNN=%d hits, fused=%d hits",
-                bm25_response.total_hits,
-                knn_response.total_hits,
-                hybrid_response.total_hits,
+                "Ranx RRF hybrid search completed: BM25=%d + kNN=%d → %d results in %dms",
+                len(bm25_response.results),
+                len(knn_response.results), 
+                len(fused_response.results),
+                total_took_ms
             )
 
-            return hybrid_response
+            log_event(
+                stage="hybrid_ranx",
+                event="success",
+                took_ms=total_took_ms,
+                result_count=len(fused_response.results),
+                bm25_hits=len(bm25_response.results),
+                knn_hits=len(knn_response.results),
+                fusion_method="ranx_rrf",
+                index=index,
+            )
+
+            return fused_response
 
         except Exception as e:
-            logger.error(f"Hybrid search failed, falling back to BM25: {e}")
-            return self.bm25_search(query, filters, index, k, time_decay_half_life_days)
+            logger.error(f"Ranx hybrid search failed, falling back to BM25: {e}")
+            
+            log_event(
+                stage="hybrid_ranx",
+                event="error",
+                err=True,
+                error_type=type(e).__name__,
+                error_message=str(e)[:200],
+                index=index,
+            )
+            return self.bm25_search(query, filters, index, k)
 
+    def _ranx_rrf_fusion(
+        self,
+        bm25_response: SearchResponse,
+        knn_response: SearchResponse,
+        k: int = 50,
+        rrf_k: int = 60,
+    ) -> SearchResponse:
+        """
+        Use ranx library for optimal RRF fusion following industry best practices.
+        
+        Ranx is the state-of-the-art open-source library for ranking evaluation and fusion,
+        used by researchers and recommended in ECIR, CIKM, and SIGIR papers.
+        """
+        import ranx
 
+        # Convert search results to ranx format
+        bm25_run = self._convert_to_ranx_run(bm25_response.results, "bm25")
+        knn_run = self._convert_to_ranx_run(knn_response.results, "knn")
+
+        # Use ranx RRF fusion (industry standard implementation)
+        if bm25_run and knn_run:
+            # Ranx expects Run objects for fusion
+            runs = [bm25_run, knn_run]
+            # ranx API uses params dict for RRF constant
+            fused_run = ranx.fuse(
+                runs=runs,
+                method="rrf",           # Reciprocal Rank Fusion
+                params={"k": rrf_k},    # RRF constant in params dict per docs
+            )
+            
+            # Convert back to SearchResponse format and limit to top-k
+            fused_results = self._convert_from_ranx_run(fused_run, bm25_response, knn_response)
+            if len(fused_results) > k:
+                fused_results = fused_results[:k]
+            
+        elif bm25_run:
+            # Only BM25 results available
+            fused_results = bm25_response.results[:k]
+        elif knn_run:
+            # Only kNN results available
+            fused_results = knn_response.results[:k]
+        else:
+            # No results
+            fused_results = []
+
+        return SearchResponse(
+            results=fused_results,
+            total_hits=len(fused_results),
+            took_ms=0,  # Will be set by caller
+            method="ranx_rrf",
+        )
+
+    def _convert_to_ranx_run(self, results: List[Passage], run_name: str):
+        """Convert search results to ranx Run format."""
+        if not results:
+            return None
+            
+        import ranx
+        
+        # Ranx expects {query_id: {doc_id: score}} format
+        # We use a dummy query_id since we're doing single-query fusion
+        query_id = "q1"
+        run_dict = {
+            query_id: {
+                result.doc_id: float(result.score) 
+                for result in results
+            }
+        }
+        
+        return ranx.Run(run_dict, name=run_name)
+
+    def _convert_from_ranx_run(self, fused_run, bm25_response: SearchResponse, knn_response: SearchResponse) -> List[Passage]:
+        """Convert ranx fused results back to Passage objects."""
+        # Create lookup map for original Passage objects
+        doc_map = {}
+        for result in bm25_response.results:
+            doc_map[result.doc_id] = result
+        for result in knn_response.results:
+            doc_map[result.doc_id] = result
+
+        fused_results = []
+        query_id = "q1"
+        
+        if query_id in fused_run.run:
+            # Get documents sorted by fused score (ranx handles this)
+            for doc_id, fused_score in fused_run.run[query_id].items():
+                if doc_id in doc_map:
+                    original_passage = doc_map[doc_id]
+                    # Create new passage with fused score
+                    fused_passage = Passage(
+                        doc_id=original_passage.doc_id,
+                        index=original_passage.index,
+                        text=original_passage.text,
+                        section_title=original_passage.section_title,
+                        score=fused_score,  # Use ranx-computed RRF score
+                        page_url=original_passage.page_url,
+                        api_name=original_passage.api_name,
+                        title=original_passage.title,
+                        meta=getattr(original_passage, "meta", {}),
+                        rerank_score=getattr(original_passage, "rerank_score", None),
+                    )
+                    fused_results.append(fused_passage)
+
+        return fused_results
 
     def _parse_search_response(
         self, data: Dict[str, Any], index: Optional[str] = None
@@ -722,6 +759,256 @@ class OpenSearchClient:
             k=k,
         )
         return search_body
+
+    def _build_native_hybrid_query(
+        self,
+        query: str,
+        query_vector: List[float],
+        filters: Optional[SearchFilters],
+        k: int,
+        alpha: float,
+        index: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build native OpenSearch hybrid query with built-in RRF."""
+        
+        # Determine if we need nested structure based on index name
+        is_nested = index and "khub-opensearch" in index
+        
+        if is_nested:
+            # Build nested hybrid query for structured documents
+            search_body = {
+                "size": k,
+                "query": {
+                    "hybrid": {
+                        "queries": [
+                            # BM25 component with nested structure
+                            {
+                                "nested": {
+                                    "path": "content",
+                                    "query": {
+                                        "bool": {
+                                            "should": [
+                                                {
+                                                    "match": {
+                                                        "content.title": {
+                                                            "query": query,
+                                                            "boost": 2.0
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "match": {
+                                                        "content.body": {
+                                                            "query": query,
+                                                            "boost": 1.0
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            },
+                            # kNN component with nested structure
+                            {
+                                "nested": {
+                                    "path": "content",
+                                    "query": {
+                                        "knn": {
+                                            "content.embedding": {
+                                                "vector": query_vector,
+                                                "k": k
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "_source": ["content"]
+            }
+        else:
+            # Build flat hybrid query for simple documents
+            search_body = {
+                "size": k,
+                "query": {
+                    "hybrid": {
+                        "queries": [
+                            # BM25 component
+                            {
+                                "bool": {
+                                    "should": [
+                                        {
+                                            "match": {
+                                                "title": {
+                                                    "query": query,
+                                                    "boost": 2.0
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "match": {
+                                                "body": {
+                                                    "query": query,
+                                                    "boost": 1.0
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            # kNN component
+                            {
+                                "knn": {
+                                    "embedding": {
+                                        "vector": query_vector,
+                                        "k": k
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+
+        # Apply filters if provided
+        if filters:
+            self._apply_filters_to_hybrid_query(search_body, filters, is_nested)
+
+        return search_body
+
+    def _apply_filters_to_hybrid_query(
+        self, search_body: Dict[str, Any], filters: SearchFilters, is_nested: bool
+    ) -> None:
+        """Apply ACL and other filters to hybrid query."""
+        
+        filter_conditions = []
+        
+        # ACL filter
+        if filters.acl_hash:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.acl_hash": filters.acl_hash}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"acl_hash": filters.acl_hash}
+                })
+
+        # Space filter
+        if filters.space_key:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.metadata.space_key": filters.space_key}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"metadata.space_key": filters.space_key}
+                })
+
+        # Content type filter
+        if filters.content_type:
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "term": {"content.content_type": filters.content_type}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "term": {"content_type": filters.content_type}
+                })
+
+        # Date range filters
+        if filters.updated_after or filters.updated_before:
+            date_range = {}
+            if filters.updated_after:
+                date_range["gte"] = filters.updated_after.strftime('%Y-%m-%d')
+            if filters.updated_before:
+                date_range["lte"] = filters.updated_before.strftime('%Y-%m-%d')
+            
+            if is_nested:
+                filter_conditions.append({
+                    "nested": {
+                        "path": "content",
+                        "query": {
+                            "range": {"content.updated_at": date_range}
+                        }
+                    }
+                })
+            else:
+                filter_conditions.append({
+                    "range": {"updated_at": date_range}
+                })
+
+        # Apply filters by wrapping the hybrid query in a bool query
+        if filter_conditions:
+            original_query = search_body["query"]
+            search_body["query"] = {
+                "bool": {
+                    "must": [original_query],
+                    "filter": filter_conditions
+                }
+            }
+
+    def _check_hybrid_search_support(self, index: str) -> None:
+        """Check OpenSearch version and hybrid search plugin support."""
+        try:
+            # Get OpenSearch cluster info
+            info_url = f"{self.base_url}/"
+            _setup_jpmc_proxy()
+            aws_auth = _get_aws_auth()
+            headers = {"Content-Type": "application/json"}
+            
+            if aws_auth:
+                response = requests.get(info_url, auth=aws_auth, timeout=10.0, headers=headers)
+            else:
+                response = self.session.get(info_url, timeout=10.0, headers=headers)
+            
+            if response.ok:
+                cluster_info = response.json()
+                version = cluster_info.get("version", {}).get("number", "unknown")
+                distribution = cluster_info.get("version", {}).get("distribution", "unknown")
+                
+                logger.info(f"OpenSearch cluster info: version={version}, distribution={distribution}")
+                
+                # Check if neural search plugin is available
+                plugins_url = f"{self.base_url}/_cat/plugins?format=json"
+                if aws_auth:
+                    plugins_response = requests.get(plugins_url, auth=aws_auth, timeout=10.0, headers=headers)
+                else:
+                    plugins_response = self.session.get(plugins_url, timeout=10.0, headers=headers)
+                
+                if plugins_response.ok:
+                    plugins = plugins_response.json()
+                    neural_search_installed = any("neural-search" in str(plugin).lower() for plugin in plugins)
+                    logger.info(f"Neural search plugin installed: {neural_search_installed}")
+                    
+                    if not neural_search_installed:
+                        logger.warning("Neural search plugin not found - hybrid search may not be supported")
+                else:
+                    logger.warning(f"Could not check plugins: {plugins_response.status_code}")
+                    
+            else:
+                logger.warning(f"Could not get cluster info: {response.status_code}")
+                
+        except Exception as e:
+            logger.warning(f"Failed to check hybrid search support: {e}")
+            # Don't fail - just log and continue
 
 
     def _check_index_exists(self, index_name: str) -> bool:
@@ -799,7 +1086,7 @@ class OpenSearchClient:
             elif self.settings.requires_aws_auth:
                 return "aws_auth_configured"
             return "none"
-        except:
+        except Exception:
             return "none"
     
     def _build_healthy_response(

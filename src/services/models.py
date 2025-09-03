@@ -142,3 +142,63 @@ class IndexProfile:
     inner_hits_seen: int = 0
     content_paths: Dict[str, int] = field(default_factory=dict)
     last_seen: float = field(default_factory=time.time)
+
+# === Planner/Composer DTOs (moved from openai.schemas) ===
+
+@dataclass
+class Plan:
+    """Planner output contract: aspects + filters + budgets + strategies.
+
+    Opinionated defaults: overview uses hybrid, steps/api use bm25.
+    """
+
+    aspects: list[str] = field(default_factory=lambda: ["overview", "steps", "api"])  # dynamic list
+    filters: dict = field(default_factory=dict)
+    k_per_aspect: int = 3
+    budgets: dict = field(
+        default_factory=lambda: {
+            "overview_chars": 500,
+            "steps_chars": 900,
+            "api_chars": 500,
+            "troubleshoot_chars": 600,
+        }
+    )
+    aspect_strategies: dict = field(
+        default_factory=lambda: {
+            "overview": "hybrid",
+            "steps": "bm25",
+            "api": "bm25",
+            "troubleshoot": "bm25",
+        }
+    )
+
+
+@dataclass
+class Citation:
+    title: str
+    url: str
+
+
+@dataclass
+class Step:
+    n: int
+    text: str
+    citation: Citation
+
+
+@dataclass
+class ApiItem:
+    name: str
+    url: str
+    citation: Citation
+
+
+@dataclass
+class Card:
+    utility: Optional[str] = None
+    overview: Optional[dict] = None
+    onboarding_steps: list[Step] = field(default_factory=list)
+    apis: list[ApiItem] = field(default_factory=list)
+    environments: list[dict] = field(default_factory=list)
+    links: list[dict] = field(default_factory=list)
+    unknown_fields: list[str] = field(default_factory=list)

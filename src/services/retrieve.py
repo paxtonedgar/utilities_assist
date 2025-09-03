@@ -381,76 +381,6 @@ async def knn_search(
         )
 
 
-async def rrf_fuse(
-    bm25_result: RetrievalResult,
-    knn_result: RetrievalResult,
-    search_client: OpenSearchClient,
-    top_k: int = 8,
-    rrf_k: int = 60,
-) -> RetrievalResult:
-    """Fuse BM25 and KNN results using Reciprocal Rank Fusion.
-
-    Uses enterprise-grade RRF implementation from OpenSearchClient.
-
-    Args:
-        bm25_result: Results from BM25 search
-        knn_result: Results from KNN search
-        search_client: OpenSearch client for RRF fusion
-        top_k: Number of final results to return
-        rrf_k: RRF constant (typically 60)
-
-    Returns:
-        RetrievalResult with fused and re-ranked results
-    """
-    try:
-        # Create SearchResponse objects with Passage results for RRF fusion
-        from src.infra.opensearch_client import SearchResponse
-
-        bm25_response = SearchResponse(
-            results=bm25_result.results,  # Already Passage objects
-            total_hits=bm25_result.total_found,
-            took_ms=bm25_result.retrieval_time_ms,
-            method="bm25",
-        )
-
-        knn_response = SearchResponse(
-            results=knn_result.results,  # Already Passage objects
-            total_hits=knn_result.total_found,
-            took_ms=knn_result.retrieval_time_ms,
-            method="knn",
-        )
-
-        # Perform RRF fusion
-        fused_response = search_client.rrf_fuse(
-            bm25_response=bm25_response, knn_response=knn_response, k=top_k, rrf_k=rrf_k
-        )
-
-        # RRF fusion returns Passage objects directly
-        results = fused_response.results
-
-        return RetrievalResult(
-            results=results,
-            total_found=len(results),
-            retrieval_time_ms=fused_response.took_ms,
-            method="rrf",
-            diagnostics={
-                "query_type": "rrf",
-                "bm25_count": len(bm25_result.results),
-                "knn_count": len(knn_result.results),
-            },
-        )
-
-    except Exception as e:
-        logger.error(f"RRF fusion failed: {e}")
-        return RetrievalResult(
-            results=[],
-            total_found=0,
-            retrieval_time_ms=0,
-            method="rrf",
-            diagnostics={"error": str(e), "query_type": "rrf"},
-        )
-
-
 def _build_search_filters(filters: Dict[str, Any]) -> SearchFilters:
     """Convert filter dict to SearchFilters object."""
     return SearchFilters(
@@ -668,15 +598,17 @@ def _hybrid_search_wrapper(
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
 ) -> RetrievalResult:
-    """Sync wrapper for hybrid search to work with timeout decorator."""
+    """Sync wrapper for ranx hybrid search to work with timeout decorator."""
     search_filters = _build_search_filters(filters) if filters else None
 
-    response = search_client.hybrid_search(
+    # Use ranx RRF hybrid search (industry-standard separate BM25+kNN fusion)
+    response = search_client.hybrid_search_ranx(
         query=query,
         query_vector=query_embedding,
         filters=search_filters,
         index=index_name or OpenSearchConfig.get_default_index(),
         k=top_k,
+        rrf_k=60,  # Research-proven optimal RRF constant
     )
 
     # Convert to canonical service format
@@ -686,8 +618,8 @@ def _hybrid_search_wrapper(
         results=results,
         total_found=response.total_hits,
         retrieval_time_ms=response.took_ms,
-        method="hybrid",
-        diagnostics={"query_type": "hybrid", "index": index_name},
+        method="hybrid_ranx",
+        diagnostics={"query_type": "hybrid_ranx", "index": index_name, "fusion": "ranx_rrf"},
     )
 
 
@@ -698,7 +630,7 @@ async def hybrid_search_with_timeout(
     index_name: str = None,  # Will use OpenSearchConfig.get_default_index() if None
     filters: Optional[Dict[str, Any]] = None,
     top_k: int = 10,
-    timeout_seconds: float = 5.0,  # Updated to match retrieve.py timeout fix
+    timeout_seconds: float = 30.0,  # Increased for ranx RRF processing time
 ) -> RetrievalResult:
     """True hybrid search with aggressive timeout and fallback.
 
@@ -816,7 +748,7 @@ async def _try_hybrid_search(
             index_name=index_name,
             filters=filters,
             top_k=top_k,
-            timeout_seconds=5.0,
+            timeout_seconds=30.0,
         )
 
         if hybrid_result.results:

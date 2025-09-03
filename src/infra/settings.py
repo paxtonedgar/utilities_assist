@@ -34,9 +34,25 @@ def _load_shared_config():
         configparser.ConfigParser: Loaded configuration or empty config on error
     """
     try:
-        from utils import load_config
-
-        config = load_config()
+        import configparser
+        import os
+        
+        # Load configuration from config.ini file (inline implementation)
+        config_file = os.getenv("UTILITIES_CONFIG", "config.local.ini")
+        
+        # If it's a relative path, look in the current directory first, then src/
+        if not os.path.isabs(config_file):
+            if os.path.exists(config_file):
+                file_path = config_file
+            elif os.path.exists(f"src/{config_file}"):
+                file_path = f"src/{config_file}"
+            else:
+                file_path = config_file
+        else:
+            file_path = config_file
+        
+        config = configparser.ConfigParser()
+        config.read(file_path)
         logger.debug("Loaded shared config.ini successfully")
         return config
     except Exception as e:
@@ -342,7 +358,7 @@ class ResponseSettings(BaseModel):
     """LLM response generation configuration."""
 
     max_tokens: int = Field(
-        default=2500,
+        default=3000,  # +20% budget per user request
         validation_alias="LLM_MAX_TOKENS",
         description="Maximum tokens for LLM response generation",
     )
@@ -352,7 +368,7 @@ class ResponseSettings(BaseModel):
         description="LLM temperature for response generation",
     )
     max_context_length: int = Field(
-        default=50000,
+        default=60000,  # +20% context budget
         validation_alias="MAX_CONTEXT_LENGTH",
         description="Maximum context length in characters (from respond.py:87)",
     )
@@ -367,12 +383,12 @@ class OrchestratorSettings(BaseModel):
         description="Enable LLM orchestrator for conversational RAG",
     )
     max_total_time_ms: int = Field(
-        default=4000,
+        default=4800,  # +20% orchestration budget
         validation_alias="ORCHESTRATOR_MAX_TIME_MS",
         description="Maximum total orchestration time (p95 ≤ 4s)",
     )
     target_time_ms: int = Field(
-        default=2500,
+        default=3000,  # +20% target time
         validation_alias="ORCHESTRATOR_TARGET_TIME_MS",
         description="Target orchestration time (p50 ≤ 2.5s)",
     )
@@ -457,6 +473,31 @@ class ApplicationSettings(BaseSettings):
 
     # Confluence
     confluence_directory: str = "data"
+
+    # OpenAI planner/composer (disabled by default)
+    enable_openai_planner: bool = Field(
+        default=True, validation_alias="ENABLE_OPENAI_PLANNER"
+    )
+    enable_openai_composer: bool = Field(
+        default=True, validation_alias="ENABLE_OPENAI_COMPOSER"
+    )
+    openai_planner_model: str = Field(
+        default="gpt-4o-mini", validation_alias="OPENAI_PLANNER_MODEL"
+    )
+    openai_composer_model: str = Field(
+        default="gpt-4o-mini", validation_alias="OPENAI_COMPOSER_MODEL"
+    )
+    openai_timeout_ms: int = Field(
+        default=900, validation_alias="OPENAI_TIMEOUT_MS",
+        description="Per-call timeout for planner/composer"
+    )
+
+    # Direct LLM answering using full passages (no composer trimming)
+    enable_llm_direct_answer: bool = Field(
+        default=True,
+        validation_alias="ENABLE_LLM_DIRECT_ANSWER",
+        description="If true, bypass composer and send full selected passages to LLM with the original question",
+    )
 
     def __init__(self, **kwargs):
         # Load config.ini data using simplified approach
@@ -702,5 +743,3 @@ def get_settings() -> ApplicationSettings:
     if _settings is None:
         _settings = ApplicationSettings()
     return _settings
-
-

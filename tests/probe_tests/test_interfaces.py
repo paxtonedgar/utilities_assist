@@ -11,10 +11,10 @@ sys.path.insert(0, str(src_path))
 
 def test_config_loader_interface():
     """Probe test to verify config loader interface and environment switching."""
-    from utils import load_config
+    from src.infra.settings import _load_shared_config
     
     # Test default config loading
-    config = load_config()
+    config = _load_shared_config()
     assert config is not None
     assert hasattr(config, 'sections')
     assert hasattr(config, 'has_section')

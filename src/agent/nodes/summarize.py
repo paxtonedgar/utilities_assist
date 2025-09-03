@@ -1,15 +1,119 @@
 """Summarize node - query normalization using simple rules (no LLM)."""
 
 import logging
+import re
+import json
+from functools import lru_cache
+from typing import Dict, Optional
+from pathlib import Path
 
-from src.services.normalize import normalize_query
 from src.telemetry.logger import stage
 from .base_node import BaseNodeHandler, to_state_dict, from_state_dict
 
 # Import constants to prevent KeyError issues
-from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY
+from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, SEARCH_QUERY
 
 logger = logging.getLogger(__name__)
+
+
+# === MIGRATED FROM SERVICES.NORMALIZE ===
+
+# Optional synonym caching - can be disabled if synonyms change frequently
+@lru_cache(maxsize=1)  # Single synonym dict only
+def _load_synonyms() -> Dict[str, str]:
+    """Load and cache synonym mappings."""
+    try:
+        # Resolve configured path first, then fall back to common candidates
+        from src.infra.settings import get_settings
+
+        settings = get_settings()
+        configured = settings.synonyms_file_path if hasattr(settings, "synonyms_file_path") else "data/synonyms.json"
+
+        def _resolve(p: str) -> Optional[Path]:
+            path = Path(p)
+            if path.is_absolute() and path.exists():
+                return path
+            # Try CWD
+            cwd_path = Path.cwd() / p
+            if cwd_path.exists():
+                return cwd_path
+            # Try repo root relative to this file: project_root ≈ parents[4]
+            here = Path(__file__).resolve()
+            candidates = [
+                here.parents[4] / p if len(here.parents) >= 5 else None,
+                here.parents[3] / p if len(here.parents) >= 4 else None,  # src/
+            ]
+            for c in candidates:
+                if c and c.exists():
+                    return c
+            return None
+
+        path = _resolve(configured)
+        if not path:
+            logger.warning(f"Synonyms file not found (looked for {configured})")
+        else:
+            with open(path, "r", encoding="utf-8") as f:
+                synonyms = json.load(f)
+                logger.info(f"Loaded {len(synonyms)} synonym mappings from {path}")
+                return synonyms
+    except Exception as e:
+        logger.error(f"Failed to load synonyms: {e}")
+
+    # Fallback to basic synonyms
+    return {
+        "csu": "Customer Summary Utility",
+        "customer summary": "Customer Summary Utility",
+        "gcp": "Global Customer Platform",
+        "etu": "Enhanced Transaction Utility",
+        "etu-au": "Enhanced Transaction Utility Account Utility",
+        "etu au": "Enhanced Transaction Utility Account Utility",
+        "transaction utility": "Enhanced Transaction Utility",
+        "au": "Account Utility",
+        "ciu": "Customer Interaction Utility",
+        "customer interaction utility": "Customer Interaction Utility",
+        "de": "Digital Events",
+        "pcu": "Product Catalog Utility",
+        "digev": "Digital Events",
+        "apg": "APG",
+    }
+
+
+def normalize_query(text: str) -> str:
+    """Normalize user input by replacing synonyms and cleaning text."""
+    if not text or not text.strip():
+        return ""
+
+    # Get synonym mappings
+    synonym_mapping = _load_synonyms()
+
+    # Convert all synonym keys to lowercase for case-insensitive matching
+    lower_synonyms = {key.lower(): value for key, value in synonym_mapping.items()}
+
+    # Build regex pattern for all synonyms (case-insensitive)
+    if not lower_synonyms:
+        return text.strip()
+
+    pattern = (
+        r"\b("
+        + "|".join(re.escape(synonym) for synonym in lower_synonyms.keys())
+        + r")\b"
+    )
+
+    def replace_match(match):
+        """Replace matched synonym with canonical form."""
+        return lower_synonyms[match.group(0).lower()]
+
+    # Apply synonym replacement
+    normalized_text = re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
+
+    # Additional normalization
+    normalized_text = normalized_text.strip()
+    normalized_text = re.sub(r"\s+", " ", normalized_text)  # Normalize whitespace
+
+    if normalized_text != text.strip():
+        logger.info(f"Normalized '{text.strip()}' -> '{normalized_text}'")
+
+    return normalized_text
 
 
 @stage("normalize")

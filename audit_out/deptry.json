@@ -1,0 +1,578 @@
+[
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'infra' imported but missing from the dependency definitions"
+        },
+        "module": "infra",
+        "location": {
+            "file": "debug_ciu_search.py",
+            "line": 15,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "debug_ciu_search.py",
+            "line": 16,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'services' imported but missing from the dependency definitions"
+        },
+        "module": "services",
+        "location": {
+            "file": "debug_ciu_search.py",
+            "line": 17,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'aiohttp' defined as a dependency but not used in the codebase"
+        },
+        "module": "aiohttp",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'atlassian-python-api' defined as a dependency but not used in the codebase"
+        },
+        "module": "atlassian-python-api",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'azure_storage' defined as a dependency but not used in the codebase"
+        },
+        "module": "azure_storage",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'beautifulsoup4' defined as a dependency but not used in the codebase"
+        },
+        "module": "beautifulsoup4",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'faiss-cpu' defined as a dependency but not used in the codebase"
+        },
+        "module": "faiss-cpu",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'langchain' defined as a dependency but not used in the codebase"
+        },
+        "module": "langchain",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'nest-asyncio' defined as a dependency but not used in the codebase"
+        },
+        "module": "nest-asyncio",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'requests_oauthlib' defined as a dependency but not used in the codebase"
+        },
+        "module": "requests_oauthlib",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'tiktoken' defined as a dependency but not used in the codebase"
+        },
+        "module": "tiktoken",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'sumy' defined as a dependency but not used in the codebase"
+        },
+        "module": "sumy",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'pandas' defined as a dependency but not used in the codebase"
+        },
+        "module": "pandas",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'fuzzywuzzy' defined as a dependency but not used in the codebase"
+        },
+        "module": "fuzzywuzzy",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'cachetools' defined as a dependency but not used in the codebase"
+        },
+        "module": "cachetools",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'pytest' defined as a dependency but not used in the codebase"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'levenshtein' defined as a dependency but not used in the codebase"
+        },
+        "module": "levenshtein",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'python-Levenshtein' defined as a dependency but not used in the codebase"
+        },
+        "module": "python-Levenshtein",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'nltk' defined as a dependency but not used in the codebase"
+        },
+        "module": "nltk",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'rank-bm25' defined as a dependency but not used in the codebase"
+        },
+        "module": "rank-bm25",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'opensearch-py' defined as a dependency but not used in the codebase"
+        },
+        "module": "opensearch-py",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'tqdm' defined as a dependency but not used in the codebase"
+        },
+        "module": "tqdm",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP002",
+            "message": "'rich' defined as a dependency but not used in the codebase"
+        },
+        "module": "rich",
+        "location": {
+            "file": "requirements.txt",
+            "line": null,
+            "column": null
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'infra' imported but missing from the dependency definitions"
+        },
+        "module": "infra",
+        "location": {
+            "file": "simple_ciu_debug.py",
+            "line": 14,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "simple_ciu_debug.py",
+            "line": 15,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'onnxruntime' imported but it is a transitive dependency"
+        },
+        "module": "onnxruntime",
+        "location": {
+            "file": "src/agent/intent/onnx_classifier.py",
+            "line": 91,
+            "column": 20
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'skl2onnx' imported but it is a transitive dependency"
+        },
+        "module": "skl2onnx",
+        "location": {
+            "file": "src/agent/intent/onnx_classifier.py",
+            "line": 406,
+            "column": 16
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'skl2onnx' imported but it is a transitive dependency"
+        },
+        "module": "skl2onnx",
+        "location": {
+            "file": "src/agent/intent/onnx_classifier.py",
+            "line": 407,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'skl2onnx' imported but it is a transitive dependency"
+        },
+        "module": "skl2onnx",
+        "location": {
+            "file": "src/agent/intent/onnx_classifier.py",
+            "line": 408,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/nodes/search_nodes.py",
+            "line": 101,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/nodes/search_nodes.py",
+            "line": 182,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'langchain_core' imported but it is a transitive dependency"
+        },
+        "module": "langchain_core",
+        "location": {
+            "file": "src/agent/nodes/search_nodes.py",
+            "line": 570,
+            "column": 13
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'utils' imported but missing from the dependency definitions"
+        },
+        "module": "utils",
+        "location": {
+            "file": "src/agent/nodes/search_nodes.py",
+            "line": 573,
+            "column": 13
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/nodes/search_nodes.py",
+            "line": 717,
+            "column": 13
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/routing/router.py",
+            "line": 54,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/routing/router.py",
+            "line": 129,
+            "column": 13
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'agent' imported but missing from the dependency definitions"
+        },
+        "module": "agent",
+        "location": {
+            "file": "src/agent/tools/search.py",
+            "line": 65,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'urllib3' imported but it is a transitive dependency"
+        },
+        "module": "urllib3",
+        "location": {
+            "file": "src/infra/clients.py",
+            "line": 16,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'openai' imported but it is a transitive dependency"
+        },
+        "module": "openai",
+        "location": {
+            "file": "src/infra/clients.py",
+            "line": 20,
+            "column": 5
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'utils' imported but missing from the dependency definitions"
+        },
+        "module": "utils",
+        "location": {
+            "file": "src/infra/settings.py",
+            "line": 37,
+            "column": 9
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'yaml' imported but it is a transitive dependency"
+        },
+        "module": "yaml",
+        "location": {
+            "file": "src/retrieval/suites/registry.py",
+            "line": 7,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'utils' imported but missing from the dependency definitions"
+        },
+        "module": "utils",
+        "location": {
+            "file": "src/services/intent.py",
+            "line": 158,
+            "column": 13
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'app' imported but missing from the dependency definitions"
+        },
+        "module": "app",
+        "location": {
+            "file": "streamlit_app.py",
+            "line": 34,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'services' imported but missing from the dependency definitions"
+        },
+        "module": "services",
+        "location": {
+            "file": "test_context_flow.py",
+            "line": 16,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'services' imported but missing from the dependency definitions"
+        },
+        "module": "services",
+        "location": {
+            "file": "test_context_flow.py",
+            "line": 17,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'quality' imported but missing from the dependency definitions"
+        },
+        "module": "quality",
+        "location": {
+            "file": "tools/coverage_cli.py",
+            "line": 9,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'quality' imported but missing from the dependency definitions"
+        },
+        "module": "quality",
+        "location": {
+            "file": "tools/coverage_cli.py",
+            "line": 10,
+            "column": 1
+        }
+    }
+]

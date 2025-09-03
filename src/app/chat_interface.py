@@ -407,67 +407,99 @@ def _build_stage_details(start_log, error_log):
     return details
 
 
-def process_user_input(user_input: str) -> None:
-    """Process user input with thinking animation."""
-    # Don't add user message here - it's already added in main()
+async def _stream_response_chunks(user_input: str, assistant_response: dict):
+    """Stream response chunks from the turn handler."""
+    async for chunk in handle_turn(
+        user_input,
+        st.session_state.resources,
+        chat_history=st.session_state.conversation_history[-10:],
+        thread_id=st.session_state.thread_id,
+        user_context=st.session_state.user_context,
+    ):
+        if chunk["type"] == "response_chunk":
+            assistant_response["content"] += chunk["content"]
+            yield chunk["content"]
+        elif chunk["type"] == "complete":
+            result = chunk["result"]
+            assistant_response.update({
+                "sources": result.get("sources", []),
+                "req_id": chunk.get("req_id")
+            })
+            # Attach debug passages (top-k per aspect) when present
+            if chunk.get("debug_passages"):
+                assistant_response["debug_passages"] = chunk["debug_passages"]
+            
+            # Handle evidence-gated responses (no prior chunks)
+            if not assistant_response["content"] and result.get("answer"):
+                assistant_response["content"] = result["answer"]
+                # Return full answer as single chunk - streaming handled in UI
+                yield result["answer"]
+            break
+        elif chunk["type"] == "error":
+            error_msg = f"❌ {chunk['result'].get('answer', 'An error occurred')}"
+            assistant_response["content"] = error_msg
+            yield error_msg
+            break
 
-    # Show thinking animation
+
+def process_user_input(user_input: str) -> None:
+    """Process user input with live streaming response."""
     with st.status("🤔 thinking...", expanded=False) as status:
-        assistant_response = {
-            "role": "assistant",
-            "content": "",
-            "sources": [],
-            "req_id": None,
-        }
+        assistant_response = {"role": "assistant", "content": "", "sources": [], "req_id": None}
 
         try:
-            # Create an async function to handle the streaming
-            async def async_handler():
-                async for chunk in handle_turn(
-                    user_input,
-                    st.session_state.resources,
-                    chat_history=st.session_state.conversation_history[-10:],
-                    thread_id=st.session_state.thread_id,
-                    user_context=st.session_state.user_context,
-                ):
-                    if chunk["type"] == "response_chunk":
-                        assistant_response["content"] += chunk["content"]
-                    elif chunk["type"] == "complete":
-                        result = chunk["result"]
-                        assistant_response["sources"] = result.get("sources", [])
-                        assistant_response["req_id"] = chunk.get("req_id")
-                        break
-                    elif chunk["type"] == "error":
-                        assistant_response["content"] = (
-                            f"❌ {chunk['result'].get('answer', 'An error occurred')}"
-                        )
-                        break
+            # Stream response using simpler approach to avoid asyncio issues
+            def response_generator():
+                try:
+                    # Collect all chunks from async generator first, then yield
+                    chunks = []
+                    
+                    async def collect_chunks():
+                        async for chunk in _stream_response_chunks(user_input, assistant_response):
+                            chunks.append(chunk)
+                    
+                    # Run async collection
+                    asyncio.run(collect_chunks())
+                    
+                    # For evidence-gated responses, simulate streaming
+                    if len(chunks) == 1 and len(chunks[0]) > 100:
+                        # Break large response into streaming chunks with timing
+                        import time
+                        full_text = chunks[0]
+                        for i in range(0, len(full_text), 50):
+                            yield full_text[i:i+50]
+                            time.sleep(0.01)  # Small delay for visual effect
+                    else:
+                        # Yield collected chunks normally
+                        for chunk in chunks:
+                            yield chunk
+                            
+                except Exception as e:
+                    error_msg = f"❌ Error: {str(e)}"
+                    assistant_response["content"] = error_msg
+                    logger.error(f"Streaming failed: {e}")
+                    yield error_msg
 
-            # Run the async handler
-            asyncio.run(async_handler())
-
-            # Debug: log what we got
-            logger.info(
-                f"Response content length: {len(assistant_response['content'])}"
-            )
-            logger.info(
-                f"Response content preview: {assistant_response['content'][:100]}..."
-            )
+            st.write_stream(response_generator())
 
         except Exception as e:
             assistant_response["content"] = f"❌ Error: {str(e)}"
-            logger.error(f"Error in process_user_input: {e}")
+            logger.error(f"Process input failed: {e}")
+            st.write(assistant_response["content"])
 
         status.update(label="✅ complete", state="complete")
 
-        # Add response to messages (always add something)
+        # Fallback for empty responses
         if not assistant_response["content"]:
             assistant_response["content"] = "❌ No response generated"
+            st.write(assistant_response["content"])
 
+        # Store for chat history and persistence
         st.session_state.messages.append(assistant_response)
-        st.session_state.conversation_history.append(
-            {"role": "assistant", "content": assistant_response["content"]}
-        )
+        st.session_state.conversation_history.append({
+            "role": "assistant", 
+            "content": assistant_response["content"]
+        })
 
 
 def main():
@@ -504,6 +536,34 @@ def main():
                 if message.get("req_id"):
                     render_simple_stats(message["req_id"])
                     render_stage_logs(message["req_id"])
+                # Show Top Passages
+                if message.get("debug_passages"):
+                    with st.expander("📚 Top Passages", expanded=False):
+                        debug_sections = message["debug_passages"]
+                        for aspect, items in debug_sections.items():
+                            st.markdown(f"**{aspect.title()}**")
+                            for i, p in enumerate(items, 1):
+                                title = p.get("title") or f"Passage {i}"
+                                url = p.get("url")
+                                # Serialized payload uses "snippet" for passage text; prefer "text" if present
+                                snippet = p.get("snippet") or "(no snippet)"
+                                full_text = p.get("text") or p.get("snippet") or ""
+
+                                # Title + link
+                                if url:
+                                    st.markdown(f"{i}. [{title}]({url})")
+                                else:
+                                    st.markdown(f"{i}. {title}")
+
+                                # Short preview
+                                st.caption(snippet[:400])
+
+                                # Per‑passage full text toggle
+                                toggle_key = f"show_full_{message.get('req_id','noid')}_{aspect}_{i}"
+                                show_full = st.checkbox("Show full text", key=toggle_key)
+                                if show_full and full_text:
+                                    # Render full extract below the preview
+                                    st.markdown(f"<div style='white-space: pre-wrap;'>{full_text}</div>", unsafe_allow_html=True)
 
     # Check if we need to process a pending query
     if st.session_state.get("processing_query"):

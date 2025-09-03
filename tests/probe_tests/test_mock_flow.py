@@ -65,7 +65,7 @@ async def test_search_flow():
 
 def test_config_switching():
     """Test configuration file switching based on environment."""
-    from utils import load_config
+    from src.infra.settings import _load_shared_config
     
     # Test default config
     original_env = os.environ.get("UTILITIES_CONFIG")
@@ -75,12 +75,12 @@ def test_config_switching():
         if "UTILITIES_CONFIG" in os.environ:
             del os.environ["UTILITIES_CONFIG"]
             
-        config = load_config()
+        config = _load_shared_config()
         assert config is not None
         
         # Test with local config
         os.environ["UTILITIES_CONFIG"] = "config.local.ini"
-        local_config = load_config()
+        local_config = _load_shared_config()
         assert local_config is not None
         
         print("Config switching verification completed")

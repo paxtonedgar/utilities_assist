@@ -56,7 +56,7 @@ except ImportError as e:
 from src.agent.graph import create_graph
 
 # Import state key constants from centralized location
-from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, INTENT
+from src.agent.constants import ORIGINAL_QUERY, NORMALIZED_QUERY, SEARCH_QUERY, INTENT
 
 
 # Environment flag for LangGraph control
@@ -71,6 +71,35 @@ def _check_langgraph_enabled() -> bool:
 
 
 LANGGRAPH_ENABLED = _check_langgraph_enabled()
+
+
+def _extract_clean_search_query(text: str) -> str:
+    """
+    Extract clean search query from conversational context.
+    
+    Removes "Given context: ... Current question: " wrapper that contaminates search.
+    
+    Args:
+        text: Full conversational text (may include context wrapper)
+        
+    Returns:
+        Clean query suitable for search operations
+    """
+    import re
+    
+    # Pattern to match: "Given context: ... Current question: <actual_query>"
+    pattern = r"Given context:.*?Current question:\s*(.*)"
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    
+    if match:
+        # Extract the actual question after "Current question:"
+        clean_query = match.group(1).strip()
+        logger.info(f"🧹 QUERY CLEAN: Extracted '{clean_query}' from contaminated: '{text[:50]}...'")
+        return clean_query
+    
+    # If no pattern matches, return original text (already clean)
+    logger.info(f"🧹 QUERY CLEAN: No wrapper found, using original: '{text}'")
+    return text.strip()
 
 
 def _validate_and_normalize_input(user_input: str, req_id: str) -> tuple[str, dict]:
@@ -308,9 +337,7 @@ async def handle_turn_with_graph(
         langgraph_config = create_langgraph_config(user_context, thread_id)
 
         # Create and configure graph with persistence
-        graph = create_graph(
-            enable_loops=True, min_results=3, checkpointer=checkpointer, store=store
-        )
+        graph = create_graph(checkpointer=checkpointer, store=store)
 
         # Sanitize input once
         text = (user_input or "").strip()
@@ -334,11 +361,15 @@ async def handle_turn_with_graph(
             except Exception as e:
                 logger.warning(f"Query rewrite failed, using original: {e}")
 
+        # Extract clean search query for uncontaminated search operations
+        clean_search_query = _extract_clean_search_query(text)
+        
         # Initialize graph state as plain dict - NO GraphState construction
         # This prevents "GraphState object has no attribute 'get'" errors
         initial_state = {
-            ORIGINAL_QUERY: text,  # Required by summarize_node
-            NORMALIZED_QUERY: text,  # Start normalized as original
+            ORIGINAL_QUERY: user_input.strip(),  # Raw user input (before context wrapper)
+            NORMALIZED_QUERY: text,  # Full conversational context (for LLM)
+            SEARCH_QUERY: clean_search_query,  # Clean query (for search operations) 
             INTENT: None,
             "search_results": [],
             "combined_results": [],
@@ -540,6 +571,16 @@ def _format_graph_final_result(
             logger.warning(f"Source {i} missing doc_id: {source}")
             source["doc_id"] = f"unknown-{i}"  # Fallback
 
+    # Include debug passages (top-k per aspect) if available
+    debug_passages = None
+    try:
+        search_sections = safe_get(final_state, "search_sections", None)
+        if search_sections:
+            # Already a serializable dict of {aspect: [{title,url,snippet,score}]}
+            debug_passages = search_sections
+    except Exception:
+        debug_passages = None
+
     # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
@@ -558,12 +599,15 @@ def _format_graph_final_result(
     if verification_metrics:
         result_dict["verification"] = verification_metrics
 
-    return {
+    payload = {
         "type": "complete",
         "result": result_dict,
         "turn_id": turn_id,
         "req_id": req_id,
     }
+    if debug_passages:
+        payload["debug_passages"] = debug_passages
+    return payload
 
 
 def enable_langgraph():
@@ -583,4 +627,3 @@ def disable_langgraph():
 def is_langgraph_enabled() -> bool:
     """Check if LangGraph is currently enabled."""
     return LANGGRAPH_ENABLED
-

@@ -45,22 +45,12 @@ User Query → Intent Node → Search Nodes → Combine Node → Response
   - Never logs raw content, only flag names
 
 ### Workflow Nodes
-- `nodes/search_nodes.py` - **LangGraph search node implementations** (798 lines)
-  - ConfluenceSearchNode with color-based view planning
-  - SwaggerSearchNode for API documentation
-  - MultiSearchNode for cross-domain queries
-- `nodes/intent.py` - **Intent classification node**
-  - Regex-only classification (LLM fallbacks removed)
-  - Color computation integration
-- `nodes/summarize.py` - **Query normalization node**
-  - Rule-based normalization (no LLM calls)
-  - Preserves state integrity
-- `nodes/combine.py` - **Result aggregation and synthesis** (396 lines)
-  - Combines multiple search views
-  - Applies presenter selection logic
-- `nodes/processing_nodes.py` - **Utility processing nodes** (514 lines)
-  - Content filtering and validation
-  - Result post-processing
+- `nodes/search_nodes.py` - **LangGraph nodes: IntentNode, SearchNode, CombineNode**
+  - IntentNode uses micro-router (regex-first) for routing
+  - SearchNode executes retrieval and passes filters/context through
+  - CombineNode composes evidence-gated briefings (preferred for Answer)
+- `nodes/summarize.py` - **Query normalization node** (rule-based, no LLM)
+- `nodes/processing_nodes.py` - **AnswerNode and helpers** (uses final_briefing when present)
 
 ### Tools and Routing
 - `tools/search.py` - **LangGraph search tools** (445 lines)
@@ -88,18 +78,11 @@ User Query → Intent Node → Search Nodes → Combine Node → Response
 
 ### LangGraph Compatibility
 ```python
-# Node signature pattern
-async def intent_node(state: GraphState, config: RunnableConfig) -> GraphState:
-    # Process state immutably
-    return enhanced_state
-
-# State preservation pattern  
-def _preserve_state_with_path(state, node_name, **updates):
-    return {
-        **state,  # Preserve all existing fields
-        "workflow_path": state.get("workflow_path", []) + [node_name],
-        **updates
-    }
+# Node signature pattern (BaseNodeHandler)
+class IntentNode(BaseNodeHandler):
+    async def execute(self, state: dict, config: dict | None = None) -> dict:
+        # Return a new state dict; preserve existing fields
+        return {**state, "next_action": "general", "workflow_path": state.get("workflow_path", []) + ["intent"]}
 ```
 
 ### Future LlamaIndex Integration

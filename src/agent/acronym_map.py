@@ -9,6 +9,7 @@ to ensure consistency with the actual API and utility names in the system.
 import json
 from typing import Dict, List
 from pathlib import Path
+from typing import Optional
 
 # Cache for loaded data
 _ACRONYM_CACHE = None
@@ -22,24 +23,43 @@ def _load_acronym_data() -> Dict[str, str]:
     if _ACRONYM_CACHE is not None:
         return _ACRONYM_CACHE
 
-    acronyms = {}
+    acronyms: Dict[str, str] = {}
 
-    # Get project root directory
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent.parent  # src/agent -> src -> project_root
+    def _resolve(path_str: str) -> Optional[Path]:
+        p = Path(path_str)
+        if p.is_absolute() and p.exists():
+            return p
+        # Try CWD
+        cwdp = Path.cwd() / path_str
+        if cwdp.exists():
+            return cwdp
+        here = Path(__file__).resolve()
+        candidates = [
+            (here.parents[4] / path_str) if len(here.parents) >= 5 else None,
+            (here.parents[3] / path_str) if len(here.parents) >= 4 else None,
+        ]
+        for c in candidates:
+            if c and c.exists():
+                return c
+        return None
 
-    # Load from synonyms.json
-    synonyms_path = project_root / "data" / "synonyms.json"
-    if synonyms_path.exists():
-        with open(synonyms_path, "r") as f:
-            synonyms = json.load(f)
-            # Convert all keys to uppercase for consistent matching
-            for key, value in synonyms.items():
-                acronyms[key.upper()] = value
+    # Load from configured synonyms path
+    try:
+        from src.infra.settings import get_settings
+
+        settings = get_settings()
+        syn_path = _resolve(getattr(settings, "synonyms_file_path", "data/synonyms.json"))
+        if syn_path and syn_path.exists():
+            with open(syn_path, "r") as f:
+                synonyms = json.load(f)
+                for key, value in synonyms.items():
+                    acronyms[key.upper()] = value
+    except Exception:
+        pass
 
     # Load from swagger_keyword.json for additional mappings
-    swagger_path = project_root / "data" / "swagger_keyword.json"
-    if swagger_path.exists():
+    swagger_path = _resolve("data/swagger_keyword.json")
+    if swagger_path and swagger_path.exists():
         with open(swagger_path, "r") as f:
             swagger_data = json.load(f)
             if (
@@ -141,5 +161,4 @@ def get_apis_for_acronym(acronym: str) -> List[str]:
                 return apg.get("API-Names-List", [])
 
     return []
-
 
