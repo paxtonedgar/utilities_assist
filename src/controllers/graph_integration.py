@@ -415,7 +415,9 @@ async def handle_turn_with_graph(
         }
 
         # Execute graph with streaming updates and persistence
+        # Aggregate node updates so earlier fields (e.g., search_sections) survive to the end
         final_state = None
+        aggregate_state: Dict[str, Any] = {}
         async for chunk in graph.astream(initial_state, config=langgraph_config):
             for node_name, node_update in chunk.items():
                 # Stream progress updates
@@ -434,11 +436,18 @@ async def handle_turn_with_graph(
                             "thread_id": thread_id,
                         }
 
-                # Update final state
+                # Update aggregated final state
+                if isinstance(node_update, dict):
+                    aggregate_state.update(node_update)
+                # Keep a reference so we can fall back if needed
                 if node_name != "__end__":
-                    final_state = node_update
+                    final_state = aggregate_state or node_update
 
         # Generate final result
+        # Prefer aggregated state if available
+        if aggregate_state:
+            final_state = aggregate_state
+
         if final_state:
             final_result = _format_graph_final_result(
                 final_state, start_time, turn_id, req_id
@@ -481,13 +490,16 @@ def _format_graph_progress(
     # Map node names to user-friendly messages
     status_messages = {
         "summarize": "Analyzing and normalizing query...",
-        "intent": "Determining query intent...",
+        "plan": "Planning aspects and filters...",
+        "search": "Retrieving relevant passages...",
+        "compose": "Composing briefing...",
+        "answer": "Generating response...",
+        # Legacy names (if any graph variants emit them)
         "search_confluence": "Searching documentation...",
         "search_swagger": "Searching API specifications...",
         "search_multi": "Performing comprehensive search...",
         "rewrite_query": "Refining search strategy...",
         "combine": "Synthesizing results...",
-        "answer": "Generating response...",
     }
 
     message = status_messages.get(node_name, f"Processing {node_name}...")
