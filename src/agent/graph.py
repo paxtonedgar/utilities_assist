@@ -55,6 +55,9 @@ class GraphState(TypedDict, total=False):
     next_action: Optional[str]              # Route decision
     search_results: List[Any]               # Search results
     search_strategy: Optional[str]          # Search method used
+    # Planner-driven fields
+    plan: Optional[Dict[str, Any]]          # Plan dict with aspects/filters/k/budgets/strategies
+    search_sections: Optional[Dict[str, List[Dict]]]
     
     # Briefing composition
     final_briefing: Optional[str]           # Evidence-gated briefing
