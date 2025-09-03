@@ -1,20 +1,18 @@
 # src/agent/nodes/search_nodes.py
-"""
-Search Node Handlers: Simplified nodes using evidence-based architecture.
+"""Search Node for the opinionated Jarvis path.
 
-Linear pipeline: micro_route -> search -> evidence_composer -> briefing
+Linear pipeline: summarize -> plan -> search(per-aspect) -> compose -> answer
 """
 
 import logging
-from typing import Dict, Any, List, Optional
-from dataclasses import asdict
-
+from typing import Dict, Any, List
 from .base_node import BaseNodeHandler
-# Router removed; plan drives routing
 from src.agent.constants import SEARCH_QUERY
-from src.agent.tools.search import search_docs, search_api_docs, search_procedures, search_general, SearchOptions, ContentType
-# Comparison path handled by planner in the future; not wired here
-from src.agent.nodes.combine import compose_evidence_briefing, render_briefing_markdown
+from src.agent.tools.search import (
+    search_api_docs,
+    search_procedures,
+    search_general,
+)
 from src.infra.resource_manager import get_resources
 from src.services.models import Passage
 
@@ -46,13 +44,14 @@ class SearchNode(BaseNodeHandler):
                 logger.warning("No query available for search")
                 return self._handle_search_error(state, "No query provided")
             
-            # NEW: Plan-driven per-aspect search (no branching, small k per aspect)
+            # Plan-driven per-aspect search (no branching, small k per aspect)
             if isinstance(plan, dict) and plan.get("aspects"):
                 aspects = plan.get("aspects", [])
                 plan_filters = plan.get("filters") or {}
                 # Merge filters (state-derived < plan-derived)
                 merged_filters = {**(filters or {}), **plan_filters}
                 k_per_aspect = int(plan.get("k_per_aspect", 3))
+                strategies = plan.get("aspect_strategies") or {}
 
                 sections: Dict[str, List[Passage]] = {}
                 flat: List[Passage] = []
@@ -69,6 +68,10 @@ class SearchNode(BaseNodeHandler):
                     pass
 
                 for aspect in aspects:
+                    strategy = strategies.get(
+                        aspect,
+                        "bm25" if aspect in ("steps", "api", "troubleshoot") else "enhanced_rrf",
+                    )
                     if aspect == "api":
                         results_lists = []
                         for q in q_variants:

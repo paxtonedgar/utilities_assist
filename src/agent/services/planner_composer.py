@@ -11,8 +11,7 @@ from typing import Dict, List, Optional
 
 from src.services.models import Plan, Card, Citation, Step, ApiItem
 from src.infra.settings import get_settings
-from src.infra.clients import make_chat_client
-from src.infra.config import ChatCfg
+from src.infra.resource_manager import get_resources
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +47,11 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
     # Try OpenAI planner if enabled; fall back to local
     if settings.enable_openai_planner:
         try:
-            # Use configured client (Azure in cluster), not a direct public OpenAI instantiation
-            cfg = ChatCfg(
-                provider="azure" if settings.requires_azure_auth else "openai",
-                model=settings.chat.model,
-                api_base=getattr(settings.chat, "api_base", None),
-                api_version=getattr(settings.chat, "api_version", None),
-            )
-            client = make_chat_client(cfg)
+            # Reuse the chat client created at startup (resource manager singleton)
+            resources = get_resources()
+            client = resources.chat_client if resources else None
+            if client is None:
+                raise RuntimeError("chat_client not initialized in resources")
             system = (
                 "You are a planner for an enterprise utilities assistant. "
                 "Return strict JSON with: aspects (list of section names), "
@@ -80,7 +76,7 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                 "additionalProperties": False,
             }
             resp = client.chat.completions.create(
-                model=settings.openai_planner_model,
+                model=(settings.openai_planner_model or settings.chat.model),
                 temperature=0.0,
                 response_format={"type": "json_schema", "json_schema": {"name": "planner", "schema": schema}},
                 messages=[
@@ -147,13 +143,10 @@ def compose_card(
     # Attempt OpenAI composer if enabled
     if settings.enable_openai_composer:
         try:
-            cfg = ChatCfg(
-                provider="azure" if settings.requires_azure_auth else "openai",
-                model=settings.chat.model,
-                api_base=getattr(settings.chat, "api_base", None),
-                api_version=getattr(settings.chat, "api_version", None),
-            )
-            client = make_chat_client(cfg)
+            resources = get_resources()
+            client = resources.chat_client if resources else None
+            if client is None:
+                raise RuntimeError("chat_client not initialized in resources")
             system = (
                 "Compose a structured knowledge card as strict JSON with "
                 "fields: utility, overview{text,citations[{title,url}]}, "
@@ -189,7 +182,7 @@ def compose_card(
                 {"utility": utility, "budgets": budgets, "sections": sections}
             )
             resp = client.chat.completions.create(
-                model=settings.openai_composer_model,
+                model=(settings.openai_composer_model or settings.chat.model),
                 temperature=0.1,
                 response_format={"type": "json_schema", "json_schema": {"name": "card", "schema": schema}},
                 messages=[
