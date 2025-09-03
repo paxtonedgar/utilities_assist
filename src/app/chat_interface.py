@@ -545,12 +545,25 @@ def main():
                             for i, p in enumerate(items, 1):
                                 title = p.get("title") or f"Passage {i}"
                                 url = p.get("url")
+                                # Serialized payload uses "snippet" for passage text; prefer "text" if present
                                 snippet = p.get("snippet") or "(no snippet)"
+                                full_text = p.get("text") or p.get("snippet") or ""
+
+                                # Title + link
                                 if url:
                                     st.markdown(f"{i}. [{title}]({url})")
                                 else:
                                     st.markdown(f"{i}. {title}")
+
+                                # Short preview
                                 st.caption(snippet[:400])
+
+                                # Per‑passage full text toggle
+                                toggle_key = f"show_full_{message.get('req_id','noid')}_{aspect}_{i}"
+                                show_full = st.checkbox("Show full text", key=toggle_key)
+                                if show_full and full_text:
+                                    # Render full extract below the preview
+                                    st.markdown(f"<div style='white-space: pre-wrap;'>{full_text}</div>", unsafe_allow_html=True)
 
     # Check if we need to process a pending query
     if st.session_state.get("processing_query"):
