@@ -584,12 +584,33 @@ def _format_graph_final_result(
             source["doc_id"] = f"unknown-{i}"  # Fallback
 
     # Include debug passages (top-k per aspect) if available
+    # Fallback: derive from search_results/combined_results if sections missing
     debug_passages = None
     try:
         search_sections = safe_get(final_state, "search_sections", None)
-        if search_sections:
-            # Already a serializable dict of {aspect: [{title,url,snippet,score}]}
+        if search_sections and isinstance(search_sections, dict) and search_sections:
             debug_passages = search_sections
+        else:
+            # Fallback build from results if present
+            fallback_items = safe_get(final_state, "search_results", None) or safe_get(final_state, "combined_results", None)
+            if isinstance(fallback_items, list) and fallback_items:
+                rows = []
+                # Serialize up to 8 items
+                for p in fallback_items[:8]:
+                    try:
+                        meta = getattr(p, "meta", {}) or getattr(p, "metadata", {}) or {}
+                        rows.append({
+                            "doc_id": getattr(p, "doc_id", meta.get("doc_id", "")),
+                            "title": getattr(p, "title", None) or meta.get("title") or "Untitled",
+                            "url": getattr(p, "url", None) or meta.get("url") or getattr(p, "page_url", None),
+                            "snippet": getattr(p, "text", "") or getattr(p, "content", ""),
+                            "score": float(getattr(p, "score", 0.0)),
+                            "heading": meta.get("heading"),
+                        })
+                    except Exception:
+                        continue
+                if rows:
+                    debug_passages = {"all": rows}
     except Exception:
         debug_passages = None
 
