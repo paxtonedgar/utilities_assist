@@ -425,6 +425,9 @@ async def _stream_response_chunks(user_input: str, assistant_response: dict):
                 "sources": result.get("sources", []),
                 "req_id": chunk.get("req_id")
             })
+            # Attach debug passages (top-k per aspect) when present
+            if chunk.get("debug_passages"):
+                assistant_response["debug_passages"] = chunk["debug_passages"]
             
             # Handle evidence-gated responses (no prior chunks)
             if not assistant_response["content"] and result.get("answer"):
@@ -533,6 +536,21 @@ def main():
                 if message.get("req_id"):
                     render_simple_stats(message["req_id"])
                     render_stage_logs(message["req_id"])
+                # Show Top Passages
+                if message.get("debug_passages"):
+                    with st.expander("📚 Top Passages", expanded=False):
+                        debug_sections = message["debug_passages"]
+                        for aspect, items in debug_sections.items():
+                            st.markdown(f"**{aspect.title()}**")
+                            for i, p in enumerate(items, 1):
+                                title = p.get("title") or f"Passage {i}"
+                                url = p.get("url")
+                                snippet = p.get("snippet") or "(no snippet)"
+                                if url:
+                                    st.markdown(f"{i}. [{title}]({url})")
+                                else:
+                                    st.markdown(f"{i}. {title}")
+                                st.caption(snippet[:400])
 
     # Check if we need to process a pending query
     if st.session_state.get("processing_query"):

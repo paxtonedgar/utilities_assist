@@ -175,20 +175,24 @@ class SearchNode(BaseNodeHandler):
 
 
 def _dedupe_chain(lists_of_passages: List[List[Passage]], k: int) -> List[Passage]:
-    """Merge multiple passage lists, dedupe by doc_id, keep first-seen/top-scored order.
+    """Round‑robin merge of multiple lists, dedupe by doc_id, cap at k.
 
-    This allows us to search both acronym and expansion variants and keep the
-    best small set per aspect.
+    This truly interleaves results from acronym and expansion queries so the
+    first list doesn't monopolize slots.
     """
     merged: List[Passage] = []
     seen = set()
-    for plist in lists_of_passages:
-        for p in plist:
-            if p.doc_id not in seen:
-                merged.append(p)
-                seen.add(p.doc_id)
-                if len(merged) >= k:
-                    return merged
+    # Determine the longest list length
+    max_len = max((len(pl) for pl in lists_of_passages), default=0)
+    for i in range(max_len):
+        for plist in lists_of_passages:
+            if i < len(plist):
+                p = plist[i]
+                if p.doc_id not in seen:
+                    merged.append(p)
+                    seen.add(p.doc_id)
+                    if len(merged) >= k:
+                        return merged
     return merged[:k]
 
 

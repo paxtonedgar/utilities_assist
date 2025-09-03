@@ -57,7 +57,13 @@ class ComposerNode(BaseNodeHandler):
             context_blob = "\n".join(ctx_lines)
             system = (
                 "You are an enterprise utilities assistant. Answer using ONLY the provided context. "
-                "Cite sources inline with Markdown links where possible. Be precise and comprehensive."
+                "Return Markdown with the following sections: \n"
+                "# <Utility or Topic>\n"
+                "## Overview\n"
+                "## Steps & Procedures (numbered)\n"
+                "## API Reference (bulleted, with endpoint examples if present)\n"
+                "Include inline Markdown links to sources after each item where possible. "
+                "If a section has no support in context, include the section with a one-line note."
             )
             messages = [
                 {"role": "system", "content": system},

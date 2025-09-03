@@ -571,6 +571,16 @@ def _format_graph_final_result(
             logger.warning(f"Source {i} missing doc_id: {source}")
             source["doc_id"] = f"unknown-{i}"  # Fallback
 
+    # Include debug passages (top-k per aspect) if available
+    debug_passages = None
+    try:
+        search_sections = safe_get(final_state, "search_sections", None)
+        if search_sections:
+            # Already a serializable dict of {aspect: [{title,url,snippet,score}]}
+            debug_passages = search_sections
+    except Exception:
+        debug_passages = None
+
     # Create TurnResult-compatible structure with missing features
     turn_result = TurnResult(
         answer=final_answer,
@@ -589,12 +599,15 @@ def _format_graph_final_result(
     if verification_metrics:
         result_dict["verification"] = verification_metrics
 
-    return {
+    payload = {
         "type": "complete",
         "result": result_dict,
         "turn_id": turn_id,
         "req_id": req_id,
     }
+    if debug_passages:
+        payload["debug_passages"] = debug_passages
+    return payload
 
 
 def enable_langgraph():
@@ -614,4 +627,3 @@ def disable_langgraph():
 def is_langgraph_enabled() -> bool:
     """Check if LangGraph is currently enabled."""
     return LANGGRAPH_ENABLED
-

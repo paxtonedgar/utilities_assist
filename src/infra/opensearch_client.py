@@ -64,6 +64,7 @@ class SearchFilters:
     acl_hash: Optional[str] = None
     space_key: Optional[str] = None
     content_type: Optional[str] = None
+    utility_name: Optional[str] = None
     updated_after: Optional[datetime] = None
     updated_before: Optional[datetime] = None
 
