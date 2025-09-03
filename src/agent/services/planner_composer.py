@@ -54,9 +54,7 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                 raise RuntimeError("chat_client not initialized in resources")
             system = (
                 "You are a planner for an enterprise utilities assistant. "
-                "Return strict JSON with: aspects (list of section names), "
-                "filters (object with optional utility_name, content_type), "
-                "k_per_aspect (int), budgets (char budgets per section)."
+                "Return ONLY JSON. Schema: {aspects: string[], filters: object, k_per_aspect: number, budgets: object}."
             )
             schema = {
                 "type": "object",
@@ -75,10 +73,11 @@ def get_plan(normalized_query: str, session_ctx: Optional[Dict] = None) -> Plan:
                 "required": ["aspects", "filters", "k_per_aspect", "budgets"],
                 "additionalProperties": False,
             }
+            # Use json_object for broad Azure compatibility
             resp = client.chat.completions.create(
                 model=(settings.openai_planner_model or settings.chat.model),
                 temperature=0.0,
-                response_format={"type": "json_schema", "json_schema": {"name": "planner", "schema": schema}},
+                response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": f"Query: {normalized_query}"},
@@ -148,11 +147,10 @@ def compose_card(
             if client is None:
                 raise RuntimeError("chat_client not initialized in resources")
             system = (
-                "Compose a structured knowledge card as strict JSON with "
-                "fields: utility, overview{text,citations[{title,url}]}, "
-                "onboarding_steps[{n,text,citation}], apis[{name,url,citation}], "
-                "environments[{name,url,auth?,citation}], links[{label,url,citation}], "
-                "unknown_fields. Respect char budgets provided. Always include citations."
+                "Compose a structured knowledge card. Return ONLY JSON with fields: "
+                "utility, overview{text,citations[{title,url}]}, onboarding_steps[{n,text,citation}], "
+                "apis[{name,url,citation}], environments[{name,url,auth?,citation}], links[{label,url,citation}], "
+                "unknown_fields. Respect char budgets and always include citations."
             )
             schema = {
                 "type": "object",
@@ -184,7 +182,7 @@ def compose_card(
             resp = client.chat.completions.create(
                 model=(settings.openai_composer_model or settings.chat.model),
                 temperature=0.1,
-                response_format={"type": "json_schema", "json_schema": {"name": "card", "schema": schema}},
+                response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_payload},
