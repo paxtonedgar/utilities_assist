@@ -146,21 +146,7 @@ ontology-queue:
 list-indices:
 	@echo "📚 Listing OpenSearch indices from config.ini host"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python - << 'PY'
-from src.infra.settings import get_settings
-from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-import requests
-s = get_settings()
-host = s.opensearch_host.rstrip('/')
-_setup_jpmc_proxy()
-auth = _get_aws_auth()
-url = f"{host}/_cat/indices?format=json"
-r = requests.get(url, auth=auth, timeout=30)
-r.raise_for_status()
-indices = r.json()
-for it in sorted(indices, key=lambda x: x.get('index','')):
-    print(f"{it.get('index',''):<40} status={it.get('status','')} docs={it.get('docs.count','')} pri={it.get('pri','')} rep={it.get('rep','')}")
-PY
+	python -c "from src.infra.settings import get_settings; from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy; import requests; s=get_settings(); host=s.opensearch_host.rstrip('/'); _setup_jpmc_proxy(); auth=_get_aws_auth(); url=f'{host}/_cat/indices?format=json'; r=requests.get(url, auth=auth, timeout=30); r.raise_for_status(); inds=r.json(); [print(f'{it.get('index',''):<40} status={it.get('status','')} docs={it.get('docs.count','')} pri={it.get('pri','')} rep={it.get('rep','')}') for it in sorted(inds, key=lambda x: x.get('index',''))]"
 
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
