@@ -185,14 +185,20 @@ def run(index: str | None, limit: int, batch: int, out_dir: str, resume: bool, c
     edges_f = (out_path / "edges.ndjson").open("w", encoding="utf-8")
     meta_f = (out_path / "docs.ndjson").open("w", encoding="utf-8")
     ckpt_path = Path(checkpoint_file) if checkpoint_file else (out_path / "checkpoint.ids")
+    # Load previously processed ids if resuming; otherwise start empty
     processed_ids = _load_processed_ids(ckpt_path) if resume else set()
+    # Track seen ids for this run as well to deduplicate non-PIT iteration
+    seen_ids = set(processed_ids)
 
     summary: Dict[str, Any] = {"docs": 0, "steps": 0, "edges_total": 0, "relations": {}, "top_docs": []}
 
     try:
         count = 0
+        dupes = 0
         for hit in client.iterate_index(index=index, fields=None, batch_size=batch, max_docs=limit):
-            if hit.get("_id") in processed_ids:
+            hid = hit.get("_id")
+            if hid in seen_ids:
+                dupes += 1
                 continue
             result = process_doc(hit)
             # Write per-doc lines
@@ -203,11 +209,13 @@ def run(index: str | None, limit: int, batch: int, out_dir: str, resume: bool, c
                 edges_f.write(json.dumps({"doc_id": result["doc_id"], **e, "score": s.get("score"), "accepted": s.get("accepted"), "signals": s.get("signals")}) + "\n")
 
             count += 1
+            # Record and checkpoint the processed id (always append to keep a ledger)
+            seen_ids.add(result["doc_id"])
             _append_processed_id(ckpt_path, result["doc_id"])  # checkpoint after each doc
             _update_summary(summary, result)
             if count % 100 == 0:
                 print(f"Processed {count} docs...")
-        print(f"Done. Processed {count} documents. Outputs in {out_path}")
+        print(f"Done. Processed {count} documents (deduped {dupes} duplicates). Outputs in {out_path}")
     finally:
         steps_f.close(); edges_f.close(); meta_f.close()
         if write_summary:
