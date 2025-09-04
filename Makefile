@@ -127,6 +127,13 @@ ontology-probe:
 	UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.pipeline --query "$(or $(QUERY),install OR configure OR team OR division OR application OR diagram)" --max-docs $(or $(MAX),50) --csv-out $(or $(CSV),qc_edges.csv)
 
+# Full corpus scan (document-by-document via PIT)
+.PHONY: ontology-scan
+ontology-scan:
+	@echo "📚 Scanning corpus document-by-document (PIT)"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.doc_by_doc --index "$(or $(INDEX),)" --limit $(or $(LIMIT),1000) --batch $(or $(BATCH),200) --out-dir $(or $(OUT),outputs/ontology_scan)
+
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \

@@ -724,6 +724,100 @@ class OpenSearchClient:
         return search_body
 
 
+    # -----------------------------
+    # Index iteration (PIT + search_after)
+    # -----------------------------
+    def iterate_index(
+        self,
+        index: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+        batch_size: int = 200,
+        max_docs: Optional[int] = None,
+        keep_alive: str = "1m",
+    ):
+        """Yield raw OpenSearch hits document-by-document using PIT + search_after.
+
+        Args:
+            index: Index or alias to iterate (defaults to settings.search_index_alias)
+            fields: Optional list of fields to include in _source; None means full _source
+            batch_size: Number of docs to fetch per page
+            max_docs: Optional cap on total documents yielded
+            keep_alive: PIT keep-alive duration
+        Yields:
+            dict: Raw hit with keys like _id, _index, _source, sort
+        """
+        import requests
+
+        index = index or self.settings.search_index_alias
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+
+        # Open PIT for consistent snapshot
+        pit_url = f"{self.base_url}/{index}/_pit?keep_alive={keep_alive}"
+        if aws_auth:
+            pit_res = requests.post(pit_url, auth=aws_auth, timeout=30.0)
+        else:
+            pit_res = self.session.post(pit_url, timeout=30.0)
+        pit_res.raise_for_status()
+        pit_id = pit_res.json().get("id")
+        if not pit_id:
+            raise RuntimeError("Failed to open PIT: missing id")
+
+        try:
+            search_url = f"{self.base_url}/_search"
+            search_body: Dict[str, Any] = {
+                "size": batch_size,
+                "pit": {"id": pit_id, "keep_alive": keep_alive},
+                "sort": [{"_shard_doc": "asc"}],
+                "track_total_hits": False,
+            }
+            if fields:
+                search_body["_source"] = fields
+
+            yielded = 0
+            last_sort = None
+            headers = {"Content-Type": "application/json"}
+
+            while True:
+                if last_sort is not None:
+                    search_body["search_after"] = last_sort
+
+                if aws_auth:
+                    res = requests.post(search_url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
+                else:
+                    res = self.session.post(search_url, json=search_body, timeout=30.0, headers=headers)
+                res.raise_for_status()
+                data = res.json()
+                hits = data.get("hits", {}).get("hits", [])
+                if not hits:
+                    break
+
+                for h in hits:
+                    yield h
+                    yielded += 1
+                    if max_docs and yielded >= max_docs:
+                        break
+
+                if max_docs and yielded >= max_docs:
+                    break
+
+                last_sort = hits[-1].get("sort")
+                # PIT id may rotate; update if provided
+                pit_id = data.get("pit_id", pit_id)
+                search_body["pit"]["id"] = pit_id
+
+        finally:
+            # Close PIT
+            try:
+                close_url = f"{self.base_url}/_pit"
+                body = {"id": pit_id}
+                if aws_auth:
+                    requests.delete(close_url, json=body, auth=aws_auth, timeout=10.0)
+                else:
+                    self.session.delete(close_url, json=body, timeout=10.0)
+            except Exception:
+                pass
+
     def _check_index_exists(self, index_name: str) -> bool:
         """Check if an index exists in OpenSearch."""
         try:
