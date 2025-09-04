@@ -129,22 +129,4 @@ ontology-probe:
 
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
-	python - << 'PY'
-from src.infra.settings import get_settings
-s = get_settings()
-print('profile=', s.cloud_profile)
-print('host=', s.opensearch_host)
-print('index=', s.search_index_alias)
-PY
-	@echo "  make setup-local      Complete OpenSearch setup"
-	@echo ""
-	@echo "📊 Evaluation:"
-	@echo "  make eval             Run full evaluation with embeddings"
-	@echo "  make eval-no-embed    Run BM25-only evaluation"
-	@echo "  make test-eval        Quick evaluation test"
-	@echo "  make clean-eval       Clean evaluation files"
-	@echo "  make check-opensearch Check if OpenSearch is running"
-	@echo ""
-	@echo "🧹 Cleanup:"
-	@echo "  make clean            Clean Python cache files"
-	@echo "  make clean-local      Clean all local data (dangerous!)"
+	@python -c "from src.infra.settings import get_settings; s=get_settings(); print('profile=', s.cloud_profile); print('host=', s.opensearch_host); print('index=', s.search_index_alias)"
