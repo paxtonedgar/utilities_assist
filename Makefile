@@ -132,7 +132,7 @@ ontology-probe:
 ontology-scan:
 	@echo "📚 Scanning corpus document-by-document (PIT)"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.doc_by_doc --index "$(or $(INDEX),)" --limit $(or $(LIMIT),1000) --batch $(or $(BATCH),200) --out-dir $(or $(OUT),outputs/ontology_scan)
+	python -m src.ontology.doc_by_doc --index "$(or $(INDEX),)" --limit $(or $(LIMIT),1000) --batch $(or $(BATCH),200) --out-dir $(or $(OUT),outputs/ontology_scan) $(if $(RESUME),--resume,) $(if $(CKPT),--checkpoint-file $(CKPT),)
 
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
