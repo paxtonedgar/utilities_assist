@@ -852,6 +852,9 @@ class OpenSearchClient:
         }
         if fields:
             body["_source"] = fields
+        elif fields == []:
+            # Explicit request for ids only
+            body["_source"] = False
 
         yielded = 0
         last_sort = None
@@ -878,6 +881,40 @@ class OpenSearchClient:
                     return
 
             last_sort = hits[-1].get("sort")
+
+    def iterate_ids(
+        self,
+        index: Optional[str] = None,
+        batch_size: int = 500,
+        max_docs: Optional[int] = None,
+    ):
+        """Yield minimal entries with `_id` and `_index` using non-PIT iteration.
+
+        Many managed clusters restrict PIT; this uses search_after with `_doc` sort
+        and requests `_source: false` for efficiency.
+        """
+        index = index or self.settings.search_index_alias
+        yield from self._iterate_without_pit(index=index, fields=[], batch_size=batch_size, max_docs=max_docs)
+
+    def get_doc_by_id(self, index: str, doc_id: str) -> Dict[str, Any]:
+        """Fetch a single document by id (GET /{index}/_doc/{id})."""
+        import requests
+
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        url = f"{self.base_url}/{index}/_doc/{doc_id}"
+        if aws_auth:
+            res = requests.get(url, auth=aws_auth, timeout=30.0)
+        else:
+            res = self.session.get(url, timeout=30.0)
+        res.raise_for_status()
+        data = res.json()
+        # Return a hit-like structure for compatibility with processors
+        return {
+            "_id": data.get("_id", doc_id),
+            "_index": data.get("_index", index),
+            "_source": data.get("_source", {}),
+        }
 
     def _check_index_exists(self, index_name: str) -> bool:
         """Check if an index exists in OpenSearch."""
