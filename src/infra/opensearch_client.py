@@ -752,16 +752,25 @@ class OpenSearchClient:
         _setup_jpmc_proxy()
         aws_auth = _get_aws_auth()
 
-        # Open PIT for consistent snapshot
-        pit_url = f"{self.base_url}/{index}/_pit?keep_alive={keep_alive}"
-        if aws_auth:
-            pit_res = requests.post(pit_url, auth=aws_auth, timeout=30.0)
-        else:
-            pit_res = self.session.post(pit_url, timeout=30.0)
-        pit_res.raise_for_status()
-        pit_id = pit_res.json().get("id")
+        # Try PIT for consistent iteration; fallback to non-PIT if 400 or unsupported
+        pit_id = None
+        try:
+            pit_url = f"{self.base_url}/{index}/_pit?keep_alive={keep_alive}"
+            if aws_auth:
+                pit_res = requests.post(pit_url, auth=aws_auth, timeout=30.0)
+            else:
+                pit_res = self.session.post(pit_url, timeout=30.0)
+            pit_res.raise_for_status()
+            pit_id = pit_res.json().get("id")
+        except requests.HTTPError as e:
+            # Some clusters or aliases may not allow PIT; fallback path below
+            logger.info(f"PIT open failed for {index} ({getattr(e.response, 'status_code', '?')}): falling back to non-PIT iteration")
+            pit_id = None
+
         if not pit_id:
-            raise RuntimeError("Failed to open PIT: missing id")
+            # Fallback: iterate without PIT using search_after on _doc (less strict guarantees)
+            yield from self._iterate_without_pit(index=index, fields=fields, batch_size=batch_size, max_docs=max_docs)
+            return
 
         try:
             search_url = f"{self.base_url}/_search"
@@ -817,6 +826,58 @@ class OpenSearchClient:
                     self.session.delete(close_url, json=body, timeout=10.0)
             except Exception:
                 pass
+
+    def _iterate_without_pit(
+        self,
+        index: str,
+        fields: Optional[List[str]],
+        batch_size: int,
+        max_docs: Optional[int],
+    ):
+        """Best-effort iteration using search_after without PIT.
+
+        Uses sort on _doc which provides a fast, index-order traversal.
+        This may see duplicates or misses if the index is actively mutating.
+        """
+        import requests
+
+        _setup_jpmc_proxy()
+        aws_auth = _get_aws_auth()
+        url = f"{self.base_url}/{index}/_search"
+
+        body: Dict[str, Any] = {
+            "size": batch_size,
+            "sort": [{"_doc": "asc"}],
+            "track_total_hits": False,
+        }
+        if fields:
+            body["_source"] = fields
+
+        yielded = 0
+        last_sort = None
+        headers = {"Content-Type": "application/json"}
+
+        while True:
+            if last_sort is not None:
+                body["search_after"] = last_sort
+
+            if aws_auth:
+                res = requests.post(url, json=body, auth=aws_auth, timeout=30.0, headers=headers)
+            else:
+                res = self.session.post(url, json=body, timeout=30.0, headers=headers)
+            res.raise_for_status()
+            data = res.json()
+            hits = data.get("hits", {}).get("hits", [])
+            if not hits:
+                break
+
+            for h in hits:
+                yield h
+                yielded += 1
+                if max_docs and yielded >= max_docs:
+                    return
+
+            last_sort = hits[-1].get("sort")
 
     def _check_index_exists(self, index_name: str) -> bool:
         """Check if an index exists in OpenSearch."""
