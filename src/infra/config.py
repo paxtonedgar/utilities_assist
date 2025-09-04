@@ -43,7 +43,7 @@ class SearchCfg(BaseModel):
 class Settings(BaseModel):
     """Unified configuration with profile-based switching"""
 
-    profile: str = Field(default=os.getenv("CLOUD_PROFILE", "local"))
+    profile: str = Field(default=os.getenv("CLOUD_PROFILE", "jpmc_azure"))
     chat: ChatCfg
     embed: EmbedCfg
     search: SearchCfg
@@ -158,14 +158,13 @@ def load_settings() -> Settings:
     - jpmc_azure: Azure OpenAI with AAD and enterprise OpenSearch
     - tests: Minimal test configuration
     """
-    profile = os.getenv("CLOUD_PROFILE", "local").lower()
+    profile = os.getenv("CLOUD_PROFILE", "jpmc_azure").lower()
 
-    if profile == "jpmc_azure":
-        return _jpmc()
-    elif profile == "tests":
+    if profile == "tests":
         return _tests()
     else:
-        return _local()
+        # Force jpmc_azure for all non-test profiles
+        return _jpmc()
 
 
 # Convenience function for quick access

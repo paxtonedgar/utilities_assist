@@ -57,7 +57,53 @@ def get_config_value(section: str, key: str, fallback=None):
         Configuration value or fallback
     """
     config = _load_shared_config()
-    return config.get(section, key, fallback=fallback)
+
+    # Case-insensitive section lookup
+    section_name = None
+    for sec in config.sections():
+        if sec.lower() == section.lower():
+            section_name = sec
+            break
+
+    # Special mapping: support pulling OpenSearch values from [OPENSEARCH] when asked for aws_info
+    if section_name is None and section.lower() == "aws_info":
+        for sec in config.sections():
+            if sec.lower() == "opensearch":
+                # Map aws_info keys to OPENSEARCH equivalents
+                mapping = {
+                    "opensearch_endpoint": ["opensearch_endpoint", "os_host", "endpoint"],
+                    "index_name": ["opensearch_index", "index_name"],
+                    "aws_region": ["aws_region"],
+                }
+                for candidate in mapping.get(key, []):
+                    val = config.get(sec, candidate, fallback=None)
+                    if val is not None:
+                        return val
+                return fallback
+
+    # Special mapping: support variant keys in [AZURE_OPENAI]
+    if section.lower() == "azure_openai":
+        # Resolve the actual section name case-insensitively
+        for sec in config.sections():
+            if sec.lower() == "azure_openai":
+                key_map = {
+                    "deployment_name": ["deployment_name", "azure_openai_deployment_name"],
+                    "azure_openai_embedding_model": [
+                        "azure_openai_embedding_model",
+                        "azure_openai_embedding_deployment_name",
+                    ],
+                    "azure_openai_endpoint": ["azure_openai_endpoint"],
+                    "api_version": ["api_version", "azure_openai_api_version"],
+                }
+                for candidate in key_map.get(key, [key]):
+                    val = config.get(sec, candidate, fallback=None)
+                    if val is not None:
+                        return val
+                break
+
+    if section_name:
+        return config.get(section_name, key, fallback=fallback)
+    return fallback
 
 
 class AzureOpenAIConfig(BaseModel):
@@ -400,7 +446,7 @@ class ApplicationSettings(BaseSettings):
 
     # Profile configuration with environment override
     cloud_profile: str = Field(
-        default="local",
+        default="jpmc_azure",
         validation_alias="CLOUD_PROFILE",
         description="Cloud profile (local, jpmc_azure, dev)",
     )
@@ -473,9 +519,8 @@ class ApplicationSettings(BaseSettings):
     def _load_config_ini_simplified(self) -> Dict[str, Any]:
         """Simplified config.ini loading using pydantic patterns."""
         try:
-            config_file = os.getenv("UTILITIES_CONFIG", "config.local.ini")
+            config_file = os.getenv("UTILITIES_CONFIG", "config.ini")
             config_path = self._resolve_config_path(config_file)
-
             if not config_path.exists():
                 logger.warning(f"Config file not found: {config_path}")
                 return {}
@@ -487,16 +532,39 @@ class ApplicationSettings(BaseSettings):
             config_data = {}
 
             # Load sections using model defaults and validation
-            for section_name, model_class in [
-                ("azure_openai", AzureOpenAIConfig),
-                ("aws_info", AWSConfig),
-                ("opensearch", OpenSearchConfig),
-                ("coverage", CoverageConfig),
-                ("reranker", RerankerConfig),
-            ]:
-                if config.has_section(section_name):
-                    section_data = dict(config[section_name])
-                    config_data[section_name] = model_class(**section_data)
+            # Helper: get section dict case-insensitively
+            def get_section_ci(name: str):
+                for sec in config.sections():
+                    if sec.lower() == name.lower():
+                        return dict(config[sec])
+                return None
+
+            # Load Azure OpenAI (support [AZURE_OPENAI] or [azure_openai])
+            az = get_section_ci("azure_openai")
+            if az:
+                config_data["azure_openai"] = AzureOpenAIConfig(**az)
+
+            # Load AWS (support [aws_info])
+            aws = get_section_ci("aws_info")
+            if aws:
+                config_data["aws_info"] = AWSConfig(**aws)
+
+            # Load OpenSearch (support [OPENSEARCH] mapping to local OpenSearchConfig)
+            os_sec = get_section_ci("opensearch")
+            if os_sec:
+                # Map common key names to OpenSearchConfig fields
+                mapped = {}
+                if "endpoint" in os_sec:
+                    mapped["endpoint"] = os_sec.get("endpoint")
+                if "opensearch_endpoint" in os_sec:
+                    mapped["endpoint"] = os_sec.get("opensearch_endpoint")
+                if "os_host" in os_sec and "endpoint" not in mapped:
+                    mapped["endpoint"] = os_sec.get("os_host")
+                if "index_name" in os_sec:
+                    mapped["index_name"] = os_sec.get("index_name")
+                if "opensearch_index" in os_sec:
+                    mapped["index_name"] = os_sec.get("opensearch_index")
+                config_data["opensearch"] = OpenSearchConfig(**mapped)
 
             # Load simple settings
             self._load_simple_settings(config, config_data)
@@ -575,6 +643,9 @@ class ApplicationSettings(BaseSettings):
             # Production JPMC uses AWS OpenSearch
             if self.aws_info and self.aws_info.opensearch_endpoint:
                 return self.aws_info.opensearch_endpoint
+            # If aws_info is not present, allow OPENSEARCH section to provide endpoint
+            if self.opensearch and getattr(self.opensearch, "endpoint", None):
+                return self.opensearch.endpoint
             return "https://utilitiesassist.dev.aws.jpmchase.net"  # JPMC default
 
         elif profile in ["local", "dev"]:
@@ -702,5 +773,3 @@ def get_settings() -> ApplicationSettings:
     if _settings is None:
         _settings = ApplicationSettings()
     return _settings
-
-

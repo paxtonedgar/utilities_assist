@@ -155,12 +155,24 @@ def _get_aws_auth():
         return None
 
     try:
-        # Copy exact code from working main branch
+        # Resolve region from env or settings, fallback to us-east-1
+        region = os.getenv("OPENSEARCH_REGION")
+        if not region:
+            try:
+                from src.infra.settings import get_settings
+
+                st = get_settings()
+                if st.aws_info and getattr(st.aws_info, "aws_region", None):
+                    region = st.aws_info.aws_region
+            except Exception:
+                region = None
+        if not region:
+            region = "us-east-1"
+
         session = boto3.Session()
         logger.debug(f"AWS session: {session}")
-        region = "us-east-1"
         credentials = session.get_credentials()
-        logger.debug(f"AWS credentials: {credentials}")
+        logger.debug(f"AWS credentials loaded for region {region}")
         return AWS4Auth(
             credentials.access_key,
             credentials.secret_key,
@@ -305,7 +317,6 @@ def make_embed_client(
     return _cached_embed_client(
         cfg.provider, cfg.model, cfg.dims, _token_fingerprint(token_provider)
     )
-
 
 
 

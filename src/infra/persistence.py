@@ -176,7 +176,7 @@ def extract_user_context(resources) -> Dict[str, Any]:
         # Add session metadata
         user_context["session_metadata"] = {
             "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
-            "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini"),
+            "utilities_config": os.getenv("UTILITIES_CONFIG", "config.ini"),
         }
 
         return user_context

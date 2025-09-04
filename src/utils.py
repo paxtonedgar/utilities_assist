@@ -12,8 +12,8 @@ def load_config():
     This function provides compatibility with the legacy config.ini system
     while working with the new phase1 architecture.
     """
-    # Check for UTILITIES_CONFIG environment variable
-    config_file = os.getenv("UTILITIES_CONFIG", "config.local.ini")
+    # Check for UTILITIES_CONFIG environment variable (defaults to config.ini)
+    config_file = os.getenv("UTILITIES_CONFIG", "config.ini")
 
     # If it's a relative path, look in the current directory first, then src/
     if not os.path.isabs(config_file):

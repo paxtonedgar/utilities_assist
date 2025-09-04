@@ -230,9 +230,16 @@ def _load_config_once() -> dict:
         # Extract all relevant parameters using exact config.ini key names (source of truth)
         _cached_config_params = {}
 
-        # Azure OpenAI section - use exact key names from config.ini
-        if config.has_section("azure_openai"):
-            azure_section = config["azure_openai"]
+        # Case-insensitive section resolver
+        def _sec(name: str):
+            for sec in config.sections():
+                if sec.lower() == name.lower():
+                    return config[sec]
+            return None
+
+        # Azure OpenAI section - support [AZURE_OPENAI]
+        azure_section = _sec("azure_openai")
+        if azure_section:
             _cached_config_params.update(
                 {
                     "deployment_name": azure_section.get("deployment_name", ""),
@@ -252,9 +259,9 @@ def _load_config_once() -> dict:
                 }
             )
 
-        # AWS info section - use exact key names from config.ini
-        if config.has_section("aws_info"):
-            aws_section = config["aws_info"]
+        # AWS info section - use exact key names if present
+        aws_section = _sec("aws_info")
+        if aws_section:
             _cached_config_params.update(
                 {
                     "opensearch_endpoint": aws_section.get("opensearch_endpoint", ""),
@@ -265,16 +272,17 @@ def _load_config_once() -> dict:
                 }
             )
 
-        # OpenSearch section for local development
-        if config.has_section("opensearch"):
-            os_section = config["opensearch"]
+        # OpenSearch section - support [OPENSEARCH]
+        os_section = _sec("opensearch")
+        if os_section:
             _cached_config_params.update(
                 {
+                    # Provide both names to support code paths
                     "local_opensearch_endpoint": os_section.get(
-                        "endpoint", "http://localhost:9200"
+                        "endpoint", os_section.get("opensearch_endpoint", os_section.get("os_host", ""))
                     ),
                     "local_index_name": os_section.get(
-                        "index_name", OpenSearchConfig.get_default_index()
+                        "index_name", os_section.get("opensearch_index", OpenSearchConfig.get_default_index())
                     ),
                 }
             )

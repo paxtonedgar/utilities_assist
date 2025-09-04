@@ -31,18 +31,18 @@ def _extract_user_context() -> Dict[str, Any]:
         logger.info("Persistence module not available, using local user context")
         return {
             "user_id": "streamlit_user",
-            "session_metadata": {
-                "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
-                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini"),
+                "session_metadata": {
+                "cloud_profile": os.getenv("CLOUD_PROFILE", "jpmc_azure"),
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.ini"),
             },
         }
     except Exception as e:
         logger.warning(f"Failed to extract user context: {e}")
         return {
             "user_id": "streamlit_user",
-            "session_metadata": {
-                "cloud_profile": os.getenv("CLOUD_PROFILE", "local"),
-                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.local.ini"),
+                "session_metadata": {
+                "cloud_profile": os.getenv("CLOUD_PROFILE", "jpmc_azure"),
+                "utilities_config": os.getenv("UTILITIES_CONFIG", "config.ini"),
             },
         }
 
