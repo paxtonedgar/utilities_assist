@@ -141,6 +141,13 @@ ontology-queue:
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.id_queue --index "$(or $(INDEX),)" --queue-file $(or $(QUEUE),outputs/ontology_queue/ids.ndjson) --batch $(or $(BATCH),500) --limit $(or $(LIMIT),0) --out-dir $(or $(OUT),outputs/ontology_queue) $(if $(RESUME),--resume,) $(if $(LEDGER),--ledger $(LEDGER),) --mode $(or $(MODE),both)
 
+# Continuous scan across indices until completion (main + swagger by default)
+.PHONY: ontology-run
+ontology-run:
+	@echo "🔁 Continuous scan across indices"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.continuous_queue --indices "$(or $(INDICES),)" --out-dir $(or $(OUT),outputs/continuous) --batch $(or $(BATCH),500)
+
 # List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
 .PHONY: list-indices
 list-indices:
