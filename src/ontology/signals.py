@@ -55,9 +55,16 @@ def compute_signals_for_pair(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, 
     same_entity_overlap = inter / union
 
     # TF-IDF cosine similarity between labels as embed_sim proxy
-    vec = TfidfVectorizer(min_df=1, ngram_range=(1, 2))
-    X = vec.fit_transform([la, lb])
-    sim = float(cosine_similarity(X[0:1], X[1:2])[0, 0])
+    # Guard against empty or stopword-only inputs
+    sim: float = 0.0
+    if la and lb:
+        try:
+            vec = TfidfVectorizer(min_df=1, ngram_range=(1, 2))
+            X = vec.fit_transform([la, lb])
+            sim = float(cosine_similarity(X[0:1], X[1:2])[0, 0])
+        except ValueError:
+            # empty vocabulary or other tokenization issues → similarity 0.0
+            sim = 0.0
 
     return {
         "regex_step": regex_step,
@@ -71,4 +78,3 @@ def compute_signals_for_pair(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, 
         "section_header_match": 0.0,
         "same_space": 0.0,
     }
-
