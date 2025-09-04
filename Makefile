@@ -11,10 +11,10 @@ run:
 
 # Local development targets
 run-local:
-	UTILITIES_CONFIG=config.local.ini streamlit run streamlit_app.py
+	UTILITIES_CONFIG=config.ini streamlit run streamlit_app.py
 
 test-local:
-	UTILITIES_CONFIG=config.local.ini python -m pytest -v --maxfail=1 --disable-warnings
+	UTILITIES_CONFIG=config.ini python -m pytest -v --maxfail=1 --disable-warnings
 
 # OpenSearch container management
 start-opensearch:
@@ -29,7 +29,7 @@ index-local:
 
 # Generate embeddings and create FAISS index
 embed-local:
-	UTILITIES_CONFIG=config.local.ini python scripts/embed_mock_docs.py
+	UTILITIES_CONFIG=config.ini python scripts/embed_mock_docs.py
 
 # Test vector search
 test-vector:
@@ -37,7 +37,7 @@ test-vector:
 
 # Run with local config only
 run-mock:
-	UTILITIES_CONFIG=config.local.ini streamlit run streamlit_app.py
+	UTILITIES_CONFIG=config.ini streamlit run streamlit_app.py
 
 # Run demo UI (standalone, no backend dependencies)
 run-demo:
@@ -118,6 +118,24 @@ help:
 	@echo "  make embed-local      Generate embeddings + FAISS index"
 	@echo ""
 	@echo "⚡ Quick Setup:"
+
+# Ontology probe (OpenSearch -> steps + domain edges -> scoring + QC)
+.PHONY: ontology-probe check-settings
+
+ontology-probe:
+	@echo "🚀 Running ontology probe against OpenSearch (config.ini)"
+	UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.pipeline --query "$(or $(QUERY),install OR configure OR team OR division OR application OR diagram)" --max-docs $(or $(MAX),50) --csv-out $(or $(CSV),qc_edges.csv)
+
+check-settings:
+	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
+	python - << 'PY'
+from src.infra.settings import get_settings
+s = get_settings()
+print('profile=', s.cloud_profile)
+print('host=', s.opensearch_host)
+print('index=', s.search_index_alias)
+PY
 	@echo "  make setup-local      Complete OpenSearch setup"
 	@echo ""
 	@echo "📊 Evaluation:"
