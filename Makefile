@@ -141,6 +141,27 @@ ontology-queue:
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.id_queue --index "$(or $(INDEX),)" --queue-file $(or $(QUEUE),outputs/ontology_queue/ids.ndjson) --batch $(or $(BATCH),500) --limit $(or $(LIMIT),0) --out-dir $(or $(OUT),outputs/ontology_queue) $(if $(RESUME),--resume,) $(if $(LEDGER),--ledger $(LEDGER),) --mode $(or $(MODE),both)
 
+# List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
+.PHONY: list-indices
+list-indices:
+	@echo "📚 Listing OpenSearch indices from config.ini host"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python - << 'PY'
+from src.infra.settings import get_settings
+from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+import requests
+s = get_settings()
+host = s.opensearch_host.rstrip('/')
+_setup_jpmc_proxy()
+auth = _get_aws_auth()
+url = f"{host}/_cat/indices?format=json"
+r = requests.get(url, auth=auth, timeout=30)
+r.raise_for_status()
+indices = r.json()
+for it in sorted(indices, key=lambda x: x.get('index','')):
+    print(f"{it.get('index',''):<40} status={it.get('status','')} docs={it.get('docs.count','')} pri={it.get('pri','')} rep={it.get('rep','')}")
+PY
+
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
