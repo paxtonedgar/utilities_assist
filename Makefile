@@ -129,4 +129,5 @@ ontology-probe:
 
 check-settings:
 	@echo "🔧 Printing resolved OpenSearch settings from config.ini"
-	@python -c "from src.infra.settings import get_settings; s=get_settings(); print('profile=', s.cloud_profile); print('host=', s.opensearch_host); print('index=', s.search_index_alias)"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -c "from src.infra.settings import get_settings; s=get_settings(); print('profile=', s.cloud_profile); print('host=', s.opensearch_host); print('index=', s.search_index_alias)"

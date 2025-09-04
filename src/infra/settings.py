@@ -521,9 +521,18 @@ class ApplicationSettings(BaseSettings):
         try:
             config_file = os.getenv("UTILITIES_CONFIG", "config.ini")
             config_path = self._resolve_config_path(config_file)
+
+            # If an env override points to a missing file, fall back to config.ini
             if not config_path.exists():
-                logger.warning(f"Config file not found: {config_path}")
-                return {}
+                fallback = self._resolve_config_path("config.ini")
+                if fallback.exists():
+                    logger.info(
+                        f"Primary config '{config_file}' not found; falling back to '{fallback}'"
+                    )
+                    config_path = fallback
+                else:
+                    logger.warning(f"Config file not found: {config_path}")
+                    return {}
 
             config = configparser.ConfigParser()
             config.read(config_path)
