@@ -13,7 +13,29 @@ from pathlib import Path
 from typing import Dict, Any, Iterable
 
 from src.infra.opensearch_client import OpenSearchClient
+from src.infra.settings import get_settings
+from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
+import requests
 from src.ontology.doc_by_doc import process_doc
+
+
+def _resolve_alias_or_index(name: str) -> list[str]:
+    """Return list of concrete indices for an alias or a single concrete index.
+
+    Does not modify infra client; uses same auth/proxy utilities.
+    """
+    s = get_settings()
+    base = s.opensearch_host.rstrip("/")
+    _setup_jpmc_proxy()
+    auth = _get_aws_auth()
+    try:
+        r = requests.get(f"{base}/_alias/{name}", auth=auth, timeout=30)
+        if r.ok and isinstance(r.json(), dict):
+            keys = list(r.json().keys())
+            return keys if keys else [name]
+    except Exception:
+        pass
+    return [name]
 
 
 def build_queue(index: str | None, out_file: str, batch: int, limit: int | None) -> int:
@@ -23,10 +45,12 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with path.open("w", encoding="utf-8") as f:
-        # Use iterate_index to retrieve hits in batches; only record _id/_index
-        for h in client.iterate_index(index=idx, fields=[], batch_size=batch, max_docs=limit):
-            f.write(json.dumps({"_id": h.get("_id"), "_index": h.get("_index", idx)}) + "\n")
-            n += 1
+        # Resolve alias to concrete indices to avoid {alias}/_search 404s on managed domains
+        targets = _resolve_alias_or_index(idx)
+        for target in targets:
+            for h in client.iterate_index(index=target, fields=[], batch_size=batch, max_docs=limit):
+                f.write(json.dumps({"_id": h.get("_id"), "_index": h.get("_index", target)}) + "\n")
+                n += 1
     print(f"Queue built: {n} ids -> {path}")
     return n
 
