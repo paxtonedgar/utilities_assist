@@ -23,7 +23,8 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with path.open("w", encoding="utf-8") as f:
-        for h in client.iterate_ids(index=idx, batch_size=batch, max_docs=limit):
+        # Use iterate_index to retrieve hits in batches; only record _id/_index
+        for h in client.iterate_index(index=idx, fields=[], batch_size=batch, max_docs=limit):
             f.write(json.dumps({"_id": h.get("_id"), "_index": h.get("_index", idx)}) + "\n")
             n += 1
     print(f"Queue built: {n} ids -> {path}")
@@ -122,4 +123,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
