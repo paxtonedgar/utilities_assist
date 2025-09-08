@@ -82,8 +82,9 @@ def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
     body = {"size": batch, "sort": ["_doc"], "query": {"match_all": {}}}
     # Use index-specific URL (matches infra pattern for managed domains)
     url = f"{base}/{index}/_search"
+    headers = {"Content-Type": "application/json"}
     try:
-        r = requests.post(url, params=params, json=body, auth=auth, timeout=60)
+        r = requests.post(url, params=params, json=body, auth=auth, timeout=60, headers=headers)
         r.raise_for_status()
     except requests.HTTPError as e:
         # On clusters where scroll is blocked (404 on alias/_search?scroll), fallback to from/size pagination
@@ -117,7 +118,7 @@ def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
     # 2) scroll until empty or limit reached
     scroll_url = f"{base}/_search/scroll"
     while scroll_id:
-        sr = requests.post(scroll_url, json={"scroll": "2m", "scroll_id": scroll_id}, auth=auth, timeout=60)
+        sr = requests.post(scroll_url, json={"scroll": "2m", "scroll_id": scroll_id}, auth=auth, timeout=60, headers=headers)
         sr.raise_for_status()
         sdata = sr.json()
         scroll_id = sdata.get("_scroll_id")
@@ -137,9 +138,10 @@ def _iter_ids_via_fromsize(base: str, auth, index: str, batch: int, limit: int |
     offset = 0
     yielded = 0
     url = f"{base}/{index}/_search"
+    headers = {"Content-Type": "application/json"}
     while True:
         body = {"from": offset, "size": batch, "query": {"match_all": {}}}
-        r = requests.post(url, json=body, auth=auth, timeout=60)
+        r = requests.post(url, json=body, auth=auth, timeout=60, headers=headers)
         r.raise_for_status()
         data = r.json()
         hits = data.get("hits", {}).get("hits", [])
