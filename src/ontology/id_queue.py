@@ -30,9 +30,20 @@ def _resolve_alias_or_index(name: str) -> list[str]:
     auth = _get_aws_auth()
     try:
         r = requests.get(f"{base}/_alias/{name}", auth=auth, timeout=30)
-        if r.ok and isinstance(r.json(), dict):
-            keys = list(r.json().keys())
-            return keys if keys else [name]
+        if r.ok:
+            data = r.json()
+            if isinstance(data, dict) and data:
+                return list(data.keys())
+    except Exception:
+        pass
+    # Try cat aliases as fallback
+    try:
+        r = requests.get(f"{base}/_cat/aliases/{name}?format=json", auth=auth, timeout=30)
+        if r.ok:
+            arr = r.json()
+            idxs = sorted({row.get('index') for row in arr if row.get('index')})
+            if idxs:
+                return idxs
     except Exception:
         pass
     return [name]
