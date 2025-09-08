@@ -12,147 +12,37 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Iterable
 
-from src.infra.opensearch_client import OpenSearchClient
+from src.infra.resource_manager import initialize_resources
 from src.infra.settings import get_settings
-from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
-import requests
 from src.ontology.doc_by_doc import process_doc
 
 
-def _resolve_alias_or_index(name: str) -> list[str]:
-    """Return list of concrete indices for an alias or a single concrete index.
-
-    Does not modify infra client; uses same auth/proxy utilities.
-    """
-    s = get_settings()
-    base = s.opensearch_host.rstrip("/")
-    _setup_jpmc_proxy()
-    auth = _get_aws_auth()
-    try:
-        r = requests.get(f"{base}/_alias/{name}", auth=auth, timeout=30)
-        if r.ok:
-            data = r.json()
-            if isinstance(data, dict) and data:
-                return list(data.keys())
-    except Exception:
-        pass
-    # Try cat aliases as fallback
-    try:
-        r = requests.get(f"{base}/_cat/aliases/{name}?format=json", auth=auth, timeout=30)
-        if r.ok:
-            arr = r.json()
-            idxs = sorted({row.get('index') for row in arr if row.get('index')})
-            if idxs:
-                return idxs
-    except Exception:
-        pass
-    return [name]
+# Note: _resolve_alias_or_index removed - not needed when using search_client.iterate_ids
 
 
 def build_queue(index: str | None, out_file: str, batch: int, limit: int | None) -> int:
-    client = OpenSearchClient()
-    idx = index or client.settings.search_index_alias
+    # Initialize resources like Streamlit app does - this provides working authentication
+    settings = get_settings()
+    resources = initialize_resources(settings)
+    search_client = resources.search_client
+    
+    idx = index or settings.search_index_alias
     path = Path(out_file)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with path.open("w", encoding="utf-8") as f:
-        # Simple approach: use match_all to grab all document IDs from the index
-        for _id, _index in _iter_ids_via_scroll(idx, batch, limit):
-            f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
-            n += 1
+        # Use the same search client that works in Streamlit - handles authentication properly
+        for hit in search_client.iterate_ids(index=idx, batch_size=batch, max_docs=limit):
+            _id = hit.get("_id")
+            _index = hit.get("_index", idx)
+            if _id:
+                f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
+                n += 1
     print(f"Queue built: {n} ids -> {path}")
     return n
 
 
-def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
-    """Yield (_id, _index) using the OpenSearch Scroll API.
-
-    Uses the same SigV4/proxy plumbing as the app.
-    """
-    s = get_settings()
-    base = s.opensearch_host.rstrip("/")
-    _setup_jpmc_proxy()
-    auth = _get_aws_auth()
-
-    # 1) initial search to obtain scroll_id (prefer scroll)
-    params = {"scroll": "2m"}
-    body = {"size": batch, "sort": ["_doc"], "query": {"match_all": {}}}
-    # Use index-specific URL (matches infra pattern for managed domains)
-    url = f"{base}/{index}/_search"
-    headers = {"Content-Type": "application/json"}
-    try:
-        r = requests.post(url, params=params, json=body, auth=auth, timeout=60, headers=headers)
-        r.raise_for_status()
-    except requests.HTTPError as e:
-        # On clusters where scroll is blocked (404 on alias/_search?scroll), fallback to from/size pagination
-        status = getattr(e.response, "status_code", None)
-        if status == 404:
-            yield from _iter_ids_via_fromsize(base, auth, index, batch, limit)
-            return
-        raise
-    data = r.json()
-    scroll_id = data.get("_scroll_id")
-    hits = data.get("hits", {}).get("hits", [])
-    yielded = 0
-
-    def _yield_hits(harr):
-        nonlocal yielded
-        for h in harr or []:
-            _id = h.get("_id")
-            _index = h.get("_index", index)
-            if _id:
-                yield (_id, _index)
-                yielded += 1
-                if limit and yielded >= limit:
-                    return True
-        return False
-
-    # first page
-    stop = _yield_hits(hits)
-    if stop:
-        return
-
-    # 2) scroll until empty or limit reached
-    scroll_url = f"{base}/_search/scroll"
-    while scroll_id:
-        sr = requests.post(scroll_url, json={"scroll": "2m", "scroll_id": scroll_id}, auth=auth, timeout=60, headers=headers)
-        sr.raise_for_status()
-        sdata = sr.json()
-        scroll_id = sdata.get("_scroll_id")
-        shits = sdata.get("hits", {}).get("hits", [])
-        if not shits:
-            break
-        if _yield_hits(shits):
-            break
-
-
-def _iter_ids_via_fromsize(base: str, auth, index: str, batch: int, limit: int | None):
-    """Yield (_id, _index) using from/size pagination with a simple match_all query.
-
-    This mimics a "normal" search request body similar to what the app uses, avoiding
-    scroll and special sort bodies that gateways may reject on aliases.
-    """
-    offset = 0
-    yielded = 0
-    url = f"{base}/{index}/_search"
-    headers = {"Content-Type": "application/json"}
-    while True:
-        body = {"from": offset, "size": batch, "query": {"match_all": {}}}
-        r = requests.post(url, json=body, auth=auth, timeout=60, headers=headers)
-        r.raise_for_status()
-        data = r.json()
-        hits = data.get("hits", {}).get("hits", [])
-        if not hits:
-            break
-        for h in hits:
-            _id = h.get("_id")
-            _index = h.get("_index", index)
-            if _id:
-                yield (_id, _index)
-                yielded += 1
-                if limit and yielded >= limit:
-                    return
-        offset += batch
+# Note: Raw request functions removed - now using search_client.iterate_ids from resource manager
 
 
 def _load_ids(queue_file: Path) -> Iterable[Dict[str, str]]:
@@ -183,7 +73,11 @@ def _append_ledger(path: Path, doc_id: str) -> None:
 
 
 def process_queue(queue_file: str, out_dir: str, resume: bool, ledger_file: str | None) -> int:
-    client = OpenSearchClient()
+    # Initialize resources like Streamlit app does - this provides working authentication
+    settings = get_settings()
+    resources = initialize_resources(settings)
+    search_client = resources.search_client
+    
     qpath = Path(queue_file)
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -201,9 +95,9 @@ def process_queue(queue_file: str, out_dir: str, resume: bool, ledger_file: str 
             if not did or did in seen:
                 skipped += 1
                 continue
-            idx = item.get("_index") or client.settings.search_index_alias
+            idx = item.get("_index") or settings.search_index_alias
             try:
-                hit = client.get_doc_by_id(index=idx, doc_id=did)
+                hit = search_client.get_doc_by_id(index=idx, doc_id=did)
             except Exception as e:
                 print(f"WARN: failed to fetch {idx}/{did}: {e}")
                 continue
