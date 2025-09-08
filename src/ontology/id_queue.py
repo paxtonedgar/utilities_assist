@@ -48,12 +48,68 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
         # Resolve alias to concrete indices to avoid {alias}/_search 404s on managed domains
         targets = _resolve_alias_or_index(idx)
         for target in targets:
-            # Use fields=None to avoid adding _source:false (some gateways reject it)
-            for h in client.iterate_index(index=target, fields=None, batch_size=batch, max_docs=limit):
-                f.write(json.dumps({"_id": h.get("_id"), "_index": h.get("_index", target)}) + "\n")
+            # Prefer scroll API for robust full iteration (commonly allowed on managed clusters)
+            for _id, _index in _iter_ids_via_scroll(target, batch, limit):
+                f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
                 n += 1
     print(f"Queue built: {n} ids -> {path}")
     return n
+
+
+def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
+    """Yield (_id, _index) using the OpenSearch Scroll API.
+
+    Uses the same SigV4/proxy plumbing as the app.
+    """
+    s = get_settings()
+    base = s.opensearch_host.rstrip("/")
+    _setup_jpmc_proxy()
+    auth = _get_aws_auth()
+
+    # 1) initial search to obtain scroll_id
+    params = {"scroll": "2m"}
+    body = {
+        "size": batch,
+        "sort": ["_doc"],
+        "query": {"match_all": {}},
+    }
+    url = f"{base}/{index}/_search"
+    r = requests.post(url, params=params, json=body, auth=auth, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    scroll_id = data.get("_scroll_id")
+    hits = data.get("hits", {}).get("hits", [])
+    yielded = 0
+
+    def _yield_hits(harr):
+        nonlocal yielded
+        for h in harr or []:
+            _id = h.get("_id")
+            _index = h.get("_index", index)
+            if _id:
+                yield (_id, _index)
+                yielded += 1
+                if limit and yielded >= limit:
+                    return True
+        return False
+
+    # first page
+    stop = _yield_hits(hits)
+    if stop:
+        return
+
+    # 2) scroll until empty or limit reached
+    scroll_url = f"{base}/_search/scroll"
+    while scroll_id:
+        sr = requests.post(scroll_url, json={"scroll": "2m", "scroll_id": scroll_id}, auth=auth, timeout=60)
+        sr.raise_for_status()
+        sdata = sr.json()
+        scroll_id = sdata.get("_scroll_id")
+        shits = sdata.get("hits", {}).get("hits", [])
+        if not shits:
+            break
+        if _yield_hits(shits):
+            break
 
 
 def _load_ids(queue_file: Path) -> Iterable[Dict[str, str]]:
