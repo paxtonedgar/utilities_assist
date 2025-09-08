@@ -66,16 +66,20 @@ def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
     _setup_jpmc_proxy()
     auth = _get_aws_auth()
 
-    # 1) initial search to obtain scroll_id
+    # 1) initial search to obtain scroll_id (prefer scroll)
     params = {"scroll": "2m"}
-    body = {
-        "size": batch,
-        "sort": ["_doc"],
-        "query": {"match_all": {}},
-    }
+    body = {"size": batch, "sort": ["_doc"], "query": {"match_all": {}}}
     url = f"{base}/{index}/_search"
-    r = requests.post(url, params=params, json=body, auth=auth, timeout=60)
-    r.raise_for_status()
+    try:
+        r = requests.post(url, params=params, json=body, auth=auth, timeout=60)
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        # On clusters where scroll is blocked (404 on alias/_search?scroll), fallback to from/size pagination
+        status = getattr(e.response, "status_code", None)
+        if status == 404:
+            yield from _iter_ids_via_fromsize(base, auth, index, batch, limit)
+            return
+        raise
     data = r.json()
     scroll_id = data.get("_scroll_id")
     hits = data.get("hits", {}).get("hits", [])
@@ -110,6 +114,34 @@ def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
             break
         if _yield_hits(shits):
             break
+
+
+def _iter_ids_via_fromsize(base: str, auth, index: str, batch: int, limit: int | None):
+    """Yield (_id, _index) using from/size pagination with a simple match_all query.
+
+    This mimics a "normal" search request body similar to what the app uses, avoiding
+    scroll and special sort bodies that gateways may reject on aliases.
+    """
+    offset = 0
+    yielded = 0
+    url = f"{base}/{index}/_search"
+    while True:
+        body = {"from": offset, "size": batch, "query": {"match_all": {}}}
+        r = requests.post(url, json=body, auth=auth, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        hits = data.get("hits", {}).get("hits", [])
+        if not hits:
+            break
+        for h in hits:
+            _id = h.get("_id")
+            _index = h.get("_index", index)
+            if _id:
+                yield (_id, _index)
+                yielded += 1
+                if limit and yielded >= limit:
+                    return
+        offset += batch
 
 
 def _load_ids(queue_file: Path) -> Iterable[Dict[str, str]]:
