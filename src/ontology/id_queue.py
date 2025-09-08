@@ -56,13 +56,10 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with path.open("w", encoding="utf-8") as f:
-        # Use OpenSearchClient's iterate_ids method which handles nested structure properly
-        for hit in client.iterate_ids(index=idx, batch_size=batch, max_docs=limit):
-            _id = hit.get("_id")
-            _index = hit.get("_index", idx)
-            if _id:
-                f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
-                n += 1
+        # Simple approach: use match_all to grab all document IDs from the index
+        for _id, _index in _iter_ids_via_scroll(idx, batch, limit):
+            f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
+            n += 1
     print(f"Queue built: {n} ids -> {path}")
     return n
 
