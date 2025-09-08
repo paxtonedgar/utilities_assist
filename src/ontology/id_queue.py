@@ -106,8 +106,8 @@ def process_queue(queue_file: str, out_dir: str, resume: bool, ledger_file: str 
             meta_f.write(json.dumps({"doc_id": result["doc_id"], "index": result["index"], "steps": len(result["steps"]), "edges": len(result["edges"])}) + "\n")
             for s in result["steps"]:
                 steps_f.write(json.dumps({"doc_id": result["doc_id"], **s}) + "\n")
-            for e, sc in zip(result["edges"], result["scored"]):
-                edges_f.write(json.dumps({"doc_id": result["doc_id"], **e, "score": sc.get("score"), "accepted": sc.get("accepted"), "signals": sc.get("signals")}) + "\n")
+            for e in result["edges"]:
+                edges_f.write(json.dumps({"doc_id": result["doc_id"], **e, "score": None, "accepted": False, "signals": None}) + "\n")
 
             _append_ledger(ledger, did)
             seen.add(did)
