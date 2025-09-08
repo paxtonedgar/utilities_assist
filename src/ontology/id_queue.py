@@ -80,10 +80,10 @@ def _iter_ids_via_scroll(index: str, batch: int, limit: int | None):
     # 1) initial search to obtain scroll_id (prefer scroll)
     params = {"scroll": "2m"}
     body = {"size": batch, "sort": ["_doc"], "query": {"match_all": {}}}
-    # Prefer top-level _search with index param (closer to app routing rules)
-    url = f"{base}/_search"
+    # Use index-specific URL (matches infra pattern for managed domains)
+    url = f"{base}/{index}/_search"
     try:
-        r = requests.post(url, params={**params, "index": index}, json=body, auth=auth, timeout=60)
+        r = requests.post(url, params=params, json=body, auth=auth, timeout=60)
         r.raise_for_status()
     except requests.HTTPError as e:
         # On clusters where scroll is blocked (404 on alias/_search?scroll), fallback to from/size pagination
@@ -136,10 +136,10 @@ def _iter_ids_via_fromsize(base: str, auth, index: str, batch: int, limit: int |
     """
     offset = 0
     yielded = 0
-    url = f"{base}/_search"
+    url = f"{base}/{index}/_search"
     while True:
         body = {"from": offset, "size": batch, "query": {"match_all": {}}}
-        r = requests.post(url, params={"index": index}, json=body, auth=auth, timeout=60)
+        r = requests.post(url, json=body, auth=auth, timeout=60)
         r.raise_for_status()
         data = r.json()
         hits = data.get("hits", {}).get("hits", [])
