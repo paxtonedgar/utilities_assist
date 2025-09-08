@@ -14,9 +14,12 @@ from typing import Dict, Any, List, Tuple
 
 from src.infra.opensearch_client import OpenSearchClient
 from src.ontology.extractors import regex_step_extractor
-from src.ontology.domain_extractors import extract_domain_entities_and_relations
-from src.ontology.signals import compute_signals_for_pair
-from src.ontology.scoring import score_edge
+from src.ontology.gazetteer import Gazetteer
+import hashlib
+
+
+def _sha256(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
 def _passages_from_hit(hit: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -74,13 +77,22 @@ def _build_next_edges(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "doc_id_b": b.get("doc_id"),
             "order_a": a.get("order"),
             "order_b": b.get("order"),
-            "evidence_refs": [
-                {"doc_id": a.get("doc_id"), "snippet": a.get("evidence", {}).get("text_snippet")},
-                {"doc_id": b.get("doc_id"), "snippet": b.get("evidence", {}).get("text_snippet")},
-            ],
+            "evidence_refs": [],  # populated later
+            "accepted": False,
         }
         edges.append(pair)
     return edges
+
+
+def _find_offsets(haystack: str, needle: str) -> Dict[str, int] | None:
+    if not haystack or not needle:
+        return None
+    start = haystack.find(needle)
+    if start < 0:
+        start = haystack.lower().find(needle.lower())
+    if start < 0:
+        return None
+    return {"start": start, "end": start + len(needle)}
 
 
 def process_doc(hit: Dict[str, Any]) -> Dict[str, Any]:
@@ -91,50 +103,51 @@ def process_doc(hit: Dict[str, Any]) -> Dict[str, Any]:
     passages = _passages_from_hit(hit)
     doc_id = hit.get("_id")
     out_steps: List[Dict[str, Any]] = []
-    domain_edges: List[Dict[str, Any]] = []
+    entities: List[Dict[str, Any]] = []
+    gaz = Gazetteer()
 
     # Per-section extraction to capture nuggets
     for p in passages:
-        steps = regex_step_extractor(p.get("text", ""))
+        section_text = p.get("text", "")
+        section_hash = _sha256(section_text)
+        steps = regex_step_extractor(section_text)
         for s in steps:
             s.update({
                 "doc_id": p.get("doc_id"),
                 "index": p.get("index"),
                 "section_title": p.get("section_title"),
                 "page_url": p.get("page_url"),
+                "section_hash": section_hash,
             })
+            snippet = (s.get("evidence") or {}).get("text_snippet", "")
+            offs = _find_offsets(section_text, snippet)
+            if offs:
+                s["evidence"]["offsets"] = offs
         out_steps.extend(steps)
+        # Gazetteer mentions (no relations)
+        for etype, name in gaz.find_mentions(section_text):
+            entities.append({"type": etype, "name": name})
 
-        _, rels = extract_domain_entities_and_relations(p)
-        domain_edges.extend(rels)
-
-    # Build NEXT edges within doc
+    # Build NEXT edges within doc and attach evidence with hashes/offsets
     next_edges = _build_next_edges(out_steps)
-
-    # Score edges (NEXT + domain)
-    scored: List[Dict[str, Any]] = []
-    all_edges = next_edges + domain_edges
-    for e in all_edges:
-        rel = e.get("type", "NEXT")
-        if rel == "NEXT":
-            sigs = compute_signals_for_pair(e["a"], e["b"])  # lightweight signals
-            e_score = score_edge(relation=rel, pair={**e, "signals": sigs})
-        else:
-            e_score = score_edge(relation=rel, pair=e)
-        scored.append({
-            "type": rel,
-            "score": e_score.score,
-            "accepted": e_score.accepted,
-            "signals": e_score.signals,
-            "notes": e_score.notes,
-        })
+    for e in next_edges:
+        a, b = e.get("a", {}), e.get("b", {})
+        ev = []
+        for step in (a, b):
+            ev.append({
+                "doc_id": step.get("doc_id"),
+                "snippet": (step.get("evidence") or {}).get("text_snippet"),
+                "offsets": (step.get("evidence") or {}).get("offsets"),
+                "content_hash": step.get("section_hash"),
+            })
+        e["evidence_refs"] = ev
 
     return {
         "doc_id": doc_id,
         "index": hit.get("_index"),
         "steps": out_steps,
-        "edges": all_edges,
-        "scored": scored,
+        "edges": next_edges,
+        "entities": sorted({(x["type"], x["name"]) for x in entities}),
     }
 
 
@@ -184,6 +197,7 @@ def run(index: str | None, limit: int, batch: int, out_dir: str, resume: bool, c
     steps_f = (out_path / "steps.ndjson").open("w", encoding="utf-8")
     edges_f = (out_path / "edges.ndjson").open("w", encoding="utf-8")
     meta_f = (out_path / "docs.ndjson").open("w", encoding="utf-8")
+    ents_f = (out_path / "entities.ndjson").open("w", encoding="utf-8")
     ckpt_path = Path(checkpoint_file) if checkpoint_file else (out_path / "checkpoint.ids")
     # Load previously processed ids if resuming; otherwise start empty
     processed_ids = _load_processed_ids(ckpt_path) if resume else set()
@@ -205,8 +219,11 @@ def run(index: str | None, limit: int, batch: int, out_dir: str, resume: bool, c
             meta_f.write(json.dumps({"doc_id": result["doc_id"], "index": result["index"], "steps": len(result["steps"]), "edges": len(result["edges"])}) + "\n")
             for s in result["steps"]:
                 steps_f.write(json.dumps({"doc_id": result["doc_id"], **s}) + "\n")
-            for e, s in zip(result["edges"], result["scored"]):
-                edges_f.write(json.dumps({"doc_id": result["doc_id"], **e, "score": s.get("score"), "accepted": s.get("accepted"), "signals": s.get("signals")}) + "\n")
+            for e in result["edges"]:
+                e_out = {"doc_id": result["doc_id"], **e, "accepted": False}
+                edges_f.write(json.dumps(e_out) + "\n")
+            for t, n in result.get("entities", []):
+                ents_f.write(json.dumps({"doc_id": result["doc_id"], "type": t, "name": n}) + "\n")
 
             count += 1
             # Record and checkpoint the processed id (always append to keep a ledger)
@@ -217,7 +234,7 @@ def run(index: str | None, limit: int, batch: int, out_dir: str, resume: bool, c
                 print(f"Processed {count} docs...")
         print(f"Done. Processed {count} documents (deduped {dupes} duplicates). Outputs in {out_path}")
     finally:
-        steps_f.close(); edges_f.close(); meta_f.close()
+        steps_f.close(); edges_f.close(); meta_f.close(); ents_f.close()
         if write_summary:
             _finalize_summary(summary, out_path)
 

@@ -123,9 +123,7 @@ help:
 .PHONY: ontology-probe check-settings
 
 ontology-probe:
-	@echo "🚀 Running ontology probe against OpenSearch (config.ini)"
-	UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.pipeline --query "$(or $(QUERY),install OR configure OR team OR division OR application OR diagram)" --max-docs $(or $(MAX),50) --csv-out $(or $(CSV),qc_edges.csv)
+	@echo "ℹ️ ontology-probe deprecated; use 'make ontology-run' or 'make ontology-queue' instead."
 
 # Full corpus scan (document-by-document via PIT)
 .PHONY: ontology-scan
@@ -147,6 +145,13 @@ ontology-run:
 	@echo "🔁 Continuous scan across indices"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.continuous_queue --indices "$(or $(INDICES),)" --out-dir $(or $(OUT),outputs/continuous) --batch $(or $(BATCH),500)
+
+# Push NDJSON outputs into Neo4j
+.PHONY: push-neo4j
+push-neo4j:
+	@echo "📤 Pushing ontology outputs to Neo4j"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.neo4j_writer --inputs $(or $(INPUTS),outputs/ontology_queue outputs/ontology_scan outputs/continuous/khub-opensearch-index outputs/continuous/khub-opensearch-swagger-index) --database $(or $(DB),neo4j)
 
 # List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
 .PHONY: list-indices
