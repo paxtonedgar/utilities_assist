@@ -56,11 +56,11 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with path.open("w", encoding="utf-8") as f:
-        # Resolve alias to concrete indices to avoid {alias}/_search 404s on managed domains
-        targets = _resolve_alias_or_index(idx)
-        for target in targets:
-            # Prefer scroll API for robust full iteration (commonly allowed on managed clusters)
-            for _id, _index in _iter_ids_via_scroll(target, batch, limit):
+        # Use OpenSearchClient's iterate_ids method which handles nested structure properly
+        for hit in client.iterate_ids(index=idx, batch_size=batch, max_docs=limit):
+            _id = hit.get("_id")
+            _index = hit.get("_index", idx)
+            if _id:
                 f.write(json.dumps({"_id": _id, "_index": _index}) + "\n")
                 n += 1
     print(f"Queue built: {n} ids -> {path}")
