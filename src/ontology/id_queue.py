@@ -48,7 +48,8 @@ def build_queue(index: str | None, out_file: str, batch: int, limit: int | None)
         # Resolve alias to concrete indices to avoid {alias}/_search 404s on managed domains
         targets = _resolve_alias_or_index(idx)
         for target in targets:
-            for h in client.iterate_index(index=target, fields=[], batch_size=batch, max_docs=limit):
+            # Use fields=None to avoid adding _source:false (some gateways reject it)
+            for h in client.iterate_index(index=target, fields=None, batch_size=batch, max_docs=limit):
                 f.write(json.dumps({"_id": h.get("_id"), "_index": h.get("_index", target)}) + "\n")
                 n += 1
     print(f"Queue built: {n} ids -> {path}")
