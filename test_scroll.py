@@ -11,9 +11,8 @@ def test_scroll_support():
     """Test scroll API on your working index."""
     print("🔍 Testing scroll API support...")
     
-    # Initialize using working auth
+    # Skip full resource initialization, just get auth directly
     settings = get_settings()
-    resources = initialize_resources(settings)
     
     _setup_jpmc_proxy()
     auth = _get_aws_auth()
