@@ -10,6 +10,10 @@ def simple_scroll_test():
     print("🔍 Simple scroll test...")
     
     settings = get_settings()
+    print(f"🔧 Profile: {settings.cloud_profile}")
+    print(f"🔧 OpenSearch host: {settings.opensearch_host}")
+    print(f"🔧 AWS info loaded: {settings.aws_info is not None}")
+    
     _setup_jpmc_proxy()
     auth = _get_aws_auth()
     base_url = settings.opensearch_host.rstrip("/")
