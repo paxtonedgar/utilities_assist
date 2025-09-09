@@ -11,11 +11,10 @@ def test_scroll_support():
     """Test scroll API on your working index."""
     print("🔍 Testing scroll API support...")
     
-    # Use the same working pattern as ontology pipeline
-    settings = get_settings()
+    # Force the correct configuration that works in your ontology pipeline
     _setup_jpmc_proxy()
     auth = _get_aws_auth()
-    base_url = settings.opensearch_host.rstrip("/")
+    base_url = "https://utilitiesassist.dev.aws.jpmchase.net"  # Your actual cluster
     
     # Test on your working index
     index = "khub-opensearch-swagger-index"
