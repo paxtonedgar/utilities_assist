@@ -11,9 +11,8 @@ def test_scroll_support():
     """Test scroll API on your working index."""
     print("🔍 Testing scroll API support...")
     
-    # Skip full resource initialization, just get auth directly
+    # Use the same working pattern as ontology pipeline
     settings = get_settings()
-    
     _setup_jpmc_proxy()
     auth = _get_aws_auth()
     base_url = settings.opensearch_host.rstrip("/")
