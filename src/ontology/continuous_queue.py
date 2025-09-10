@@ -14,6 +14,7 @@ from typing import List, Set
 
 from src.infra.settings import get_settings
 from src.infra.search_config import OpenSearchConfig
+from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
 from src.ontology.id_queue import build_queue, process_queue
 
 
@@ -75,6 +76,44 @@ def run(indices: List[str], out_dir: str, batch: int):
                 break
 
 
+def _discover_khub_indices(prefix: str = "khub") -> List[str]:
+    """Return a list of open indices whose names start with the given prefix.
+
+    Uses the same SigV4/proxy plumbing as the rest of the app.
+    Falls back to the configured alias + swagger index if discovery fails.
+    """
+    try:
+        import requests
+
+        s = get_settings()
+        base = s.opensearch_host.rstrip("/")
+        _setup_jpmc_proxy()
+        auth = _get_aws_auth()
+
+        url = f"{base}/_cat/indices?format=json&expand_wildcards=all"
+        r = requests.get(url, auth=auth, timeout=30)
+        r.raise_for_status()
+        arr = r.json()
+        names = [row.get("index") for row in arr if isinstance(row, dict)]
+        out = []
+        for n in names:
+            if not n or n.startswith("."):
+                continue
+            if n.lower().startswith(prefix.lower()):
+                out.append(n)
+        # Deduplicate and sort for determinism
+        out = sorted({*out})
+        if out:
+            print(f"🔎 Discovered {len(out)} indices with prefix '{prefix}': {', '.join(out[:10])}{'…' if len(out) > 10 else ''}")
+            return out
+    except Exception as e:
+        print(f"WARN: index discovery failed ({e}); falling back to defaults")
+
+    # Fallback: keep previous defaults (configured alias + swagger)
+    s = get_settings()
+    return [s.search_index_alias, OpenSearchConfig.get_swagger_index()]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Continuous queue scan across indices")
     ap.add_argument("--indices", type=str, default="", help="Comma-separated list of indices; empty=main+swagger")
@@ -83,14 +122,17 @@ def main():
     args = ap.parse_args()
 
     if args.indices:
+        # Comma-separated explicit list
         idxs = [s.strip() for s in args.indices.split(",") if s.strip()]
+        # Support magic keyword 'khub' meaning auto-discover khub* indices
+        if len(idxs) == 1 and idxs[0].lower() in {"khub", "khub*", "auto-khub"}:
+            idxs = _discover_khub_indices(prefix="khub")
     else:
-        s = get_settings()
-        idxs = [s.search_index_alias, OpenSearchConfig.get_swagger_index()]
+        # No indices passed – auto-discover khub* indices for convenience
+        idxs = _discover_khub_indices(prefix="khub")
 
     run(indices=idxs, out_dir=args.out_dir, batch=args.batch)
 
 
 if __name__ == "__main__":
     main()
-
