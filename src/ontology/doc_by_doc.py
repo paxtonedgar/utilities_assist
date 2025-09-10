@@ -46,6 +46,21 @@ def _passages_from_hit(hit: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "title": src.get("title"),
                         }
                     )
+                # Swagger-style: method + endpoint present in section
+                method = (s.get("method") or s.get("http_method") or "").strip()
+                endpoint = (s.get("endpoint") or s.get("path") or "").strip()
+                if method and endpoint:
+                    line = f"{method.upper()} {endpoint}"
+                    passages.append(
+                        {
+                            "doc_id": doc_id,
+                            "index": idx,
+                            "section_title": s.get("summary") or s.get("title") or s.get("heading"),
+                            "text": line,
+                            "page_url": src.get("page_url"),
+                            "title": src.get("title"),
+                        }
+                    )
     else:
         # Fallback to document-level fields
         for f in ("body", "content", "text", "description", "summary"):
@@ -61,6 +76,22 @@ def _passages_from_hit(hit: Dict[str, Any]) -> List[Dict[str, Any]]:
                     }
                 )
                 break
+
+        # Swagger-style: top-level method + endpoint
+        method = (src.get("method") or src.get("http_method") or "").strip()
+        endpoint = (src.get("endpoint") or src.get("path") or "").strip()
+        if method and endpoint:
+            line = f"{method.upper()} {endpoint}"
+            passages.append(
+                {
+                    "doc_id": doc_id,
+                    "index": idx,
+                    "section_title": src.get("summary") or src.get("title"),
+                    "text": line,
+                    "page_url": src.get("page_url"),
+                    "title": src.get("title"),
+                }
+            )
 
     return passages
 
