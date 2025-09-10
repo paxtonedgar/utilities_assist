@@ -7,13 +7,36 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 from neo4j import GraphDatabase
-from src.infra.settings import _load_shared_config
+try:
+    from src.infra.settings import _load_shared_config
+except Exception:
+    _load_shared_config = None  # Fallback to direct file read
 
 
 def _load_neo4j_config() -> Dict[str, str]:
-    """Load [neo4j] credentials using the shared resource-config loader."""
-    cfg = _load_shared_config()  # Centralized, cached config.ini loader
+    """Load [neo4j] credentials, resilient to import/path differences.
+
+    Order:
+    1) Try shared loader (if available)
+    2) Fallback to reading config.ini / src/config.ini directly
+    3) Environment variables (NEO4J_*)
+    """
     data: Dict[str, str] = {}
+
+    cfg = None
+    try:
+        if _load_shared_config:
+            cfg = _load_shared_config()
+    except Exception:
+        cfg = None
+
+    if cfg is None:
+        cfg = configparser.ConfigParser()
+        for path in (Path("config.ini"), Path("src/config.ini")):
+            if path.exists():
+                cfg.read(path)
+                break
+
     # Case-insensitive [neo4j] section
     sec_name = None
     for s in cfg.sections():
