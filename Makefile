@@ -153,6 +153,23 @@ push-neo4j:
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.neo4j_writer --inputs $(or $(INPUTS),outputs/ontology_queue outputs/ontology_scan outputs/continuous/khub-opensearch-index outputs/continuous/khub-opensearch-swagger-index) --database $(or $(DB),neo4j)
 
+# Export NDJSON to CSV for LOAD CSV (no APOC)
+.PHONY: ontology-export-csv
+ontology-export-csv:
+	@echo "📦 Converting NDJSON -> CSV for LOAD CSV"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.export_csv --input $(or $(INPUT),outputs/continuous/khub-opensearch-swagger-index) --out $(or $(OUT),outputs/continuous/khub-opensearch-swagger-index/csv)
+	@echo ""
+	@echo "➡️  Start an HTTP server in the CSV folder (from your VDI):"
+	@echo "   cd $(or $(OUT),outputs/continuous/khub-opensearch-swagger-index/csv) && python -m http.server 9000"
+	@echo ""
+	@echo "🔗 Then, in Neo4j, run LOAD CSV commands (replace <host> with your VDI hostname):"
+	@echo "   CREATE CONSTRAINT doc_id IF NOT EXISTS FOR (d:Doc) REQUIRE d.id IS UNIQUE;"
+	@echo "   CREATE CONSTRAINT step_id IF NOT EXISTS FOR (s:Step) REQUIRE s.id IS UNIQUE;"
+	@echo "   LOAD CSV WITH HEADERS FROM 'http://<host>:9000/docs.csv' AS row MERGE (d:Doc {id: row.id}) SET d.index_name=row.index_name, d.step_cnt=toInteger(row.step_cnt), d.edge_cnt=toInteger(row.edge_cnt);"
+	@echo "   LOAD CSV WITH HEADERS FROM 'http://<host>:9000/steps.csv' AS row MERGE (s:Step {id: row.id}) SET s.label=row.label, s.verb=row.verb, s.obj=row.obj, s.doc_id=row.doc_id, s.section=row.section, s.order=toInteger(row.order), s.page_url=row.page_url WITH s,row MERGE (d:Doc {id: row.doc_composite_id}) MERGE (s)-[:OF_DOC]->(d);"
+	@echo "   LOAD CSV WITH HEADERS FROM 'http://<host>:9000/edges.csv' AS row MATCH (a:Step {id: row.src}), (b:Step {id: row.dst}) MERGE (a)-[r:NEXT]->(b) SET r.confidence=toFloat(row.score), r.accepted=coalesce(r.accepted, row.accepted='true');"
+
 # List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
 .PHONY: list-indices
 list-indices:
