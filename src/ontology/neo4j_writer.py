@@ -2,31 +2,39 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import configparser
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 from neo4j import GraphDatabase
 
-from utils import load_config
-
 
 def _load_neo4j_config() -> Dict[str, str]:
-    cfg = load_config()
-    # Case-insensitive section/key lookup
-    sec = None
+    """Load [neo4j] config without relying on project-specific utils imports."""
+    cfg = configparser.ConfigParser()
+    # Try common locations
+    for path in (Path("config.ini"), Path("src/config.ini")):
+        if path.exists():
+            cfg.read(path)
+            break
+    data: Dict[str, str] = {}
+    # Case-insensitive [neo4j] section
+    sec_name = None
     for s in cfg.sections():
         if s.lower() == "neo4j":
-            sec = s
+            sec_name = s
             break
-    data = {}
-    if sec:
-        for k, v in cfg[sec].items():
+    if sec_name:
+        for k, v in cfg[sec_name].items():
             data[k.lower()] = v
     # Allow env override
     import os
-    data.setdefault("uri", os.getenv("NEO4J_URI", ""))
-    data.setdefault("user", os.getenv("NEO4J_USER", ""))
-    data.setdefault("password", os.getenv("NEO4J_PASSWORD", ""))
+    if not data.get("uri"):
+        data["uri"] = os.getenv("NEO4J_URI", "")
+    if not data.get("user"):
+        data["user"] = os.getenv("NEO4J_USER", "")
+    if not data.get("password"):
+        data["password"] = os.getenv("NEO4J_PASSWORD", "")
     data.setdefault("database", os.getenv("NEO4J_DATABASE", "neo4j"))
     return data
 
