@@ -23,6 +23,9 @@ def _load_neo4j_config() -> Dict[str, str]:
     if sec_name:
         for k, v in cfg[sec_name].items():
             data[k.lower()] = v
+    # Accept both url and uri (be forgiving with config keys)
+    if "uri" not in data and "url" in data:
+        data["uri"] = data.get("url", "")
     # Allow env override
     import os
     if not data.get("uri"):
