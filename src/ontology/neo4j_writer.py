@@ -109,9 +109,22 @@ def _chunked(seq: List[Any], size: int = 1000):
 
 
 def _ensure_constraints(tx):
-    tx.run("CREATE CONSTRAINT step_id IF NOT EXISTS ON (s:Step) ASSERT s.id IS UNIQUE")
-    tx.run("CREATE CONSTRAINT doc_id IF NOT EXISTS ON (d:Doc) ASSERT d.id IS UNIQUE")
-    tx.run("CREATE CONSTRAINT entity_key IF NOT EXISTS ON (e:Entity) ASSERT (e.type, e.name) IS UNIQUE")
+    """Create constraints compatible with Neo4j 5 (with fallback for 4.x)."""
+    v5 = [
+        "CREATE CONSTRAINT step_id IF NOT EXISTS FOR (s:Step) REQUIRE s.id IS UNIQUE",
+        "CREATE CONSTRAINT doc_id IF NOT EXISTS FOR (d:Doc) REQUIRE d.id IS UNIQUE",
+        "CREATE CONSTRAINT entity_key IF NOT EXISTS FOR (e:Entity) REQUIRE (e.type, e.name) IS UNIQUE",
+    ]
+    v4 = [
+        "CREATE CONSTRAINT step_id IF NOT EXISTS ON (s:Step) ASSERT s.id IS UNIQUE",
+        "CREATE CONSTRAINT doc_id IF NOT EXISTS ON (d:Doc) ASSERT d.id IS UNIQUE",
+        "CREATE CONSTRAINT entity_key IF NOT EXISTS ON (e:Entity) ASSERT (e.type, e.name) IS UNIQUE",
+    ]
+    for q5, q4 in zip(v5, v4):
+        try:
+            tx.run(q5)
+        except Exception:
+            tx.run(q4)
 
 
 def _merge_steps(session, steps: List[Dict[str, Any]]):
