@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Tuple
 
 from neo4j import GraphDatabase
 
-from src.utils import load_config
+from utils import load_config
 
 
 def _load_neo4j_config() -> Dict[str, str]:
