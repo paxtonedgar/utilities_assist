@@ -172,7 +172,9 @@ class OpenSearchClient:
     
     def _execute_bm25_request(self, search_body: dict, index: str) -> dict:
         """Execute BM25 request and return response data."""
-        url = f"{self.base_url}/{index}/_search"
+        # Prefer top-level _search with ?index= to handle gateways/aliases; keep path-based fallback
+        url_param = f"{self.base_url}/_search"
+        url_path = f"{self.base_url}/{index}/_search"
         start_time = time.time()
         
         _setup_jpmc_proxy()
@@ -865,9 +867,34 @@ class OpenSearchClient:
                 body["search_after"] = last_sort
 
             if aws_auth:
-                res = requests.post(url, json=body, auth=aws_auth, timeout=30.0, headers=headers)
+                try:
+                    res = requests.post(
+                        url_param,
+                        params={"index": index},
+                        json=body,
+                        auth=aws_auth,
+                        timeout=30.0,
+                        headers=headers,
+                    )
+                    if res.status_code == 404:
+                        raise requests.HTTPError("Not Found", response=res)
+                except requests.HTTPError:
+                    res = requests.post(
+                        url_path, json=body, auth=aws_auth, timeout=30.0, headers=headers
+                    )
             else:
-                res = self.session.post(url, json=body, timeout=30.0, headers=headers)
+                try:
+                    res = self.session.post(
+                        url_param,
+                        params={"index": index},
+                        json=body,
+                        timeout=30.0,
+                        headers=headers,
+                    )
+                    if res.status_code == 404:
+                        raise requests.HTTPError("Not Found", response=res)
+                except requests.HTTPError:
+                    res = self.session.post(url_path, json=body, timeout=30.0, headers=headers)
             res.raise_for_status()
             data = res.json()
             hits = data.get("hits", {}).get("hits", [])
