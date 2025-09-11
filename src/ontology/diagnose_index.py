@@ -152,7 +152,38 @@ def _score_field(stat: "PathStat", patterns: Dict[str, int]) -> Dict[str, float]
     }
 
 
-def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 200) -> None:
+STOPWORDS = set("""
+the a an to for of and or in on with by from as at be is are was were can will this that these those into over under about per not no yes it its it's your you we they them his her their our ours has have had do does did done should must may might would could than then next first second finally after when once before via using use used make create configure open click select choose run execute set update enable install remove delete add review approve reject
+""".split())
+
+
+def extract_keywords(sample: str, k: int = 10) -> List[str]:
+    # Very light keyword extraction: capitalized terms, backticked tokens, and long words
+    import re
+    toks = re.findall(r"`([^`]+)`|\b([A-Z][A-Za-z0-9_-]{2,})\b|\b([a-z][a-z0-9_-]{4,})\b", sample)
+    words: List[str] = []
+    for t in toks:
+        cand = next((x for x in t if x), None)
+        if not cand:
+            continue
+        low = cand.lower()
+        if low in STOPWORDS:
+            continue
+        words.append(cand)
+    # Deduplicate preserving order
+    seen = set(); out = []
+    for w in words:
+        lw = w.lower()
+        if lw in seen:
+            continue
+        seen.add(lw)
+        out.append(w)
+        if len(out) >= k:
+            break
+    return out
+
+
+def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 200, redact: str = "none") -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     client = OpenSearchClient()
 
@@ -198,15 +229,16 @@ def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 20
                 all_counts = {**s_counts, **l_counts, **c_counts, **d_counts}
                 pattern_freq.update(all_counts)
 
-                preview_items.append(
-                    {
-                        "path": p,
-                        "len": len(v),
-                        "html": is_html,
-                        "sample": sample[:600],
-                        "patterns": all_counts,
-                    }
-                )
+                item: Dict[str, Any] = {"path": p, "len": len(v), "html": is_html, "patterns": all_counts}
+                if redact == "none":
+                    item["sample"] = sample[:600]
+                elif redact == "hash":
+                    import hashlib
+                    item["sample_hash"] = hashlib.sha256(sample.encode("utf-8")).hexdigest()
+                elif redact == "keywords":
+                    item["keywords"] = extract_keywords(sample, k=12)
+                # else: no sample included
+                preview_items.append(item)
             docs_preview.write(
                 json.dumps({"doc_id": doc_id, "index": index, "top_candidates": preview_items})
                 + "\n"
@@ -259,6 +291,7 @@ def main():
     ap.add_argument("--limit", type=int, default=25, help="Docs per index to sample")
     ap.add_argument("--out", type=str, default="outputs/diagnostics", help="Output directory base")
     ap.add_argument("--batch", type=int, default=200, help="Batch size for iteration")
+    ap.add_argument("--redact", type=str, default="none", choices=["none", "hash", "keywords", "nosample"], help="Redact policy for previews")
     args = ap.parse_args()
 
     if args.indices.lower() in {"khub", "khub*", "auto-khub"}:
@@ -266,7 +299,7 @@ def main():
     else:
         idxs = [s.strip() for s in args.indices.split(",") if s.strip()]
 
-    diagnose(idxs, out_dir=Path(args.out), limit=args.limit, batch=args.batch)
+    diagnose(idxs, out_dir=Path(args.out), limit=args.limit, batch=args.batch, redact=("none" if args.redact=="none" else args.redact))
 
 
 if __name__ == "__main__":

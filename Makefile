@@ -175,7 +175,7 @@ ontology-export-csv:
 ontology-diagnose:
 	@echo "🔎 Diagnosing index content fields (sampling)"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.diagnose_index --indices $(or $(INDICES),khub) --limit $(or $(LIMIT),25) --out $(or $(OUT),outputs/diagnostics)
+	python -m src.ontology.diagnose_index --indices $(or $(INDICES),khub) --limit $(or $(LIMIT),25) --out $(or $(OUT),outputs/diagnostics) --redact $(or $(REDACT),keywords)
 
 # List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
 .PHONY: list-indices
