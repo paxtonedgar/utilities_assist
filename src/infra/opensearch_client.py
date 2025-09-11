@@ -737,97 +737,17 @@ class OpenSearchClient:
         max_docs: Optional[int] = None,
         keep_alive: str = "1m",
     ):
-        """Yield raw OpenSearch hits document-by-document using PIT + search_after.
+        """Yield raw OpenSearch hits using non-PIT search_after iteration.
 
-        Args:
-            index: Index or alias to iterate (defaults to settings.search_index_alias)
-            fields: Optional list of fields to include in _source; None means full _source
-            batch_size: Number of docs to fetch per page
-            max_docs: Optional cap on total documents yielded
-            keep_alive: PIT keep-alive duration
-        Yields:
-            dict: Raw hit with keys like _id, _index, _source, sort
+        PIT is disabled for this environment to avoid 400s from managed gateways.
         """
-        import requests
-
         index = index or self.settings.search_index_alias
-        _setup_jpmc_proxy()
-        aws_auth = _get_aws_auth()
-
-        # Try PIT for consistent iteration; fallback to non-PIT if 400 or unsupported
-        pit_id = None
-        try:
-            pit_url = f"{self.base_url}/{index}/_pit?keep_alive={keep_alive}"
-            if aws_auth:
-                pit_res = requests.post(pit_url, auth=aws_auth, timeout=30.0)
-            else:
-                pit_res = self.session.post(pit_url, timeout=30.0)
-            pit_res.raise_for_status()
-            pit_id = pit_res.json().get("id")
-        except requests.HTTPError as e:
-            # Some clusters or aliases may not allow PIT; fallback path below
-            logger.info(f"PIT open failed for {index} ({getattr(e.response, 'status_code', '?')}): falling back to non-PIT iteration")
-            pit_id = None
-
-        if not pit_id:
-            # Fallback: iterate without PIT using search_after on _doc (less strict guarantees)
-            yield from self._iterate_without_pit(index=index, fields=fields, batch_size=batch_size, max_docs=max_docs)
-            return
-
-        try:
-            search_url = f"{self.base_url}/_search"
-            search_body: Dict[str, Any] = {
-                "size": batch_size,
-                "pit": {"id": pit_id, "keep_alive": keep_alive},
-                "sort": [{"_shard_doc": "asc"}],
-                "track_total_hits": False,
-            }
-            if fields:
-                search_body["_source"] = fields
-
-            yielded = 0
-            last_sort = None
-            headers = {"Content-Type": "application/json"}
-
-            while True:
-                if last_sort is not None:
-                    search_body["search_after"] = last_sort
-
-                if aws_auth:
-                    res = requests.post(search_url, json=search_body, auth=aws_auth, timeout=30.0, headers=headers)
-                else:
-                    res = self.session.post(search_url, json=search_body, timeout=30.0, headers=headers)
-                res.raise_for_status()
-                data = res.json()
-                hits = data.get("hits", {}).get("hits", [])
-                if not hits:
-                    break
-
-                for h in hits:
-                    yield h
-                    yielded += 1
-                    if max_docs and yielded >= max_docs:
-                        break
-
-                if max_docs and yielded >= max_docs:
-                    break
-
-                last_sort = hits[-1].get("sort")
-                # PIT id may rotate; update if provided
-                pit_id = data.get("pit_id", pit_id)
-                search_body["pit"]["id"] = pit_id
-
-        finally:
-            # Close PIT
-            try:
-                close_url = f"{self.base_url}/_pit"
-                body = {"id": pit_id}
-                if aws_auth:
-                    requests.delete(close_url, json=body, auth=aws_auth, timeout=10.0)
-                else:
-                    self.session.delete(close_url, json=body, timeout=10.0)
-            except Exception:
-                pass
+        yield from self._iterate_without_pit(
+            index=index,
+            fields=fields,
+            batch_size=batch_size,
+            max_docs=max_docs,
+        )
 
     def _iterate_without_pit(
         self,
@@ -845,7 +765,9 @@ class OpenSearchClient:
 
         _setup_jpmc_proxy()
         aws_auth = _get_aws_auth()
-        url = f"{self.base_url}/{index}/_search"
+        # Prefer top-level /_search?index= for managed gateways; fallback to /{index}/_search
+        url_param = f"{self.base_url}/_search"
+        url_path = f"{self.base_url}/{index}/_search"
 
         body: Dict[str, Any] = {
             "size": batch_size,
