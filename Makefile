@@ -170,6 +170,13 @@ ontology-export-csv:
 	@echo "   LOAD CSV WITH HEADERS FROM 'http://<host>:9000/steps.csv' AS row MERGE (s:Step {id: row.id}) SET s.label=row.label, s.verb=row.verb, s.obj=row.obj, s.doc_id=row.doc_id, s.section=row.section, s.order=toInteger(row.order), s.page_url=row.page_url WITH s,row MERGE (d:Doc {id: row.doc_composite_id}) MERGE (s)-[:OF_DOC]->(d);"
 	@echo "   LOAD CSV WITH HEADERS FROM 'http://<host>:9000/edges.csv' AS row MATCH (a:Step {id: row.src}), (b:Step {id: row.dst}) MERGE (a)-[r:NEXT]->(b) SET r.confidence=toFloat(row.score), r.accepted=coalesce(r.accepted, row.accepted='true');"
 
+# Diagnose index content structure and HTML/text fields
+.PHONY: ontology-diagnose
+ontology-diagnose:
+	@echo "🔎 Diagnosing index content fields (sampling)"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.diagnose_index --indices $(or $(INDICES),khub) --limit $(or $(LIMIT),25) --out $(or $(OUT),outputs/diagnostics)
+
 # List all indices in OpenSearch (uses config.ini + jpmc_azure auth)
 .PHONY: list-indices
 list-indices:
