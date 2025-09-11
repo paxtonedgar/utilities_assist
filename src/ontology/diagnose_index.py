@@ -41,6 +41,48 @@ from .pattern_detectors import linguistic as det_ling
 from .pattern_detectors import confluence as det_conf
 from .pattern_detectors import domain as det_domain
 
+# Tracked pattern keys and weights
+TRACKED_PATTERNS = [
+    "lists", "ordered_lists", "tables", "headers", "code_blocks",
+    "inline_backticks", "proc_cues", "trigger_cues", "cap_terms", "macros"
+]
+
+VALUE = {
+    "proc_cues": 3.0,
+    "ordered_lists": 2.5,
+    "tables": 3.0,
+    "headers": 2.0,
+    "trigger_cues": 2.0,
+    "cap_terms": 1.5,
+    "code_blocks": 1.0,
+    "inline_backticks": 1.0,
+    "lists": 1.5,
+    "macros": 1.0,
+}
+
+DIFFICULTY = {
+    "cap_terms": 1.0,
+    "inline_backticks": 1.0,
+    "headers": 2.0,
+    "lists": 2.0,
+    "ordered_lists": 2.0,
+    "tables": 2.0,
+    "proc_cues": 3.0,
+    "trigger_cues": 2.5,
+    "code_blocks": 1.5,
+    "macros": 1.0,
+}
+
+PAIR_CANDIDATES = [
+    ("proc_cues", "ordered_lists"),
+    ("proc_cues", "trigger_cues"),
+    ("tables", "headers"),
+    ("lists", "tables"),
+    ("code_blocks", "inline_backticks"),
+    ("proc_cues", "cap_terms"),
+    ("headers", "cap_terms"),
+]
+
 
 def looks_like_html(s: str) -> bool:
     if "<" in s and ">" in s:
@@ -246,6 +288,14 @@ def diagnose(
             _fh = None
             write_line = lambda _x: None
             close_writer = lambda: None
+        # Doc-level accumulators
+        doc_pattern_presence = Counter()  # pattern -> docs with pattern present
+        pair_both = Counter()  # (A,B) -> docs with both
+        pair_either = Counter()  # (A,B) -> docs with either
+        # Field coverage at doc granularity
+        doc_path_counts = Counter()  # path -> docs with this path present
+        doc_path_html_docs = Counter()  # path -> docs with html present
+        doc_path_short_docs = Counter()  # path -> docs where min len < min_sample_len
         pattern_freq = Counter()
         opportunities: List[Dict[str, Any]] = []
 
@@ -256,6 +306,8 @@ def diagnose(
 
             # gather candidates: text-like leaves
             candidates: List[Tuple[str, str, bool]] = []  # (path, value, is_html)
+            # per-doc path tracking
+            per_doc_paths: Dict[str, Dict[str, Any]] = {}
             for path, val in iter_paths(src):
                 if not path:
                     continue
@@ -283,10 +335,18 @@ def diagnose(
                     is_html = looks_like_html(val_str)
                     candidates.append((path, val_str, is_html))
                     fields[path].add(val_str, is_html)
+                    # per-doc path stats
+                    info = per_doc_paths.setdefault(path, {"min_len": len(val_str), "has_html": False})
+                    if len(val_str) < info["min_len"]:
+                        info["min_len"] = len(val_str)
+                    if is_html:
+                        info["has_html"] = True
 
             # choose top 6 by length for preview
             top = sorted(candidates, key=lambda x: len(x[1]), reverse=True)[:max_candidates]
             preview_items = []
+            # per-doc pattern presence
+            present: Dict[str, bool] = {k: False for k in TRACKED_PATTERNS}
             for p, v, is_html in top:
                 sample = (strip_html(v) if is_html else v)
                 # run pattern detectors
@@ -296,6 +356,9 @@ def diagnose(
                 d_counts = det_domain.analyze(sample)
                 all_counts = {**s_counts, **l_counts, **c_counts, **d_counts}
                 pattern_freq.update(all_counts)
+                for k in TRACKED_PATTERNS:
+                    if all_counts.get(k, 0) and not present[k]:
+                        present[k] = True
 
                 item: Dict[str, Any] = {"path": p, "len": len(v), "html": is_html, "patterns": all_counts}
                 if redact == "none":
@@ -312,6 +375,25 @@ def diagnose(
                     json.dumps({"doc_id": doc_id, "index": index, "top_candidates": preview_items})
                     + "\n"
                 )
+            # Update doc-level presence counters
+            for k, v in present.items():
+                if v:
+                    doc_pattern_presence[k] += 1
+            for a, b in PAIR_CANDIDATES:
+                has_a = present.get(a, False)
+                has_b = present.get(b, False)
+                if has_a or has_b:
+                    pair_either[(a, b)] += 1
+                if has_a and has_b:
+                    pair_both[(a, b)] += 1
+
+            # Update doc-level path coverage
+            for path, info in per_doc_paths.items():
+                doc_path_counts[path] += 1
+                if info.get("has_html"):
+                    doc_path_html_docs[path] += 1
+                if info.get("min_len", 0) < min_sample_len:
+                    doc_path_short_docs[path] += 1
 
             seen += 1
         close_writer()
@@ -332,11 +414,24 @@ def diagnose(
         # sort opportunities
         field_opps_sorted = sorted(field_opps, key=lambda x: (-x["extraction_potential"], -x["avg_len"]))
 
+        # Doc-level coverage/cleanness per path
+        paths_doc = {}
+        for p, docs_with_path in doc_path_counts.items():
+            cov = docs_with_path / max(seen, 1)
+            htmlr = doc_path_html_docs.get(p, 0) / max(docs_with_path, 1)
+            shortr = doc_path_short_docs.get(p, 0) / max(docs_with_path, 1)
+            paths_doc[p] = {
+                "doc_coverage": round(cov, 4),
+                "html_doc_rate": round(htmlr, 4),
+                "short_doc_rate": round(shortr, 4),
+            }
+
         summary = {
             "index": index,
             "documents_sampled": seen,
             "paths": {p: stat.to_dict() for p, stat in sorted(fields.items())},
             "pattern_frequency": dict(pattern_freq),
+            "paths_doc": paths_doc,
         }
         with (base / "fields_summary.json").open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
@@ -350,6 +445,78 @@ def diagnose(
         with (base / "extraction_opportunities.csv").open("w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=["path", "count", "avg_len", "extraction_potential"])
             w.writeheader(); w.writerows(field_opps_sorted)
+
+        # Pattern priorities and co-occurrence scoring
+        per_doc_rate = {k: doc_pattern_presence.get(k, 0) / max(seen, 1) for k in TRACKED_PATTERNS}
+        single_priorities = {}
+        for k in TRACKED_PATTERNS:
+            v = VALUE.get(k, 1.0)
+            d = DIFFICULTY.get(k, 1.0)
+            single_priorities[k] = round(per_doc_rate.get(k, 0.0) * v / d, 4)
+
+        pairs = []
+        for (a, b) in PAIR_CANDIDATES:
+            e = pair_either.get((a, b), 0)
+            bth = pair_both.get((a, b), 0)
+            strength = (bth / e) if e else 0.0
+            avg_vd = ((VALUE.get(a, 1.0) / DIFFICULTY.get(a, 1.0)) + (VALUE.get(b, 1.0) / DIFFICULTY.get(b, 1.0))) / 2.0
+            prio = strength * (per_doc_rate.get(a, 0.0) + per_doc_rate.get(b, 0.0)) * avg_vd
+            pairs.append({
+                "pair": [a, b],
+                "docs_both": bth,
+                "docs_either": e,
+                "strength": round(strength, 4),
+                "priority": round(prio, 4),
+            })
+        pairs_sorted = sorted(pairs, key=lambda x: (-x["priority"], -x["strength"]))
+
+        with (base / "pattern_priority.json").open("w", encoding="utf-8") as f:
+            json.dump({
+                "documents_sampled": seen,
+                "per_doc_rate": {k: round(per_doc_rate.get(k, 0.0), 4) for k in TRACKED_PATTERNS},
+                "single_priority": single_priorities,
+                "pairs": pairs_sorted,
+            }, f, indent=2)
+
+        # Index summary with confidence and classification
+        # Determine primary path by doc coverage
+        primary_path = None
+        primary_cov = 0.0
+        primary_html = 0.0
+        if paths_doc:
+            primary_path, stats = max(paths_doc.items(), key=lambda kv: kv[1].get("doc_coverage", 0))
+            primary_cov = stats.get("doc_coverage", 0.0)
+            primary_html = stats.get("html_doc_rate", 0.0)
+
+        total_patterns_per_doc = sum(per_doc_rate.get(k, 0.0) for k in TRACKED_PATTERNS)
+        confidence = primary_cov * total_patterns_per_doc * (1.0 - primary_html)
+
+        # Characterization
+        process_score = per_doc_rate.get("proc_cues", 0) + per_doc_rate.get("ordered_lists", 0) + 0.5 * per_doc_rate.get("trigger_cues", 0)
+        reference_score = per_doc_rate.get("tables", 0) + per_doc_rate.get("headers", 0) + per_doc_rate.get("lists", 0)
+        technical_score = per_doc_rate.get("code_blocks", 0) + per_doc_rate.get("inline_backticks", 0) + 0.5 * per_doc_rate.get("cap_terms", 0)
+        profile = max(
+            [("process", process_score), ("reference", reference_score), ("technical", technical_score)],
+            key=lambda x: x[1],
+        )[0]
+
+        # Negative signals
+        negatives = {
+            "missing_patterns": [k for k, r in per_doc_rate.items() if r == 0.0],
+            "low_density": total_patterns_per_doc < 0.2,
+        }
+
+        with (base / "index_summary.json").open("w", encoding="utf-8") as f:
+            json.dump({
+                "documents_sampled": seen,
+                "primary_field": primary_path,
+                "primary_coverage": round(primary_cov, 4),
+                "primary_html_rate": round(primary_html, 4),
+                "total_patterns_per_doc": round(total_patterns_per_doc, 4),
+                "confidence": round(confidence, 4),
+                "profile": profile,
+                "negatives": negatives,
+            }, f, indent=2)
 
         print(f"✅ Wrote diagnostics for {index}: {base}")
 
