@@ -26,7 +26,7 @@ import re
 from collections import defaultdict, Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Optional
 
 from src.infra.settings import get_settings
 from src.infra.clients import _get_aws_auth, _setup_jpmc_proxy
@@ -183,7 +183,55 @@ def extract_keywords(sample: str, k: int = 10) -> List[str]:
     return out
 
 
-def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 200, redact: str = "none") -> None:
+def _make_preview_writer(base: Path, use_gzip: bool, split_every: int) -> Tuple[Any, callable, callable]:
+    """Return (handle, write_fn, close_fn) that writes JSONL, optionally gzipped and split.
+
+    split_every: number of docs per part; 0 = no split.
+    """
+    import gzip
+    part = 0
+    count = 0
+
+    def _open_part() -> Any:
+        nonlocal part
+        part += 1
+        name = f"docs_preview.part-{part:05d}.jsonl" if split_every else "docs_preview.jsonl"
+        path = base / name
+        if use_gzip:
+            return gzip.open(str(path) + ".gz", mode="wt", encoding="utf-8")
+        return path.open("w", encoding="utf-8")
+
+    fh = _open_part()
+
+    def write(line: str):
+        nonlocal count, fh
+        fh.write(line)
+        if split_every:
+            count += 1
+            if count % split_every == 0:
+                fh.close()
+                fh = _open_part()
+
+    def close():
+        fh.close()
+
+    return fh, write, close
+
+
+def diagnose(
+    indices: List[str],
+    out_dir: Path,
+    limit: int = 25,
+    batch: int = 200,
+    redact: str = "none",
+    max_candidates: int = 6,
+    min_sample_len: int = 80,
+    paths_include: Optional[str] = None,
+    paths_exclude: Optional[str] = None,
+    gzip_out: bool = False,
+    split_every: int = 0,
+    summary_only: bool = False,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     client = OpenSearchClient()
 
@@ -192,7 +240,12 @@ def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 20
         base.mkdir(parents=True, exist_ok=True)
 
         fields: Dict[str, PathStat] = defaultdict(PathStat)
-        docs_preview = (base / "docs_preview.jsonl").open("w", encoding="utf-8")
+        if not summary_only:
+            _fh, write_line, close_writer = _make_preview_writer(base, gzip_out, split_every)
+        else:
+            _fh = None
+            write_line = lambda _x: None
+            close_writer = lambda: None
         pattern_freq = Counter()
         opportunities: List[Dict[str, Any]] = []
 
@@ -208,16 +261,31 @@ def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 20
                     continue
                 if isinstance(val, str):
                     val_str = val.strip()
-                    if len(val_str) < 20:
+                    if len(val_str) < min_sample_len:
                         continue
                     if len(val_str) > 100000:
                         continue
+                    # optional path filters
+                    if paths_include:
+                        try:
+                            import re as _re
+                            if not _re.search(paths_include, path):
+                                continue
+                        except Exception:
+                            pass
+                    if paths_exclude:
+                        try:
+                            import re as _re
+                            if _re.search(paths_exclude, path):
+                                continue
+                        except Exception:
+                            pass
                     is_html = looks_like_html(val_str)
                     candidates.append((path, val_str, is_html))
                     fields[path].add(val_str, is_html)
 
             # choose top 6 by length for preview
-            top = sorted(candidates, key=lambda x: len(x[1]), reverse=True)[:6]
+            top = sorted(candidates, key=lambda x: len(x[1]), reverse=True)[:max_candidates]
             preview_items = []
             for p, v, is_html in top:
                 sample = (strip_html(v) if is_html else v)
@@ -239,13 +307,14 @@ def diagnose(indices: List[str], out_dir: Path, limit: int = 25, batch: int = 20
                     item["keywords"] = extract_keywords(sample, k=12)
                 # else: no sample included
                 preview_items.append(item)
-            docs_preview.write(
-                json.dumps({"doc_id": doc_id, "index": index, "top_candidates": preview_items})
-                + "\n"
-            )
+            if not summary_only:
+                write_line(
+                    json.dumps({"doc_id": doc_id, "index": index, "top_candidates": preview_items})
+                    + "\n"
+                )
 
             seen += 1
-        docs_preview.close()
+        close_writer()
 
         # write summary
         # compute simple field-level opportunities from accumulated stats
@@ -292,6 +361,13 @@ def main():
     ap.add_argument("--out", type=str, default="outputs/diagnostics", help="Output directory base")
     ap.add_argument("--batch", type=int, default=200, help="Batch size for iteration")
     ap.add_argument("--redact", type=str, default="none", choices=["none", "hash", "keywords", "nosample"], help="Redact policy for previews")
+    ap.add_argument("--max-candidates", type=int, default=6, help="Max top candidate fields per doc in preview")
+    ap.add_argument("--min-len", type=int, default=80, help="Minimum content length to consider a candidate field")
+    ap.add_argument("--paths-include", type=str, default=None, help="Regex to include only matching field paths")
+    ap.add_argument("--paths-exclude", type=str, default=None, help="Regex to exclude field paths")
+    ap.add_argument("--gzip", action="store_true", help="Gzip preview files")
+    ap.add_argument("--split", type=int, default=0, help="Split preview into parts every N docs (0=no split)")
+    ap.add_argument("--summary-only", action="store_true", help="Skip docs_preview; write only summaries")
     args = ap.parse_args()
 
     if args.indices.lower() in {"khub", "khub*", "auto-khub"}:
@@ -299,7 +375,20 @@ def main():
     else:
         idxs = [s.strip() for s in args.indices.split(",") if s.strip()]
 
-    diagnose(idxs, out_dir=Path(args.out), limit=args.limit, batch=args.batch, redact=("none" if args.redact=="none" else args.redact))
+    diagnose(
+        idxs,
+        out_dir=Path(args.out),
+        limit=args.limit,
+        batch=args.batch,
+        redact=("none" if args.redact == "none" else args.redact),
+        max_candidates=args.max_candidates,
+        min_sample_len=args.min_len,
+        paths_include=args.paths_include,
+        paths_exclude=args.paths_exclude,
+        gzip_out=bool(args.gzip),
+        split_every=args.split,
+        summary_only=bool(args.summary_only),
+    )
 
 
 if __name__ == "__main__":
