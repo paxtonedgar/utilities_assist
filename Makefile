@@ -177,6 +177,13 @@ ontology-semantic-map:
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.semantic_map_runner --diag-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md) --out $(if $(OUT),$(OUT),outputs/semantic_map/khub-test-md) --max-docs $(if $(MAX),$(MAX),500)
 
+# Phase 1 Quality report
+.PHONY: ontology-quality-report
+ontology-quality-report:
+	@echo "📊 Generating Phase 1 quality report"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.semantic_quality --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --diagnostics-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md)
+
 # Diagnose index content structure and HTML/text fields
 .PHONY: ontology-diagnose
 ontology-diagnose:
