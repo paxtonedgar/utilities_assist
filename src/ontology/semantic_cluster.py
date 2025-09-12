@@ -163,8 +163,14 @@ def llm_label_topics(resources, topic_cards: Dict[int, Dict[str, Any]]) -> Dict[
             messages=[{"role": "system", "content": system}, {"role": "user", "content": json_dumps(prompt)}],
             temperature=0.0,
         )
-        content = resp.choices[0].message.content  # type: ignore
-        data = json_loads_safe(content)
+        # Support SDK object or dict response shapes
+        msg = resp.choices[0].message  # type: ignore
+        content = getattr(msg, "content", None)
+        if content is None and isinstance(msg, dict):
+            content = msg.get("content")
+        content = content or "{}"
+        logger.info(f"LLM topic label raw response (first 300 chars): {str(content)[:300]}")
+        data = json_loads_safe(str(content))
         result = {}
         for item in (data.get("labels") or []):
             result[int(item.get("topic_id") or 0)] = {
