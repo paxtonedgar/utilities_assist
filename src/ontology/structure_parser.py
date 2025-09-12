@@ -155,8 +155,21 @@ def _extract_plain_text_segments(text: str, section_title: str | None) -> List[D
             "segment_confidence": {"extraction_confidence": 0.5, "classification_confidence": 0.5, "value_confidence": 0.5},
         })
     # Markdown tables: header line + separator line ('---') then rows
-    tables = _parse_markdown_tables(text)
+    # Markdown tables (enhanced)
+    tables = _parse_markdown_tables_enhanced(text)
     for t in tables:
+        ttype, base_conf = classify_table(t.get("headers") or [])
+        segs.append({
+            "type": "Table",
+            "table_type": ttype,
+            "anchors": {"section_title": section_title},
+            "features": {"headers": (t.get("headers") or [])[:20]},
+            "confidence": base_conf,
+            "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": base_conf, "value_confidence": 0.6},
+        })
+    # Confluence tables (wiki/macro) in plain text storage
+    conf_tables = _parse_confluence_tables(text)
+    for t in conf_tables:
         ttype, base_conf = classify_table(t.get("headers") or [])
         segs.append({
             "type": "Table",
@@ -352,3 +365,96 @@ def _parse_markdown_tables(text: str) -> List[Dict[str, Any]]:
         else:
             i += 1
     return tables
+
+
+def _parse_markdown_tables_enhanced(content: str) -> List[Dict[str, Any]]:
+    """Flexible markdown table parser supporting alignment markers and variable spacing."""
+    import re
+    tables: List[Dict[str, Any]] = []
+    lines = content.split("\n")
+    i = 0
+    sep_re = re.compile(r"^[\|\s]*:?[-]+:?([\|\s]+:?[-]+:?)+\s*\|?$")
+    while i < len(lines) - 1:
+        header = lines[i].strip()
+        next_line = lines[i + 1].strip()
+        if "|" in header and sep_re.match(next_line or ""):
+            headers = [h.strip() for h in header.split("|") if h.strip()]
+            rows: List[List[str]] = []
+            j = i + 2
+            while j < len(lines) and "|" in lines[j]:
+                row = [c.strip() for c in lines[j].split("|") if c.strip()]
+                if row:
+                    rows.append(row)
+                j += 1
+            if headers and rows:
+                tables.append({"headers": headers, "rows": rows[:5], "line_num": i})
+            i = j
+            continue
+        i += 1
+    # Fallback to basic parser if nothing found
+    return tables or _parse_markdown_tables(content)
+
+
+def _parse_confluence_tables(content: str) -> List[Dict[str, Any]]:
+    """Parse Confluence macro/wiki tables embedded as storage/wiki markup."""
+    import re
+    tables: List[Dict[str, Any]] = []
+    # Macro storage format: <ac:structured-macro ...> ... <table> ... </table>
+    if "<ac:structured-macro" in content:
+        try:
+            matches = re.findall(r"<ac:structured-macro[^>]*>.*?(<table[\s\S]*?</table>)", content, re.IGNORECASE)
+            for m in matches:
+                parsed = _parse_html(m)
+                for t in parsed.get("tables", []):
+                    tables.append({"headers": t.get("headers", []), "rows": t.get("rows", [])})
+        except Exception:
+            pass
+    # Confluence wiki style: headers start with '||', rows with '|'
+    if "||" in content:
+        lines = content.split("\n")
+        i = 0
+        while i < len(lines):
+            if lines[i].lstrip().startswith("||"):
+                headers = [h.strip() for h in lines[i].split("||") if h.strip()]
+                rows: List[List[str]] = []
+                j = i + 1
+                while j < len(lines) and lines[j].lstrip().startswith("|"):
+                    row = [c.strip() for c in lines[j].split("|") if c.strip()]
+                    if row:
+                        rows.append(row)
+                    j += 1
+                if headers and rows:
+                    tables.append({"headers": headers, "rows": rows[:5], "line_num": i})
+                i = j
+                continue
+            i += 1
+    return tables
+
+
+def hunt_for_tables(hit: Dict[str, Any]) -> List[str]:
+    """Recursively look for any table indicators in the document and return brief findings."""
+    findings: List[str] = []
+    source = hit.get("_source", {})
+
+    def check_field(obj: Any, path: str = ""):
+        if isinstance(obj, str):
+            lower = obj.lower()
+            if "<table" in lower:
+                findings.append(f"HTML table in {path}: {obj[:200]}")
+            if "|" in obj and ("---" in obj or ":-" in obj):
+                lines = obj.split("\n")
+                for i, line in enumerate(lines):
+                    if ("---" in line or ":-" in line) and i > 0 and "|" in lines[i - 1]:
+                        findings.append(f"Markdown table in {path}: {lines[i-1][:200]}")
+                        break
+            if "ac:structured-macro" in obj and "table" in lower:
+                findings.append(f"Confluence macro table in {path}")
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                check_field(v, f"{path}.{k}" if path else k)
+        elif isinstance(obj, list):
+            for i, it in enumerate(obj):
+                check_field(it, f"{path}[{i}]")
+
+    check_field(source)
+    return findings

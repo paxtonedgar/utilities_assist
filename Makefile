@@ -184,6 +184,13 @@ ontology-quality-report:
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
 	python -m src.ontology.semantic_quality --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --diagnostics-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md)
 
+# Investigate table formats in an index
+.PHONY: ontology-table-detective
+ontology-table-detective:
+	@echo "🕵️  Hunting for tables in index"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.table_detective --index $(or $(INDEX),khub-test-md) --limit $(or $(LIMIT),10) $(if $(DIAG),--diag-dir $(DIAG),)
+
 # Diagnose index content structure and HTML/text fields
 .PHONY: ontology-diagnose
 ontology-diagnose:
