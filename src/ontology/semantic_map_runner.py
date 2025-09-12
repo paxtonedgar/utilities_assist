@@ -40,7 +40,7 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]):
             f.write(json.dumps(r) + "\n")
 
 
-def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500):
+def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500, debug_structure: bool = False):
     dpath = Path(diag_dir)
     opath = Path(out_dir)
 
@@ -82,12 +82,15 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500):
     client = OpenSearchClient()
     doc_map: List[Dict[str, Any]] = []
     doc_graph: List[Dict[str, Any]] = []
-    for d, lab in zip(docs, labels):
+    for idx, (d, lab) in enumerate(zip(docs, labels)):
         doc_id = d.get("doc_id")
         index = d.get("index")
         profile = detect_profile(index or "")
         try:
             hit = client.get_doc_by_id(index=index, doc_id=doc_id)
+            if debug_structure and idx == 0:
+                from .structure_parser import debug_first_doc
+                debug_first_doc(hit)
             segments, links = parse_hit_to_segments(hit, resources=resources, index_profile=profile)
         except Exception:
             segments, links = [], []
@@ -116,8 +119,9 @@ def main():
     ap.add_argument("--out", type=str, default="outputs/semantic_map", help="Output dir")
     ap.add_argument("--k", type=int, default=12, help="Num clusters for TF-IDF fallback")
     ap.add_argument("--max-docs", type=int, default=500, help="Max docs to process")
+    ap.add_argument("--debug-structure", action="store_true", help="Print structure debug for the first doc")
     args = ap.parse_args()
-    run(args.diag_dir, args.out, k=args.k, max_docs=args.max_docs)
+    run(args.diag_dir, args.out, k=args.k, max_docs=args.max_docs, debug_structure=bool(args.debug_structure))
 
 
 if __name__ == "__main__":

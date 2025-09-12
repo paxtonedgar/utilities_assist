@@ -22,6 +22,37 @@ def _get_sections_source(hit: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 
+def debug_first_doc(hit: Dict[str, Any]) -> None:
+    """Print a quick structural debug of the first document hit.
+
+    Shows top-level keys, section[0] keys, and probes common content fields
+    printing length and first 500 chars. Also flags HTML/markdown table cues.
+    """
+    try:
+        print("=== DOCUMENT STRUCTURE DEBUG ===")
+        source = hit.get("_source", {})
+        print(f"Top fields: {list(source.keys())}")
+        sections = source.get("sections", [])
+        if isinstance(sections, list) and len(sections) > 0 and isinstance(sections[0], dict):
+            print(f"Section[0] keys: {list(sections[0].keys())}")
+            for field in ["content", "body", "html", "text", "raw"]:
+                if field in sections[0]:
+                    content = sections[0][field]
+                    cstr = str(content)
+                    print(f"Field '{field}': exists, Length: {len(cstr)}")
+                    preview = cstr[:500].replace("\n", " ")
+                    print(f"First 500 chars: {preview}")
+                    lower = cstr.lower()
+                    if "<table" in lower:
+                        print("  ✓ Contains <table> tags!")
+                    if ("|" in cstr) and ("---" in cstr or ":-" in cstr):
+                        print("  ✓ Contains markdown table markers!")
+        else:
+            print("No sections[] or unexpected sections format")
+    except Exception as e:
+        print(f"DEBUG ERROR: {e}")
+
+
 def _parse_html(html: str) -> Dict[str, Any]:
     """Parse HTML to extract headers, lists, tables, and pre/code blocks."""
     try:
