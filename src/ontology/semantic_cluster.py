@@ -182,9 +182,28 @@ def json_dumps(x: Any) -> str:
     return json.dumps(x, ensure_ascii=False)
 
 
+def _strip_code_fences(s: str) -> str:
+    s = s.strip()
+    if s.startswith("```") and s.endswith("```"):
+        # remove first and last fence line
+        lines = s.splitlines()
+        if len(lines) >= 2:
+            return "\n".join(lines[1:-1])
+    return s
+
+
 def json_loads_safe(s: str) -> Dict[str, Any]:
     import json
     try:
-        return json.loads(s or "{}")
+        s = _strip_code_fences(s or "{}")
+        try:
+            return json.loads(s)
+        except Exception:
+            # Try to extract the first JSON object substring
+            start = s.find("{")
+            end = s.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(s[start : end + 1])
+            return {}
     except Exception:
         return {}
