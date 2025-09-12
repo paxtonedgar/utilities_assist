@@ -71,9 +71,12 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500):
         return
 
     # 3) topic cards + LLM labeling
+    # Normalize labels to plain ints (avoid numpy types)
+    labels = [int(x) for x in labels]
     cards = build_topic_cards(docs, labels)
     topic_labels = llm_label_topics(resources, cards)
-    _write_json(opath / "topics.json", {tid: {**cards.get(tid, {}), **topic_labels.get(tid, {})} for tid in cards})
+    topics_payload = {str(tid): {**cards.get(tid, {}), **topic_labels.get(tid, {})} for tid in cards}
+    _write_json(opath / "topics.json", topics_payload)
 
     # 4) structure parse + semantic map
     client = OpenSearchClient()

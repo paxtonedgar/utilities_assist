@@ -36,7 +36,9 @@ def embed_tokens(resources, docs: List[Dict[str, Any]]) -> List[List[float]]:
         client = resources.embed_client
         # OpenAI/Azure compatible embeddings API
         resp = client.embeddings.create(model=resources.settings.embed.model, input=strings)
-        vectors = [d["embedding"] for d in resp.data]  # type: ignore
+        # OpenAI/Azure client returns objects with .embedding attribute
+        vectors = [getattr(d, "embedding", None) for d in resp.data]  # type: ignore
+        vectors = [v for v in vectors if v is not None]
         return vectors
     except Exception as e:
         logger.error(f"Embedding failed: {e}")
@@ -186,4 +188,3 @@ def json_loads_safe(s: str) -> Dict[str, Any]:
         return json.loads(s or "{}")
     except Exception:
         return {}
-
