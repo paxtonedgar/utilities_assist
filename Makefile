@@ -189,7 +189,14 @@ ontology-quality-report:
 ontology-table-detective:
 	@echo "🕵️  Hunting for tables in index"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.table_detective --index $(or $(INDEX),khub-test-md) --limit $(or $(LIMIT),10) $(if $(DIAG),--diag-dir $(DIAG),)
+	python -m src.ontology.table_detective --index $(or $(INDEX),khub-test-md) --limit $(or $(LIMIT),10) $(if $(DIAG),--diag-dir $(DIAG),) $(if $(SEM),--semantic-dir $(SEM),)
+
+# Phase 2: Extract entities from semantic map segments
+.PHONY: ontology-extract-entities
+ontology-extract-entities:
+	@echo "🔎 Extracting entities from segments"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.phase2_extractor --semantic-dir $(or $(SEM),outputs/semantic_map/khub-test-md) --out $(or $(OUT),outputs/semantic_map/khub-test-md/entities.jsonl)
 
 # Diagnose index content structure and HTML/text fields
 .PHONY: ontology-diagnose

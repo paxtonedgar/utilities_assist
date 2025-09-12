@@ -34,11 +34,29 @@ def _load_table_doc_ids(diag_dir: Path) -> List[str]:
     return ids
 
 
-def investigate_tables(index: str, diag_dir: str | None, limit: int) -> None:
+def _load_semantic_doc_ids(sem_dir: Path) -> List[str]:
+    ids: List[str] = []
+    p = sem_dir / "doc_map.jsonl"
+    if not p.exists():
+        return ids
+    with p.open("r", encoding="utf-8") as f:
+        for ln in f:
+            try:
+                obj = json.loads(ln)
+                if obj.get("doc_id"):
+                    ids.append(obj["doc_id"])
+            except Exception:
+                continue
+    return ids
+
+
+def investigate_tables(index: str, diag_dir: str | None, limit: int, semantic_dir: str | None) -> None:
     client = OpenSearchClient()
     doc_ids: List[str] = []
     if diag_dir:
         doc_ids = _load_table_doc_ids(Path(diag_dir))[:limit]
+    elif semantic_dir:
+        doc_ids = _load_semantic_doc_ids(Path(semantic_dir))[:limit]
 
     def _yield_hits():
         if doc_ids:
@@ -88,10 +106,10 @@ def main():
     ap.add_argument("--index", type=str, required=True, help="Index name or alias")
     ap.add_argument("--limit", type=int, default=10, help="Docs to inspect")
     ap.add_argument("--diag-dir", type=str, default=None, help="Diagnostics directory to sample known table docs")
+    ap.add_argument("--semantic-dir", type=str, default=None, help="Semantic map directory to read doc ids from")
     args = ap.parse_args()
-    investigate_tables(args.index, args.diag_dir, args.limit)
+    investigate_tables(args.index, args.diag_dir, args.limit, args.semantic_dir)
 
 
 if __name__ == "__main__":
     main()
-
