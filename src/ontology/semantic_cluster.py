@@ -200,8 +200,12 @@ def _strip_code_fences(s: str) -> str:
 
 def json_loads_safe(s: str) -> Dict[str, Any]:
     import json
+    import re
     try:
         s = _strip_code_fences(s or "{}")
+        # If the LLM prepended a language tag like "json\n", drop it
+        if s.lower().startswith("json\n"):
+            s = s.split("\n", 1)[1]
         try:
             return json.loads(s)
         except Exception:
@@ -209,7 +213,19 @@ def json_loads_safe(s: str) -> Dict[str, Any]:
             start = s.find("{")
             end = s.rfind("}")
             if start != -1 and end != -1 and end > start:
-                return json.loads(s[start : end + 1])
-            return {}
+                chunk = s[start : end + 1]
+                try:
+                    return json.loads(chunk)
+                except Exception:
+                    pass
+        # Fallback: accept Python-like dicts with single quotes via ast.literal_eval
+        try:
+            import ast
+            obj = ast.literal_eval(s)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+        return {}
     except Exception:
         return {}
