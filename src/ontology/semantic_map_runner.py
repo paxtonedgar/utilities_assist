@@ -23,6 +23,7 @@ from .semantic_fingerprints import build_fingerprints
 from .semantic_cluster import embed_tokens, cluster_with_bertopic, cluster_with_tfidf, build_topic_cards, llm_label_topics
 from src.infra.opensearch_client import OpenSearchClient
 from .structure_parser import parse_hit_to_segments
+from .index_profiles import detect_profile, get_profile_config
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +78,18 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500):
     # 4) structure parse + semantic map
     client = OpenSearchClient()
     doc_map: List[Dict[str, Any]] = []
+    doc_graph: List[Dict[str, Any]] = []
     for d, lab in zip(docs, labels):
         doc_id = d.get("doc_id")
         index = d.get("index")
+        profile = detect_profile(index or "")
         try:
             hit = client.get_doc_by_id(index=index, doc_id=doc_id)
-            segments = parse_hit_to_segments(hit)
+            segments, links = parse_hit_to_segments(hit, resources=resources, index_profile=profile)
         except Exception:
-            segments = []
+            segments, links = [], []
         tl = topic_labels.get(int(lab), {"label": "misc", "confidence": 0.5})
+        hints = get_profile_config(profile)
         doc_map.append({
             "doc_id": doc_id,
             "index": index,
@@ -93,9 +97,14 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500):
             "doc_type": tl.get("label"),
             "label_confidence": tl.get("confidence", 0.5),
             "segments": segments,
+            "extraction_hints": hints,
         })
+        for url in links:
+            doc_graph.append({"doc_id": doc_id, "href": url})
 
     _write_jsonl(opath / "doc_map.jsonl", doc_map)
+    if doc_graph:
+        _write_jsonl(opath / "doc_graph.jsonl", doc_graph)
 
 
 def main():
@@ -111,4 +120,3 @@ def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     main()
-

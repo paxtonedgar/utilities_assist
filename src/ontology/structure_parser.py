@@ -7,7 +7,7 @@ Fetches documents from OpenSearch and emits semantic segments (tables, lists,
 code/JSON, header sections) with anchors and simple type classifications.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from pathlib import Path
 import logging
 
@@ -71,52 +71,205 @@ def _parse_html(html: str) -> Dict[str, Any]:
             if txt:
                 codes.append({"lang": None, "sample": txt[:1000]})
 
-    return {"headers": headers, "lists": lists, "tables": tables, "codes": codes}
+    # Links
+    links = []
+    try:
+        for a in root.findall('.//a'):
+            href = a.get('href') or ''
+            if href:
+                links.append(href)
+    except Exception:
+        pass
+    return {"headers": headers, "lists": lists, "tables": tables, "codes": codes, "links": links}
 
 
-def classify_table(headers: List[str]) -> str:
+OWNERSHIP_SYNS = {"owner", "team", "contact", "steward", "poc", "pm", "tl", "lead", "manager", "responsible", "maintainer", "squad", "group", "dept", "department", "organization"}
+TECH_SYNS = {"parameter", "field", "type", "default", "required", "format", "example", "schema", "property", "attribute", "value", "datatype", "constraint"}
+PROC_SYNS = {"step", "action", "result", "pre", "post", "condition", "phase", "stage", "task", "activity", "input", "output", "trigger", "outcome"}
+
+
+def classify_table(headers: List[str]) -> Tuple[str, float]:
     hs = [h.lower() for h in headers]
-    if any(x in " ".join(hs) for x in ["owner", "team", "contact", "group", "steward"]):
-        return "ownership_matrix"
-    if any(x in " ".join(hs) for x in ["parameter", "field", "type", "default", "required"]):
-        return "spec_table"
-    if any(x in " ".join(hs) for x in ["step", "action", "result", "precondition", "postcondition"]):
-        return "flow_table"
-    return "other"
+    joined = " ".join(hs)
+    if any(x in joined for x in OWNERSHIP_SYNS):
+        return "ownership_matrix", 0.7
+    if any(x in joined for x in TECH_SYNS):
+        return "spec_table", 0.6
+    if any(x in joined for x in PROC_SYNS):
+        return "flow_table", 0.6
+    return "other", 0.3
+
+def _is_html_like(text: str) -> bool:
+    return "<" in text and ">" in text and "</" in text
+
+def _extract_plain_text_segments(text: str, section_title: str | None) -> List[Dict[str, Any]]:
+    segs: List[Dict[str, Any]] = []
+    import re
+    bullets = re.findall(r"(?m)^(?:\s*[-•*]|\s*\d+[.)])\s+(.+)$", text)
+    if bullets:
+        segs.append({
+            "type": "StepBlock",
+            "anchors": {"section_title": section_title},
+            "features": {"items": bullets[:10]},
+            "confidence": 0.5,
+            "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": 0.6, "value_confidence": 0.6},
+        })
+    imps = re.findall(r"(?mi)^(?:to\s+[a-z]+|step\s*\d+)[^\n]{10,}$", text)
+    if imps and not bullets:
+        segs.append({
+            "type": "StepBlock",
+            "anchors": {"section_title": section_title},
+            "features": {"items": imps[:10]},
+            "confidence": 0.4,
+            "segment_confidence": {"extraction_confidence": 0.5, "classification_confidence": 0.5, "value_confidence": 0.5},
+        })
+    return segs
+
+_table_llm_cache: Dict[str, Tuple[str, float]] = {}
+
+def classify_table_with_llm(headers: List[str], resources) -> Tuple[str, float]:
+    import json
+    sig = "|".join([h.strip().lower() for h in headers[:10]])
+    if sig in _table_llm_cache:
+        return _table_llm_cache[sig]
+    label, conf = "other", 0.4
+    try:
+        client = getattr(resources, "chat_client", None)
+        if client is None:
+            return label, conf
+        system = "You classify tables by headers. Return JSON {type, confidence}. Types: ownership_matrix, spec_table, flow_table, other."
+        prompt = {"headers": headers[:10]}
+        resp = client.chat.completions.create(
+            model=resources.settings.chat.model,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": json.dumps(prompt)}],
+            temperature=0.0,
+        )
+        content = resp.choices[0].message.content  # type: ignore
+        data = json.loads(content or "{}")
+        label = str(data.get("type", "other"))
+        conf = float(data.get("confidence", 0.5))
+    except Exception:
+        pass
+    _table_llm_cache[sig] = (label, conf)
+    return label, conf
 
 
-def parse_hit_to_segments(hit: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_hit_to_segments(hit: Dict[str, Any], resources=None, index_profile: str | None = None) -> Tuple[List[Dict[str, Any]], List[str]]:
     segments: List[Dict[str, Any]] = []
+    links_acc: List[str] = []
     for s in _get_sections_source(hit):
-        html = s.get("content") or s.get("text") or s.get("body") or ""
-        if not isinstance(html, str) or len(html) < 20:
+        content = s.get("content") or s.get("text") or s.get("body") or ""
+        if not isinstance(content, str) or len(content) < 20:
             continue
-        parsed = _parse_html(html)
-        # Lists as StepBlocks
-        for lst in parsed["lists"]:
-            segments.append({
-                "type": "StepBlock" if lst.get("ordered") else "ListBlock",
-                "anchors": {"section_title": s.get("title") or s.get("heading")},
-                "features": {"items": lst.get("items", [])[:10]},
-                "confidence": 0.6 if lst.get("ordered") else 0.4,
-            })
-        # Tables
-        for tbl in parsed["tables"]:
-            ttype = classify_table(tbl.get("headers") or [])
-            segments.append({
-                "type": "Table",
-                "table_type": ttype,
-                "anchors": {"section_title": s.get("title") or s.get("heading")},
-                "features": {"headers": (tbl.get("headers") or [])[:20]},
-                "confidence": 0.6,
-            })
-        # Code/JSON (simple capture)
-        for code in parsed["codes"]:
-            segments.append({
-                "type": "CodeBlock",
-                "anchors": {"section_title": s.get("title") or s.get("heading")},
-                "features": {"lang": code.get("lang"), "sample": code.get("sample")},
-                "confidence": 0.5,
-            })
-    return segments
+        if _is_html_like(content):
+            parsed = _parse_html(content)
+            links_acc.extend(parsed.get("links", []))
+            for lst in parsed["lists"]:
+                segments.append({
+                    "type": "StepBlock" if lst.get("ordered") else "ListBlock",
+                    "anchors": {"section_title": s.get("title") or s.get("heading")},
+                    "features": {"items": lst.get("items", [])[:10]},
+                    "confidence": 0.6 if lst.get("ordered") else 0.4,
+                    "segment_confidence": {"extraction_confidence": 0.7, "classification_confidence": 0.7 if lst.get("ordered") else 0.5, "value_confidence": 0.6},
+                })
+            for tbl in parsed["tables"]:
+                ttype, base_conf = classify_table(tbl.get("headers") or [])
+                if ttype == "other" and resources is not None:
+                    ttype, llm_conf = classify_table_with_llm(tbl.get("headers") or [], resources)
+                    base_conf = max(base_conf, llm_conf)
+                segments.append({
+                    "type": "Table",
+                    "table_type": ttype,
+                    "anchors": {"section_title": s.get("title") or s.get("heading")},
+                    "features": {"headers": (tbl.get("headers") or [])[:20]},
+                    "confidence": base_conf,
+                    "segment_confidence": {"extraction_confidence": 0.7, "classification_confidence": base_conf, "value_confidence": 0.7 if ttype != 'other' else 0.4},
+                })
+            for code in parsed["codes"]:
+                segments.append({
+                    "type": "CodeBlock",
+                    "anchors": {"section_title": s.get("title") or s.get("heading")},
+                    "features": {"lang": code.get("lang"), "sample": code.get("sample")},
+                    "confidence": 0.5,
+                    "segment_confidence": {"extraction_confidence": 0.5, "classification_confidence": 0.4, "value_confidence": 0.5},
+                })
+        else:
+            segments.extend(_extract_plain_text_segments(content, s.get("title") or s.get("heading")))
+    try:
+        segments.extend(_extract_structured_fields(hit, index_profile=index_profile))
+    except Exception:
+        pass
+    return segments, links_acc
 
+def _extract_structured_fields(hit: Dict[str, Any], index_profile: str | None) -> List[Dict[str, Any]]:
+    segs: List[Dict[str, Any]] = []
+    src = hit.get("_source", {})
+    prof = index_profile or "product"
+    if prof == "swagger":
+        server_url = None
+        for s in (src.get("sections") or []):
+            if isinstance(s, dict) and s.get("server_url"):
+                server_url = s.get("server_url"); break
+        if server_url:
+            segs.append({
+                "type": "EndpointBlock",
+                "anchors": {},
+                "features": {"server_url": server_url},
+                "confidence": 0.7,
+                "segment_confidence": {"extraction_confidence": 0.7, "classification_confidence": 0.7, "value_confidence": 0.8},
+            })
+        for s in (src.get("sections") or []):
+            if not isinstance(s, dict):
+                continue
+            info = s.get("info")
+            if isinstance(info, dict):
+                feat = {k: info.get(k) for k in ("description", "version") if info.get(k)}
+                contact = info.get("contact")
+                if isinstance(contact, dict):
+                    feat["contact"] = {k: contact.get(k) for k in ("name", "email") if contact.get(k)}
+                if feat:
+                    segs.append({
+                        "type": "ApiInfo",
+                        "anchors": {},
+                        "features": feat,
+                        "confidence": 0.7,
+                        "segment_confidence": {"extraction_confidence": 0.7, "classification_confidence": 0.7, "value_confidence": 0.8},
+                    })
+    elif prof == "events":
+        import json as _json
+        meta = src.get("metadata") if isinstance(src.get("metadata"), dict) else {}
+        extraction = meta.get("extractionRule")
+        if extraction:
+            try:
+                data = _json.loads(extraction) if isinstance(extraction, str) else (extraction if isinstance(extraction, dict) else None)
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                segs.append({
+                    "type": "EventRule",
+                    "anchors": {},
+                    "features": _summarize_event_rule(data),
+                    "confidence": 0.6,
+                    "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": 0.6, "value_confidence": 0.7},
+                })
+    return segs
+
+def _summarize_event_rule(data: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if isinstance(data.get("mappings"), list):
+        m = []
+        for it in data["mappings"][:10]:
+            if isinstance(it, dict):
+                src = it.get("source") or it.get("from")
+                tgt = it.get("target") or it.get("to")
+                if src or tgt:
+                    m.append({"source": src, "target": tgt})
+        if m:
+            out["mappings"] = m
+    for k in ("publisher", "publishers", "producer", "consumers", "subscriber"):
+        if data.get(k):
+            out[k] = data.get(k)
+    keys = data.get("keys") or data.get("keyFields")
+    if keys:
+        out["keys"] = keys
+    return out

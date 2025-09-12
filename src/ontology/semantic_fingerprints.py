@@ -90,6 +90,10 @@ def build_fingerprints(diag_dir: Path, max_candidates: int = 4) -> List[Dict[str
                     pats = c.get("patterns") or {}
                     for k in TRACKED_PATTERNS:
                         pat_sum[k] += int(pats.get(k, 0) or 0)
+                    # Field presence token
+                    path = c.get("path")
+                    if isinstance(path, str):
+                        tokens.append(f"field:{path}")
 
                 # Encode pattern presence/strength as tokens (light weighting)
                 for k, v in pat_sum.items():
@@ -115,4 +119,3 @@ def build_fingerprints(diag_dir: Path, max_candidates: int = 4) -> List[Dict[str
                     "features": {"patterns": pat_sum, "profile": profile_hint},
                 })
     return docs
-
