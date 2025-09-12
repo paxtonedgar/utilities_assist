@@ -175,7 +175,7 @@ ontology-export-csv:
 ontology-semantic-map:
 	@echo "🗺  Building Document Semantic Map"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.semantic_map_runner --diag-dir $(or $(DIAG),outputs/diagnostics/khub-test-md) --out $(or $(OUT),outputs/semantic_map/khub-test-md) --max-docs $(or $(MAX,500))
+	python -m src.ontology.semantic_map_runner --diag-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md) --out $(if $(OUT),$(OUT),outputs/semantic_map/khub-test-md) --max-docs $(if $(MAX),$(MAX),500)
 
 # Diagnose index content structure and HTML/text fields
 .PHONY: ontology-diagnose
