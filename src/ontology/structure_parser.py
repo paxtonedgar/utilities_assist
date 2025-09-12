@@ -154,6 +154,18 @@ def _extract_plain_text_segments(text: str, section_title: str | None) -> List[D
             "confidence": 0.4,
             "segment_confidence": {"extraction_confidence": 0.5, "classification_confidence": 0.5, "value_confidence": 0.5},
         })
+    # Markdown tables: header line + separator line ('---') then rows
+    tables = _parse_markdown_tables(text)
+    for t in tables:
+        ttype, base_conf = classify_table(t.get("headers") or [])
+        segs.append({
+            "type": "Table",
+            "table_type": ttype,
+            "anchors": {"section_title": section_title},
+            "features": {"headers": (t.get("headers") or [])[:20]},
+            "confidence": base_conf,
+            "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": base_conf, "value_confidence": 0.6},
+        })
     return segs
 
 _table_llm_cache: Dict[str, Tuple[str, float]] = {}
@@ -304,3 +316,39 @@ def _summarize_event_rule(data: Dict[str, Any]) -> Dict[str, Any]:
     if keys:
         out["keys"] = keys
     return out
+
+
+def _parse_markdown_tables(text: str) -> List[Dict[str, Any]]:
+    """Very small markdown table parser.
+
+    Recognizes blocks:
+      | h1 | h2 |
+      |----|----|
+      | v1 | v2 |
+    Returns list of {headers: [...], rows: [[...], ...]} (rows limited to 5).
+    """
+    lines = text.splitlines()
+    tables: List[Dict[str, Any]] = []
+    i = 0
+    import re
+    row_re = re.compile(r"^\s*\|.*\|\s*$")
+    sep_re = re.compile(r"^\s*\|\s*[:\-]+(\|\s*[:\-]+)+\|\s*$")
+
+    def split_row(s: str) -> List[str]:
+        s = s.strip().strip('|')
+        cells = [c.strip() for c in s.split('|')]
+        return cells
+
+    while i < len(lines) - 1:
+        if row_re.match(lines[i]) and sep_re.match(lines[i + 1]):
+            headers = split_row(lines[i])
+            rows: List[List[str]] = []
+            j = i + 2
+            while j < len(lines) and row_re.match(lines[j]) and len(rows) < 5:
+                rows.append(split_row(lines[j]))
+                j += 1
+            tables.append({"headers": headers, "rows": rows})
+            i = j
+        else:
+            i += 1
+    return tables
