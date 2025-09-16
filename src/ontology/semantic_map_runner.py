@@ -94,7 +94,7 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500, debug_str
             segments, links = parse_hit_to_segments(hit, resources=resources, index_profile=profile)
         except Exception:
             segments, links = [], []
-        tl = topic_labels.get(int(lab), {"label": "misc", "confidence": 0.5})
+        tl = topic_labels.get(int(lab), {"label": "abstain", "confidence": 0.0})
         hints = get_profile_config(profile)
         doc_map.append({
             "doc_id": doc_id,

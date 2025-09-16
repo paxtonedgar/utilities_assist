@@ -13,6 +13,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+TAXONOMY_LABELS = [
+    "process_runbook",
+    "api_reference",
+    "system_design",
+    "troubleshooting",
+    "meeting_notes",
+    "org_chart",
+    "faq",
+    "misc",
+    "abstain",
+]
+
+ABSTAIN_LABEL = "abstain"
+ABSTAIN_CONFIDENCE_THRESHOLD = 0.65
+
+
 def _try_import_bertopic():
     try:
         from bertopic import BERTopic  # type: ignore
@@ -115,8 +131,8 @@ def llm_label_topics(resources, topic_cards: Dict[int, Dict[str, Any]]) -> Dict[
     client = resources.chat_client
 
     system = (
-        "You are a taxonomy labeler. Map topic cards to one label: "
-        "process_runbook, api_reference, system_design, troubleshooting, meeting_notes, org_chart, faq, misc. "
+        "You are a taxonomy labeler. Map topic cards to exactly one label from the list "
+        f"{', '.join(TAXONOMY_LABELS)}. Choose '{ABSTAIN_LABEL}' when no label applies or confidence is below 0.65. "
         "Return strictly JSON: {labels: [{topic_id, label, confidence}]}."
     )
     examples = [
@@ -143,21 +159,13 @@ def llm_label_topics(resources, topic_cards: Dict[int, Dict[str, Any]]) -> Dict[
 
     prompt = {
         "task": "label_topics",
-        "taxonomy": [
-            "process_runbook",
-            "api_reference",
-            "system_design",
-            "troubleshooting",
-            "meeting_notes",
-            "org_chart",
-            "faq",
-            "misc",
-        ],
+        "taxonomy": TAXONOMY_LABELS,
         "examples": examples,
         "topics": cards,
     }
 
     try:
+        logger.debug("LLM topic labeling request", extra={"topic_count": len(cards)})
         resp = client.chat.completions.create(
             model=resources.settings.chat.model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": json_dumps(prompt)}],
@@ -169,17 +177,34 @@ def llm_label_topics(resources, topic_cards: Dict[int, Dict[str, Any]]) -> Dict[
         if content is None and isinstance(msg, dict):
             content = msg.get("content")
         content = content or "{}"
-        logger.info(f"LLM topic label raw response (first 300 chars): {str(content)[:300]}")
+        logger.debug("LLM topic label raw response", extra={"preview": str(content)[:300]})
         data = json_loads_safe(str(content))
         result = {}
+        allowed_labels = {lbl.lower(): lbl for lbl in TAXONOMY_LABELS}
         for item in (data.get("labels") or []):
-            result[int(item.get("topic_id") or 0)] = {
-                "label": item.get("label", "misc"),
-                "confidence": float(item.get("confidence") or 0.5),
+            topic_id = int(item.get("topic_id") or 0)
+            label_raw = str(item.get("label") or "").strip()
+            conf = float(item.get("confidence") or 0.0)
+            label_key = label_raw.lower()
+            label = allowed_labels.get(label_key, ABSTAIN_LABEL)
+            if conf < ABSTAIN_CONFIDENCE_THRESHOLD:
+                label = ABSTAIN_LABEL
+            conf = max(0.0, min(conf, 1.0))
+            result[topic_id] = {
+                "label": label,
+                "confidence": conf if label != ABSTAIN_LABEL else 0.0,
             }
+        abstained = sum(1 for v in result.values() if v.get("label") == ABSTAIN_LABEL)
+        logger.info(
+            "LLM topic labeling completed",
+            extra={"topic_count": len(cards), "labels_returned": len(result), "abstained": abstained},
+        )
         return result
     except Exception as e:
-        logger.error(f"LLM labeling failed: {e}")
+        logger.exception(
+            "LLM topic labeling failed",
+            extra={"topic_count": len(cards), "error": str(e)},
+        )
         return {}
 
 

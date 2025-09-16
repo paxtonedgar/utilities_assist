@@ -12,7 +12,10 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, List
-from collections import Counter, defaultdict
+from collections import Counter
+
+
+ABSTAIN_LABEL = "abstain"
 
 
 def _read_json(p: Path) -> Dict[str, Any]:
@@ -56,12 +59,14 @@ def assess_topics(topics: Dict[str, Any], doc_map: List[Dict[str, Any]]) -> Dict
     high = 0
     label_hist = Counter()
     for tid, card in topics.items():
-        lbl = (card or {}).get("label")
+        lbl_raw = (card or {}).get("label")
+        lbl = str(lbl_raw).strip() if lbl_raw is not None else ""
         if lbl:
-            labeled += 1
             label_hist[str(lbl)] += 1
+        if lbl and lbl.lower() != ABSTAIN_LABEL:
+            labeled += 1
         conf = float((card or {}).get("confidence", 0.0) or 0.0)
-        if conf >= 0.7:
+        if conf >= 0.7 and lbl.lower() != ABSTAIN_LABEL:
             high += 1
     metrics["labeled_topics"] = labeled
     metrics["high_confidence_topics"] = high
@@ -223,4 +228,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
