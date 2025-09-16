@@ -163,7 +163,7 @@ def _extract_plain_text_segments(text: str, section_title: str | None) -> List[D
             "type": "Table",
             "table_type": ttype,
             "anchors": {"section_title": section_title},
-            "features": {"headers": (t.get("headers") or [])[:20]},
+            "features": {"headers": (t.get("headers") or [])[:20], "rows": t.get("rows") or []},
             "confidence": base_conf,
             "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": base_conf, "value_confidence": 0.6},
         })
@@ -175,7 +175,7 @@ def _extract_plain_text_segments(text: str, section_title: str | None) -> List[D
             "type": "Table",
             "table_type": ttype,
             "anchors": {"section_title": section_title},
-            "features": {"headers": (t.get("headers") or [])[:20]},
+            "features": {"headers": (t.get("headers") or [])[:20], "rows": t.get("rows") or []},
             "confidence": base_conf,
             "segment_confidence": {"extraction_confidence": 0.6, "classification_confidence": base_conf, "value_confidence": 0.6},
         })
@@ -237,7 +237,7 @@ def parse_hit_to_segments(hit: Dict[str, Any], resources=None, index_profile: st
                     "type": "Table",
                     "table_type": ttype,
                     "anchors": {"section_title": s.get("title") or s.get("heading")},
-                    "features": {"headers": (tbl.get("headers") or [])[:20]},
+                    "features": {"headers": (tbl.get("headers") or [])[:20], "rows": tbl.get("rows") or []},
                     "confidence": base_conf,
                     "segment_confidence": {"extraction_confidence": 0.7, "classification_confidence": base_conf, "value_confidence": 0.7 if ttype != 'other' else 0.4},
                 })

@@ -172,31 +172,63 @@ def _extract_flow_table(doc_id: str, section_title: str | None, headers: List[st
 
 _TOOL_RE = re.compile(r"`([^`]+)`|\b([A-Z][A-Za-z0-9_\-]{2,})\b")
 
+STOPWORDS = {
+    "the", "these", "this", "that", "there", "here", "and", "or", "to", "of", "in", "on", "for", "with",
+    "response", "result", "request", "value", "status"
+}
+
+
+def _classify_name(name: str) -> Tuple[str, float]:
+    s = name.strip()
+    low = s.lower()
+    if low.endswith(" api") or s.endswith("API"):
+        return ("API", 0.9)
+    if any(low.endswith(x) for x in [" service", " system", " application", " app"]):
+        return ("System", 0.85)
+    if any(x in low for x in ["error", "exception", "fault"]):
+        return ("Error", 0.9)
+    if any(x in low for x in ["team", "group", "squad", "dept", "department", "organization", "org"]):
+        return ("Organization", 0.8)
+    if any(x in low for x in ["merchant", "card", "account"]):
+        return ("BusinessConcept", 0.75)
+    if s.isupper() and 3 <= len(s) <= 8:
+        return ("System", 0.8)
+    return ("Tool", 0.6)
+
 
 def _extract_stepblock(doc_id: str, section_title: str | None, items: List[str]) -> List[Entity]:
     ents: List[Entity] = []
-    tool_hits: Dict[str, int] = {}
+    hits: Dict[Tuple[str, str], int] = {}
     for it in items or []:
+        # colon-connected pairs
+        for left, right in re.findall(r"\b([A-Z][A-Z0-9_-]{2,})(?::([A-Z][A-Z0-9_-]{2,}))?\b", it):
+            full = f"{left}:{right}" if right else left
+            if full.lower() in STOPWORDS:
+                continue
+            etype, _ = _classify_name(full.replace(":", " "))
+            hits[(etype, full)] = hits.get((etype, full), 0) + 1
+        # backticks and caps tokens
         for m in _TOOL_RE.findall(it):
             cand = next((x for x in m if x), None)
             if not cand:
                 continue
             s = cand.strip()
-            if len(s) < 3:
+            if len(s) < 3 or s.lower() in STOPWORDS:
                 continue
-            tool_hits[s] = tool_hits.get(s, 0) + 1
-    for name, cnt in tool_hits.items():
-        eid = _mk_entity_id(doc_id, "Tool", name, str(section_title or ""))
+            etype, _ = _classify_name(s)
+            hits[(etype, s)] = hits.get((etype, s), 0) + 1
+    for (etype, name), cnt in hits.items():
+        eid = _mk_entity_id(doc_id, etype, name, str(section_title or ""))
         ents.append(
             Entity(
                 entity_id=eid,
-                type="Tool",
+                type=etype,
                 name=name,
                 aliases=[],
                 source_doc=doc_id,
                 source_segment={"type": "StepBlock", "section_title": section_title},
                 attrs={"mentions": cnt},
-                confidence=0.6,
+                confidence=_classify_name(name)[1],
             )
         )
     return ents
@@ -251,4 +283,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
