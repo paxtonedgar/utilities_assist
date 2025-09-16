@@ -102,6 +102,8 @@ def run(diag_dir: str, out_dir: str, k: int = 12, max_docs: int = 500, debug_str
             "topic_id": int(lab),
             "doc_type": tl.get("label"),
             "label_confidence": tl.get("confidence", 0.5),
+            "label_suggestions": tl.get("candidate_labels", []),
+            "label_attempts": tl.get("attempt_history", []),
             "segments": segments,
             "extraction_hints": hints,
         })
