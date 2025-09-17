@@ -18,7 +18,7 @@ from src.infra.settings import get_settings
 from .build_gazetteer import build_gazetteer
 from .config import TaxonomyConfig, load_config
 from .extract_candidates import generate_candidates
-from .schemas import BuildManifest, ScoredTerm
+from .schemas import BuildManifest, LabelPrototype, ScoredTerm, TermCandidate
 from .score_contrastive import score_candidates
 
 app = typer.Typer(help="Taxonomy term mining commands")
@@ -238,4 +238,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

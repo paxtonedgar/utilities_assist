@@ -189,7 +189,10 @@ ontology-quality-report:
 ontology-taxonomy-terms:
 	@echo "🧭 Generating taxonomy term suggestions"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.taxonomy_terms_runner --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --out $(if $(OUT),$(OUT),outputs/taxonomy_terms/khub-test-md) $(if $(MAX_TERMS),--max-terms $(MAX_TERMS),) $(if $(MIN_FREQ),--min-freq $(MIN_FREQ),) $(if $(MAX_NGRAM),--max-ngram $(MAX_NGRAM),) $(if $(LAMBDA),--lambda-param $(LAMBDA),)
+	python -m src.ontology.taxonomy_terms.cli pipeline \
+		--semantic-dir $(if $(SEM),$(SEM),$(if $(DIAG),$(DIAG),outputs/semantic_map/khub-test-md)) \
+		--out $(if $(OUT),$(OUT),outputs/taxonomy_terms/khub-test-md) \
+		$(if $(CONFIG),--config-path $(CONFIG),)
 
 # Investigate table formats in an index
 .PHONY: ontology-table-detective
