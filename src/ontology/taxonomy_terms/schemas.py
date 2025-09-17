@@ -3,7 +3,7 @@ from __future__ import annotations
 """Shared pydantic models used across the taxonomy term pipeline."""
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, conlist
 
@@ -37,7 +37,7 @@ class ScoredTerm(BaseModel):
     term_id: str
     surface: str
     class_id: str
-    scores: Dict[str, float]
+    scores: Dict[str, Any]
     selected: bool = False
     evidence: conlist(str, min_length=1)
     frequency: int = 0
@@ -65,7 +65,7 @@ class GazetteerEntry(BaseModel):
     evidence_contexts: conlist(str, min_length=1)
     source: str
     status: Literal["active", "candidate"] = "candidate"
-    scores: Dict[str, float] = Field(default_factory=dict)
+    scores: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BuildManifest(BaseModel):
