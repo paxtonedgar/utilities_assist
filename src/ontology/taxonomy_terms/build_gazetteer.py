@@ -85,4 +85,3 @@ def build_gazetteer(
 
     logger.info("Built %d gazetteer entries", len(entries))
     return entries
-

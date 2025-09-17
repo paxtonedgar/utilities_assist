@@ -37,8 +37,9 @@ class ScoredTerm(BaseModel):
     term_id: str
     surface: str
     class_id: str
-    scores: Dict[str, Any]
+    scores: Dict[str, float]
     selected: bool = False
+    assignment: Literal["child", "parent"] = "child"
     evidence: conlist(str, min_length=1)
     frequency: int = 0
     doc_ids: List[str] = Field(default_factory=list)
@@ -65,7 +66,7 @@ class GazetteerEntry(BaseModel):
     evidence_contexts: conlist(str, min_length=1)
     source: str
     status: Literal["active", "candidate"] = "candidate"
-    scores: Dict[str, Any] = Field(default_factory=dict)
+    scores: Dict[str, float] = Field(default_factory=dict)
 
 
 class BuildManifest(BaseModel):

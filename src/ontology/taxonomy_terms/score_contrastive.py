@@ -147,7 +147,6 @@ def score_candidates(
                 "contrastive_margin": round(margin, 4),
                 "specificity_margin": round(specificity, 4),
                 "parent_delta": round(parent_delta, 4),
-                "assignment": assignment,
             }
 
             scored_terms.append(
@@ -157,6 +156,7 @@ def score_candidates(
                     class_id=label if assignment == "child" else parent_map.get(label, label),
                     scores=scores,
                     selected=selected,
+                    assignment=assignment,
                     evidence=candidate.contexts,
                     frequency=candidate.frequency,
                     doc_ids=candidate.doc_ids,

@@ -64,6 +64,7 @@ def _terms_summary(
                 {
                     "term": term.surface,
                     "selected": term.selected,
+                    "assignment": term.assignment,
                     "frequency": term.frequency,
                     "scores": term.scores,
                     "contexts": term.evidence[: config.contexts_export],
