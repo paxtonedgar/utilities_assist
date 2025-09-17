@@ -39,6 +39,24 @@ def _read_jsonl(p: Path) -> List[Dict[str, Any]]:
     return rows
 
 
+def _read_terms_summary(path: Path | None) -> Dict[str, Any]:
+    if not path:
+        return {}
+    terms_file = path / "terms.json" if path.is_dir() else path
+    try:
+        payload = _read_json(terms_file)
+    except Exception:
+        payload = {}
+    if not payload:
+        return {}
+    labels = payload.get("labels") or {}
+    total_terms = sum(len((info or {}).get("terms", [])) for info in labels.values())
+    return {
+        "labels": len(labels),
+        "total_terms": total_terms,
+    }
+
+
 def assess_topics(topics: Dict[str, Any], doc_map: List[Dict[str, Any]]) -> Dict[str, Any]:
     metrics: Dict[str, Any] = {
         "total_topics": 0,
@@ -144,7 +162,9 @@ def compare_with_diagnostics(semantic_dir: Path, diagnostics_dir: Path) -> Dict[
     return result
 
 
-def generate_quality_report(semantic_dir: Path, diagnostics_dir: Path | None) -> Dict[str, Any]:
+def generate_quality_report(
+    semantic_dir: Path, diagnostics_dir: Path | None, terms_dir: Path | None = None
+) -> Dict[str, Any]:
     topics = _read_json(semantic_dir / "topics.json")
     doc_map = _read_jsonl(semantic_dir / "doc_map.jsonl")
 
@@ -153,6 +173,7 @@ def generate_quality_report(semantic_dir: Path, diagnostics_dir: Path | None) ->
     compare_metrics: Dict[str, Any] = {}
     if diagnostics_dir and (diagnostics_dir / "fields_summary.json").exists():
         compare_metrics = compare_with_diagnostics(semantic_dir, diagnostics_dir)
+    taxonomy_metrics = _read_terms_summary(terms_dir)
 
     # Red flags
     red_flags: List[str] = []
@@ -171,6 +192,7 @@ def generate_quality_report(semantic_dir: Path, diagnostics_dir: Path | None) ->
         "topics": topic_metrics,
         "segments": segment_metrics,
         "compare": compare_metrics,
+        "taxonomy": taxonomy_metrics,
         "red_flags": red_flags,
     }
 
@@ -180,6 +202,7 @@ def _print_report(m: Dict[str, Any]) -> str:
     topics = m.get("topics", {})
     segs = m.get("segments", {})
     comp = m.get("compare", {})
+    taxonomy = m.get("taxonomy", {})
 
     lines.append(f"Total documents: {segs.get('total_docs', 0)}")
     lines.append(f"Total topics: {topics.get('total_topics', 0)} (labeled: {topics.get('labeled_topics', 0)}, high_conf: {topics.get('high_confidence_topics', 0)})")
@@ -202,6 +225,10 @@ def _print_report(m: Dict[str, Any]) -> str:
         lines.append("Diagnostics comparison:")
         for k, v in comp.items():
             lines.append(f"  {k}: {v}")
+    if taxonomy:
+        lines.append(
+            f"Taxonomy suggestions: {taxonomy.get('total_terms', 0)} terms across {taxonomy.get('labels', 0)} labels"
+        )
     if m.get("red_flags"):
         lines.append("Red flags:")
         for rf in m["red_flags"]:
@@ -211,13 +238,30 @@ def _print_report(m: Dict[str, Any]) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description="Phase 1 Quality Reporter")
-    ap.add_argument("--semantic-dir", type=str, required=True, help="Semantic map output directory for an index")
-    ap.add_argument("--diagnostics-dir", type=str, default=None, help="Diagnostics directory for the same index (optional)")
+    ap.add_argument(
+        "--semantic-dir",
+        type=str,
+        required=True,
+        help="Semantic map output directory for an index",
+    )
+    ap.add_argument(
+        "--diagnostics-dir",
+        type=str,
+        default=None,
+        help="Diagnostics directory for the same index (optional)",
+    )
+    ap.add_argument(
+        "--terms",
+        type=str,
+        default=None,
+        help="Optional taxonomy terms directory or file",
+    )
     args = ap.parse_args()
 
     semantic_dir = Path(args.semantic_dir)
     diagnostics_dir = Path(args.diagnostics_dir) if args.diagnostics_dir else None
-    metrics = generate_quality_report(semantic_dir, diagnostics_dir)
+    terms_dir = Path(args.terms) if args.terms else None
+    metrics = generate_quality_report(semantic_dir, diagnostics_dir, terms_dir)
 
     # Write outputs
     (semantic_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")

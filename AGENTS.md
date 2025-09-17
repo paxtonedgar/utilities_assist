@@ -6,6 +6,8 @@ Core logic sits in `src/`. Use `src/agent` for LangGraph nodes and regex intent 
 ## Build, Test, and Development Commands
 Install dependencies with `make install`. Start the Streamlit UI using `make run-local` (expects `config.ini`) or `make run-mock` when Azure access is unavailable. `make setup-local` provisions OpenSearch and loads sample docs; follow with `make embed-local` if you need FAISS embeddings. Run the primary suite through `make test` for CI parity or `make test-local` for verbose local runs. OpenSearch helpers include `make start-opensearch`, `make stop-opensearch`, and `make index-local`.
 
+Ontology analysts can run `make ontology-semantic-map` to build Phase 1 outputs, `make ontology-quality-report` to summarize the run, and `make ontology-taxonomy-terms` to generate per-label terminology suggestions using the contrastive embedding scorer.
+
 ## Coding Style & Naming Conventions
 Target Python 3.11. Format and lint before committing: `ruff format src` and `ruff check src --fix` (88 char line length, modern Python rules). Add or update type hints and validate with `mypy src --strict`. Modules and functions should use snake_case, classes use PascalCase, and CLI entry points (`python -m src.ontology...`) should mirror existing verb-noun patterns.
 

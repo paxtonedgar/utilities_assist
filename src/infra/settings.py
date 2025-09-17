@@ -15,7 +15,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import configparser
 from functools import lru_cache
@@ -102,6 +102,22 @@ def get_config_value(section: str, key: str, fallback=None):
                 break
 
     if section_name:
+        key_lower = key.lower()
+        aliases: list[str] = []
+        if section.lower() == "azure_openai":
+            azure_aliases = {
+                "azure_openai_embedding_model": [
+                    "azure_openai_embedding_model",
+                    "azure_openai_embedding_deployment_name",
+                    "azure_openai_embedding_deployment",
+                ],
+            }
+            aliases.extend(azure_aliases.get(key_lower, []))
+        candidates = [key] + [alias for alias in aliases if alias]
+        for candidate in candidates:
+            candidate_lc = candidate.lower()
+            if config.has_option(section_name, candidate_lc):
+                return config.get(section_name, candidate_lc, fallback=fallback)
         return config.get(section_name, key, fallback=fallback)
     return fallback
 
@@ -113,7 +129,14 @@ class AzureOpenAIConfig(BaseModel):
     azure_client_id: str = ""
     scope: str = "https://cognitiveservices.azure.com/.default"
     azure_openai_endpoint: str = ""
-    azure_openai_embedding_model: str = "text-embedding-3-small"
+    azure_openai_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        validation_alias=AliasChoices(
+            "azure_openai_embedding_model",
+            "azure_openai_embedding_deployment_name",
+            "azure_openai_embedding_deployment",
+        ),
+    )
     api_key: str = ""
     deployment_name: str = ""
     api_version: str = "2024-10-21"

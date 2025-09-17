@@ -182,7 +182,14 @@ ontology-semantic-map:
 ontology-quality-report:
 	@echo "📊 Generating Phase 1 quality report"
 	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
-	python -m src.ontology.semantic_quality --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --diagnostics-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md)
+	python -m src.ontology.semantic_quality --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --diagnostics-dir $(if $(DIAG),$(DIAG),outputs/diagnostics/khub-test-md) $(if $(TERMS),--terms $(TERMS),)
+
+# Taxonomy term suggestions via contrastive embeddings
+.PHONY: ontology-taxonomy-terms
+ontology-taxonomy-terms:
+	@echo "🧭 Generating taxonomy term suggestions"
+	@UTILITIES_CONFIG=config.ini CLOUD_PROFILE=jpmc_azure \
+	python -m src.ontology.taxonomy_terms_runner --semantic-dir $(if $(SEM),$(SEM),outputs/semantic_map/khub-test-md) --out $(if $(OUT),$(OUT),outputs/taxonomy_terms/khub-test-md) $(if $(MAX_TERMS),--max-terms $(MAX_TERMS),) $(if $(MIN_FREQ),--min-freq $(MIN_FREQ),) $(if $(MAX_NGRAM),--max-ngram $(MAX_NGRAM),) $(if $(LAMBDA),--lambda-param $(LAMBDA),)
 
 # Investigate table formats in an index
 .PHONY: ontology-table-detective
