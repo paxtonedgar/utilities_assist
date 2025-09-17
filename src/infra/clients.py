@@ -213,19 +213,28 @@ def _create_azure_client(
     headers = {"user_sid": os.getenv("JPMC_USER_SID", "REPLACE")}
 
     try:
-        from src.infra.settings import get_config_value
+        from src.infra.settings import get_config_value, get_settings
 
         api_key = get_config_value("azure_openai", "api_key")
+        if api_key:
+            logger.info(f"Got API key from shared config for {client_type} client")
+        else:
+            settings = get_settings()
+            if settings.azure_openai and getattr(settings.azure_openai, "api_key", None):
+                api_key = settings.azure_openai.api_key
+                logger.info(
+                    f"Using API key from ApplicationSettings for {client_type} client"
+                )
         if not api_key:
-            logger.error("No API key found in [azure_openai] config section")
+            logger.error("No API key found in configuration for Azure authentication")
             raise ValueError(
-                "No API key found in config - this is required as base authentication"
+                "Azure OpenAI API key missing in configuration; required for authentication"
             )
-
-        logger.info(f"Got API key from shared config for {client_type} client")
     except Exception as config_error:
-        logger.error(f"Failed to get API key from shared config: {config_error}")
-        raise ValueError("API key from config is required for Azure authentication")
+        logger.error(
+            f"Failed to resolve API key from configuration for Azure authentication: {config_error}"
+        )
+        raise
 
     # Try to get Bearer token from certificate
     if token_provider:
@@ -317,6 +326,3 @@ def make_embed_client(
     return _cached_embed_client(
         cfg.provider, cfg.model, cfg.dims, _token_fingerprint(token_provider)
     )
-
-
-
