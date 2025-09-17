@@ -25,7 +25,7 @@ class TermCandidate(BaseModel):
     surface: str
     class_id: str
     frequency: int
-    contexts: conlist(str, min_items=1)
+    contexts: conlist(str, min_length=1)
     embedding: List[float]
     doc_ids: List[str] = Field(default_factory=list)
     stats: Dict[str, float] = Field(default_factory=dict)
@@ -39,7 +39,7 @@ class ScoredTerm(BaseModel):
     class_id: str
     scores: Dict[str, float]
     selected: bool = False
-    evidence: conlist(str, min_items=1)
+    evidence: conlist(str, min_length=1)
     frequency: int = 0
     doc_ids: List[str] = Field(default_factory=list)
 
@@ -62,7 +62,7 @@ class GazetteerEntry(BaseModel):
     class_id: str
     preferred_name: str
     aliases: List[str] = Field(default_factory=list)
-    evidence_contexts: conlist(str, min_items=1)
+    evidence_contexts: conlist(str, min_length=1)
     source: str
     status: Literal["active", "candidate"] = "candidate"
     scores: Dict[str, float] = Field(default_factory=dict)
@@ -77,4 +77,3 @@ class BuildManifest(BaseModel):
     code_sha: Optional[str] = None
     parameters: Dict[str, float] = Field(default_factory=dict)
     counts: Dict[str, int] = Field(default_factory=dict)
-
